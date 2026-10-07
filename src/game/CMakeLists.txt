@@ -1,0 +1,46 @@
+add_library(hive_game
+  detection/respawn.cpp
+  detection/enemies.cpp
+  data/fields.cpp
+  detection/nectar.cpp
+  detection/dialog.cpp
+  detection/menus.cpp
+  data/stations.cpp
+  detection/hive_slots.cpp
+  detection/hive_view.cpp
+  movement/camera.cpp
+  detection/localization.cpp
+  detection/inventory_layout.cpp
+  detection/inventory.cpp
+  detection/sprinklers.cpp
+  detection/sprinkler_reference.cpp
+  movement/movement.cpp
+  detection/perception.cpp
+  detection/detection.cpp
+  data/cooldowns.cpp
+  detection/feeding.cpp
+  detection/backpack.cpp
+  detection/honey.cpp
+  detection/text.cpp
+  movement/navigation.cpp
+  movement/field_plans.cpp
+  detection/landmarks.cpp
+  detection/blooms.cpp
+  detection/planters.cpp
+  detection/buff_bar.cpp
+  detection/movement_buffs.cpp
+  detection/buffs.cpp
+  detection/field_boosts.cpp
+  detection/buff_stack.cpp
+  movement/movement_speed_source.cpp
+  detection/conversation.cpp
+  data/npcs.cpp
+  detection/connection.cpp
+  data/join.cpp
+  detection/shift_lock.cpp
+  detection/memory_match.cpp
+  detection/daylight.cpp
+  detection/item_menu.cpp)
+target_link_libraries(hive_game PUBLIC hive_core PRIVATE ${OpenCV_LIBS})
+target_link_libraries(hive_game PUBLIC Threads::Threads)
+target_include_directories(hive_game SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})

@@ -1,0 +1,49 @@
+Bee Swarm Simulator buff and ability icons
+
+Game artwork belongs to Onett and its respective rights holders. These files are game UI references, not Aurex artwork. Original PNG files were obtained from the Bee Swarm Simulator Wiki image CDN unless noted below.
+
+focus.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/4/45/Focus_Buff.png/revision/latest?format=original
+haste.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/8/83/Haste_Buff.png/revision/latest?format=original
+blue-boost.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/f/ff/Blue_Boost_Token.png/revision/latest?format=original
+red-boost.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/4/45/Red_Boost_Token.png/revision/latest?format=original
+balloon-aura.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/6/6c/BalloonAura.png/revision/latest?format=original
+precision.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/e/ee/Precision.png/revision/latest?format=original
+inspire.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/b/b2/Inspire_Token.png/revision/latest?format=original
+honey-mark.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/f/f1/Honey_Mark_Token.png/revision/latest?format=original
+pollen-mark.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/f/f8/Pollen_Mark_Token.png/revision/latest?format=original
+rage.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/4/46/Rage_Token.png/revision/latest?format=original
+bomb-combo.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/c/c9/RobloxScreenShot20190217_145831984.png/revision/latest?format=original
+
+baby-love.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/2/27/Baby_Love_Token.png/revision/latest?format=original
+
+haste+.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/e/e1/Untitled-0.png/revision/latest?format=original
+
+oil.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/0/06/Oil.png/revision/latest?format=original
+
+smoothie.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/5/5f/Super_Smoothie.png/revision/latest?format=original
+
+bear-morph.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/a/a8/Bear_Morph.png/revision/latest?format=original
+
+white-boost.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/7/7b/White_Boost_Token.png/revision/latest?format=original
+
+pop-star.png, melody.png, jelly-bean-sharing.png, guiding-star.png,
+reindeer-fetch.png and festive-mark.png are the game artwork embedded in
+NatroMacroDev's submacros/StatMonitor.ahk at
+d33899a74d67dee31dd52fcb33d89733688ee588. See Natro-ports.txt and GPL-3.0.txt.

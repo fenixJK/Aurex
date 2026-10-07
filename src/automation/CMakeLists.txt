@@ -1,0 +1,31 @@
+add_library(hive_automation
+  hotbar.cpp
+  respawn.cpp
+  sprinklers.cpp
+  hive_routes.cpp
+  cannon_routes.cpp
+  field_routes.cpp
+  planting_routes.cpp
+  hive_acquisition.cpp
+  hive_survey.cpp
+  hive_setup.cpp
+  travel_preparation.cpp
+  localization.cpp
+  runner.cpp
+  activities.cpp
+  visits.cpp
+  guards.cpp
+  recenter.cpp
+  petals.cpp
+  shift_lock.cpp
+  reconnect.cpp
+  npc_routes.cpp
+  booster_routes.cpp
+  feeding.cpp
+  ant_challenge.cpp
+  conversation.cpp
+  movement_setup.cpp
+  memory_routes.cpp
+  item_routes.cpp
+  boss_routes.cpp)
+target_link_libraries(hive_automation PUBLIC hive_workflows hive_movement hive_module_api)

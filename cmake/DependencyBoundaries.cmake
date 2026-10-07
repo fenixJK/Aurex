@@ -1,0 +1,60 @@
+function(hive_require_dependencies target)
+  foreach(property LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+    get_target_property(links ${target} ${property})
+    string(REGEX MATCHALL "[A-Za-z_][A-Za-z0-9_:]*" candidates "${links}")
+    foreach(dependency IN LISTS candidates)
+      if(NOT TARGET ${dependency})
+        continue()
+      endif()
+      get_target_property(alias ${dependency} ALIASED_TARGET)
+      if(alias)
+        set(dependency ${alias})
+      endif()
+      get_target_property(imported ${dependency} IMPORTED)
+      if(NOT imported AND NOT dependency IN_LIST ARGN)
+        message(FATAL_ERROR "Dependency boundary: ${target} must not depend on ${dependency}")
+      endif()
+    endforeach()
+  endforeach()
+endfunction()
+
+function(hive_require_shared_file root path)
+  cmake_path(ABSOLUTE_PATH path BASE_DIRECTORY "${root}" NORMALIZE OUTPUT_VARIABLE absolute)
+  file(RELATIVE_PATH relative "${root}" "${absolute}")
+  if(NOT relative MATCHES "^(src/scripting/(movement.cpp|runtime.hpp)$|src/module_host/(requests|request_channels|commands)\\.cpp$|src/(core|game|workflows|automation|session|platform|reporting|coordination)/|include/hive/(core|game|workflows|automation|session|platform|reporting|coordination)/|include/hive/scripting/movement\\.hpp$|include/hive/module_host/(requests|request_channels|commands)\\.hpp$)")
+    message(FATAL_ERROR "Dependency boundary: shared services must not include or compile ${relative}")
+  endif()
+endfunction()
+
+function(hive_check_shared_sources root)
+  file(GLOB_RECURSE sources CONFIGURE_DEPENDS
+    "${root}/src/scripting/movement.cpp" "${root}/src/scripting/runtime.hpp" "${root}/include/hive/scripting/movement.hpp"
+    "${root}/src/module_host/commands.cpp" "${root}/include/hive/module_host/commands.hpp"
+    "${root}/src/module_host/requests.cpp" "${root}/src/module_host/request_channels.cpp"
+    "${root}/include/hive/module_host/requests.hpp" "${root}/include/hive/module_host/request_channels.hpp"
+    "${root}/src/coordination/*" "${root}/include/hive/coordination/*"
+    "${root}/src/core/*" "${root}/src/game/*" "${root}/src/workflows/*"
+    "${root}/src/automation/*" "${root}/src/session/*" "${root}/src/platform/*" "${root}/src/reporting/*"
+    "${root}/include/hive/core/*" "${root}/include/hive/platform/*" "${root}/include/hive/reporting/*"
+    "${root}/include/hive/session/*" "${root}/include/hive/game/*" "${root}/include/hive/workflows/*" "${root}/include/hive/automation/*")
+  foreach(source IN LISTS sources)
+    if(NOT EXISTS "${source}")
+      continue()
+    endif()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${source}")
+    file(STRINGS "${source}" includes REGEX "^[ \t]*#[ \t]*include[ \t]*[<\"]")
+    foreach(line IN LISTS includes)
+      string(REGEX REPLACE "^[ \t]*#[ \t]*include[ \t]*[<\"]([^>\"]+)[>\"].*$" "\\1" header "${line}")
+      if(header MATCHES "^hive/")
+        hive_require_shared_file("${root}" "include/${header}")
+      elseif(header STREQUAL "bundled_movement.hpp")
+        if(NOT source MATCHES "/src/scripting/movement.cpp$")
+          message(FATAL_ERROR "Movement internals are private")
+        endif()
+      elseif(line MATCHES "include[ \t]*\"")
+        get_filename_component(directory "${source}" DIRECTORY)
+        hive_require_shared_file("${root}" "${directory}/${header}")
+      endif()
+    endforeach()
+  endforeach()
+endfunction()

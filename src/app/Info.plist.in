@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
+<key>CFBundleIdentifier</key><string>app.renova.desktop</string>
+<key>CFBundleName</key><string>Aurex</string>
+<key>CFBundleDisplayName</key><string>Aurex</string>
+<key>CFBundleIconFile</key><string>aurex.icns</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>${PROJECT_VERSION}</string>
+<key>CFBundleVersion</key><string>${PROJECT_VERSION}</string>
+<key>LSMinimumSystemVersion</key><string>14.0</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSScreenCaptureUsageDescription</key><string>Read the selected Roblox window to recognize game state.</string>
+<key>NSLocalNetworkUsageDescription</key><string>Connect your Aurex accounts on the same Wi-Fi or Ethernet network.</string>
+</dict></plist>

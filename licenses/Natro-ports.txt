@@ -1,0 +1,293 @@
+Natro Macro behavior and data ports
+https://github.com/NatroTeam/natro
+
+The field cannon routes in src/automation/cannon_routes.cpp follow the
+gtf and gtp routes for Mountain Top, Pine Tree, Cactus, Pumpkin, Pineapple,
+Stump, Rose and Bamboo, using the shared movement and transport workflows.
+
+The planter catalog and timing/assignment calculations derive from the
+Natro Macro Planters branch at 1e1e0cf1a8c210e187a0a927800ac9859852d9c8:
+PlanterData.ahk, PlanterNectarMath.ahk, PlanterPolicyMath.ahk,
+PlanterAllocation.ahk, PlanterPlanner.ahk, PlanterSimulation.ahk
+and PlanterTiming.ahk.
+
+The quest field names and color alternatives follow fieldnamelist and
+nm_QuestRotate in Natro Macro natro_macro.ahk.
+
+The six-station collection catalog and cooldown estimates in
+src/game/data/stations.cpp follow nm_Clock, nm_HoneyDis, nm_TreatDis,
+nm_BlueberryDis, nm_StrawberryDis and nm_RoyalJellyDis at checkout
+4c1362b9a17c4fef6fcdbb8e9bd0fa1b40ed204b. Availability and successful
+collection require fresh observed prompts rather than elapsed estimates.
+
+The outbound Honey Dispenser route in src/automation/hive_routes.cpp
+follows paths/gtc-honeydis.ahk at the same checkout. The bounded walking
+return is an independent inferred route, not a port of Natro's reset.
+
+The inventory and quest-menu icon masks in src/game/detection/menu_icons.hpp derive
+from itemmenu in nm_image_assets/general/bitmaps.ahk and
+nm_image_assets/general/questlog.png at Natro checkout
+4c1362b9a17c4fef6fcdbb8e9bd0fa1b40ed204b.
+
+The hive backboard palette and flat-strip search parameters in
+src/game/detection/hive_view.cpp derive from nm_image_assets/reset/bitmaps.ahk,
+nm_SetHiveCameraDirection and nm_Reset at the same Natro checkout.
+The implementation uses normalized capture scale and rolling row counts.
+The same scanner's spawn preset uses the six active spawn colors, upper
+quarter and tolerance from nm_DetectSpawn and that bitmap catalog.
+Spawn camera normalization in src/automation/hive_acquisition.cpp follows
+nm_DetectSpawn. It requires fresh repeated observations before proceeding.
+
+The bounded camera-search preset in src/automation/hive_setup.cpp follows
+the pitch/zoom preparation in WhirligigReturn and the two-pitch yaw search
+in nm_SetHiveCameraDirection at the same checkout. Detection, confirmation,
+cancellation and input ownership use the shared native workflows.
+The hive-view preparation program also uses that function's departure
+turn and zoom counts, with explicit alternate-pitch restoration and
+fresh post-movement proximity confirmation.
+
+The hive-slot sample locations and red-channel contrast criterion in
+src/game/detection/hive_slots.cpp derive from nm_detectHiveSlots at that checkout.
+The survey uses patch voting, capture-scale validation and repeated frames
+instead of assigning occupancy from individual pixels. The camera survey
+in src/automation/hive_survey.cpp uses bounded zoom/pitch normalization
+and two distinct half-turn views. Candidates do not establish ownership
+or player position. The optional claim workflow in the same file uses the
+six slotMove distances, nm_spawnMoveTo movement directions and the
+nm_detectHiveSlots walking-view restoration. A fresh claim prompt and a
+separately confirmed owned-hive result are required before success.
+
+The normal Supreme Saturator color, minimum patch size and tolerance in
+src/game/detection/sprinkler_reference.cpp derive from nm_image_assets/fdc/saturator.png
+and nm_LocateSprinkler at the same checkout. No image asset is bundled.
+The scanner reports candidates, not confirmed ownership or placement.
+
+The hive-row approach in src/automation/hive_setup.cpp follows the leftward
+search and 1.5-tile right correction in nm_findHiveSlot, using the 9.2-tile
+hive spacing from nm_gotoRamp at the same checkout. It uses a bounded
+distance search and keeps conversion separate from proximity acquisition.
+
+The Sunflower, Dandelion and Mushroom route data in src/automation/field_routes.cpp
+derives from paths/gtf-sunflower.ahk, paths/wf-sunflower.ahk,
+paths/gtf-dandelion.ahk, paths/wf-dandelion.ahk, paths/gtf-mushroom.ahk,
+paths/wf-mushroom.ahk and nm_gotoRamp at checkout
+4c1362b9a17c4fef6fcdbb8e9bd0fa1b40ed204b. Movement and observed checkpoint
+execution use the shared native services.
+
+The Clover walking routes in src/automation/field_routes.cpp derive from
+paths/gtf-clover.ahk and paths/wf-clover.ahk at checkout
+076592ae784157aa1f03ad43088077d57cea3eae. The source credits zaappiix,
+noobyguy, Lorddrak and rpertusio for route edits; its cannon variant is
+not used here. Shared native movement and observed hive confirmation
+execute the walking data.
+
+The Spider and Strawberry walking routes in src/automation/field_routes.cpp
+are derived from paths/gtf-spider.ahk, paths/wf-spider.ahk,
+paths/gtf-strawberry.ahk and paths/wf-strawberry.ahk at checkout
+076592ae784157aa1f03ad43088077d57cea3eae. The source credits noobyguy,
+zaappiix and rpertusio for walking and alignment edits. Cannon variants
+are not used. Shared native movement and observed hive confirmation
+execute the walking data.
+
+The centered sprinkler counts, 4.5-tile spacing and initial 200 ms jump
+placement timing in src/automation/sprinklers.cpp derive from nm_setSprinkler
+and nm_JumpSprinkler at checkout 076592ae784157aa1f03ad43088077d57cea3eae.
+The standing/this-close rejection categories come from that function and
+nm_image_assets/sprinkler. The OCR reader, bounded task workflow and closed
+cardinal return layout are independent implementations; no image is bundled.
+
+The indexed occupied-hive scan in src/automation/hive_survey.cpp reuses
+Natro's slotMove spawn approaches and the 9.2-tile spacing from nm_claimHiveSlot
+at checkout 076592ae784157aa1f03ad43088077d57cea3eae. The bounded scan,
+owned/claimable prompt checks and composed native startup are independent
+implementations over the shared movement and observation services.
+
+The enemy health-bar color references in src/game/detection/enemies.cpp come from
+nm_HealthDetection at checkout 076592ae784157aa1f03ad43088077d57cea3eae.
+Named OCR association, geometry checks, notification parsing and shared
+observation adapters are independent implementations. No enemy image
+assets or Revolution implementation are bundled.
+
+The default Ladybug, Rhino Beetle and Spider cooldown estimates in
+src/modules/combat/catalog.cpp follow nm_Bugrun at checkout
+076592ae784157aa1f03ad43088077d57cea3eae. Estimates start only after
+confirmed outcomes in the native workflow. Fight movement and the
+bounded loot sweep are independent implementations.
+
+Combat's respawn-reduction formula follows the MonsterRespawnTime scheduling
+in that same nm_Bugrun revision. The module preferences, settings adapter
+and confirmed-outcome lifecycle are independent implementations.
+
+The Blueberry and Strawberry dispenser approaches in src/automation/hive_routes.cpp
+use paths/gtc-blueberrydis.ahk, the non-shortcut branch of
+paths/gtc-strawberrydis.ahk and nm_gotoRamp at checkout
+076592ae784157aa1f03ad43088077d57cea3eae. The source credits noobyguy
+for these walking recipes (230629). Cannon and greater-than-25-bee
+shortcuts are not used. Observed station confirmation, bounded route
+deadlines and composed respawn/hive return are native implementations.
+
+The Wealth Clock approach in src/automation/hive_routes.cpp uses the walking
+branch of paths/gtc-clock.ahk and nm_gotoRamp at checkout
+076592ae784157aa1f03ad43088077d57cea3eae, including both ladder-alignment
+pauses. The cannon route is not ported. Fresh station confirmation, saved
+outcomes and observed respawn/hive return use the shared native workflows.
+
+The Treat Dispenser approach in src/automation/hive_routes.cpp uses the walking
+branch of paths/gtc-treatdis.ahk and nm_gotoRamp at checkout
+076592ae784157aa1f03ad43088077d57cea3eae. The source credits noobyguy
+for the 230630 walking update. The forward/jump/landing timing is preserved;
+the native continuous-input contract and cancellation checks are independent
+implementations.
+
+The Royal Jelly route in src/automation/hive_routes.cpp uses
+paths/gtc-royaljellydis.ahk, nm_gotoRamp and nm_gotoCannon at checkout
+076592ae784157aa1f03ad43088077d57cea3eae. The source movement directions,
+flight holds, final walk and ten-second cannon search bound are retained.
+The native two-tap glider sequence uses explicit 50 ms presses/releases;
+these are chosen input timings, not a measurement of AutoHotkey delivery.
+The observed activation, permissions and failed-landing handling are native
+implementations. The free dispenser's 22-hour cooldown and ten-second
+post-confirmation wait follow nm_RoyalJellyDis in the same checkout.
+Desktop Collection connects the route through observed reset/hive recovery;
+its counted prompt reader and confirmation handling are native implementations.
+
+The Blue Flower outbound walking recipe in src/automation/field_routes.cpp
+uses the walking branch of paths/gtf-blueflower.ahk and nm_gotoRamp at
+checkout 076592ae784157aa1f03ad43088077d57cea3eae. Rhino Beetle's 330-second
+cooldown estimate follows nm_Bugrun in that checkout. The portal return
+from wf-blueflower.ahk is not ported; Combat composes the existing native
+observed respawn/hive procedure instead.
+
+The dedicated planting approaches in src/automation/planting_routes.cpp
+use the walking branches of paths/gtp-sunflower.ahk, gtp-dandelion.ahk,
+gtp-mushroom.ahk, gtp-blueflower.ahk, gtp-clover.ahk, gtp-spider.ahk,
+gtp-strawberry.ahk, gtp-pineapple.ahk and gtp-pumpkin.ahk, with nm_gotoRamp,
+at checkout 076592ae784157aa1f03ad43088077d57cea3eae. Source path credits
+include noobyguy, Lorddrak/Lordrak and zaappiix. Cannon variants are not
+ported. The feature-owned visit plan, closed loot sweep, interrupted-harvest
+handling and observed respawn/hive composition are native implementations.
+
+Upstream work by the Natro Macro contributors is used under the
+GNU General Public License, version 3 or later. The C++ ports and this
+application are distributed under the same license. See GPL-3.0.txt.
+
+The additional shared field routes in src/automation/field_routes.cpp use
+paths/gtf-rose.ahk, gtf-cactus.ahk, gtf-pumpkin.ahk, gtf-pinetree.ahk,
+gtf-pineapple.ahk and their wf-* returns at checkout
+076592ae784157aa1f03ad43088077d57cea3eae. Pine Tree uses the walking
+return and Pineapple uses the no-portal walking return. Source credits
+include noobyguy, zaappiix, misc and rpertusio. Common movement portions
+are factored into src/automation/route_helpers.hpp. These ports remain
+under the GNU GPL version 3 or later, as stated above.
+
+The Mountain Top, Stump, Coconut and Pepper gathering approaches/returns
+in src/automation/field_routes.cpp use their gtf-*/wf-* files at checkout
+076592ae784157aa1f03ad43088077d57cea3eae. Shared upper-gate geometry in
+src/automation/route_helpers.hpp retains distinct gtp/gtf endpoint offsets.
+The Bamboo walking approach uses gtf-bamboo.ahk from that checkout.
+Blue Flower and Bamboo walking returns use wf-blueflower.ahk and
+wf-bamboo.ahk at 33d9b5c39ef7b5454c929bff28fedec3ea8eb704, before
+cdedc517880df6960344fcc3c03951a3dea63b53 replaced them with portal paths.
+Their source credits include zaappiix and rpertusio. They retain the source
+walking alignment and hive-slot footer; no blue portal is activated.
+These movement-data ports are under GNU GPL version 3 or later.
+
+The center-band ratios in src/automation/recenter.cpp follow
+nm_fieldDriftCompensation at checkout 076592ae784157aa1f03ad43088077d57cea3eae.
+The generic point-source interface, bounded fresh-frame pulse procedure and
+shared pattern-loop hook are native implementations. This source remains
+under the application's GNU GPL version 3 or later license.
+
+The movement-buff fingerprints and stack glyphs in src/game/detection/buff_glyphs.hpp
+derive from lib/Walk.ahk at Natro checkout
+076592ae784157aa1f03ad43088077d57cea3eae. They are decoded pixel data,
+used by the bounded diagnostic and registered detector rather than Win32 bitmap search.
+Candidate recognition does not establish a complete speed measurement.
+
+The lower Haste icon in src/game/detection/haste_icon.hpp is a grayscale, resized crop
+of bitmaps["pBMhaste"] from nm_image_assets/statmonitor/bitmaps.ahk at that
+same Natro checkout. It corroborates an unnumbered icon instead of treating
+every missing multiplier as one stack. The report asset and generated tests
+do not establish live one-stack recognition accuracy.
+
+The supported buff multipliers and leftmost-Haste convention in
+src/game/movement/movement_speed_source.cpp follow the same Natro Walk.ahk reference.
+Permanent speed-factor inference follows the MoveSpeedNum decomposition
+in submacros/natro_macro.ahk at that checkout.
+The shared source and timestamp handling are native implementations. No Revolution implementation or assets are used.
+
+The settings-menu mask in src/game/detection/menu_icons.hpp derives from
+nm_image_assets/general/settingsmenu.png at Natro checkout
+076592ae784157aa1f03ad43088077d57cea3eae. It is used with the inventory
+and quest anchors to locate the actual game menu. The panel reader,
+scrolling procedure and shared observed-control extension are native
+implementations under the application's GNU GPL version 3 or later license.
+
+The twelve Natro-derived gathering patterns in patterns/*.lua
+port patterns/*.ahk at NatroMacroDev checkout
+076592ae784157aa1f03ad43088077d57cea3eae, under GNU GPL version 3 or later.
+Their size, repetition, facing and inversion geometry is retained. Movement
+uses the shared measured-speed service rather than the legacy per-Walk
+haste-cap argument. The Lua cycle and settings interfaces are independent.
+
+The shift-lock mask in src/game/detection/shift_lock_mask.hpp is decoded from
+nm_image_assets/general/bitmaps.ahk (shiftlock) at the same Planters checkout.
+The mask is covered by the GNU GPL version 3 or later terms stated above.
+
+The five walking NPC approaches in src/automation/npc_routes.cpp port
+paths/gtq-black.ahk, gtq-brown.ahk, gtq-polar.ahk, gtq-bucko.ahk and
+gtq-riley.ahk from NatroMacroDev checkout
+d33899a74d67dee31dd52fcb33d89733688ee588 (GNU GPL version 3 or later).
+Routes use Aurex's shared movement pacing and require an observed NPC prompt.
+The repeatable quest definitions in src/modules/quests/catalog_data.hpp are
+extracted from the PolarBear, BlackBear, BuckoBee and RileyBee catalogs in
+submacros/natro_macro.ahk at that same checkout. Ambiguous shared names
+still require a visible giver label.
+
+Quest definitions and Honey Bee, field booster and Ant Challenge routes were adapted from Natro Macro (natromacro/NatroMacro and NatroMacroDev), including nm_Ant and nm_Feed behavior. The original license and attribution above apply.
+
+Brown Bear title abbreviations in src/modules/quests/catalog.cpp follow the
+objectiveList in nm_BrownQuestProg at the same NatroMacroDev checkout.
+Quest progress colors follow the Natro quest readers; region sampling and
+explicit completion classification are Aurex implementations.
+
+Live quest names, Brown Bear title forms and the four petal quest definitions
+were cross-checked against the Bee Swarm Simulator Wiki on 2026-09-26:
+https://bee-swarm-simulator.fandom.com/wiki/Brown_Bear
+https://bee-swarm-simulator.fandom.com/wiki/Polar_Bear
+https://bee-swarm-simulator.fandom.com/wiki/Gifted_Bucko_Bee
+https://bee-swarm-simulator.fandom.com/wiki/Gifted_Riley_Bee
+https://bee-swarm-simulator.fandom.com/wiki/Black_Bear
+https://bee-swarm-simulator.fandom.com/wiki/Honey_Bee_(NPC)
+Petal row order and colors were also checked against NatroMacroDev's Blooms branch.
+
+Bloom detection: src/game/detection/vision/chroma.hpp is the MIT-licensed ChromaCore.h
+from fenixJK/chroma-core at 80ae9403b196270a7a622ab021cc4d09d6af66d1.
+Its unused image-file loader was removed; live frames use only OpenCV core and imgproc.
+Its copyright and license are included in Chroma.txt. The detector settings,
+automatic movement calibration and petal sweep follow the Natro Blooms work.
+Bloom mechanics and field/color associations were checked against
+https://bee-swarm-simulator.fandom.com/wiki/Bloom on 2026-09-26.
+
+The Memory Match route data in src/automation/memory_routes.cpp follows
+paths/gtc-normalmm.ahk, gtc-megamm.ahk, gtc-nightmm.ahk and gtc-extrememm.ahk
+at d33899a74d67dee31dd52fcb33d89733688ee588, including SP and zaappiix's
+Night route. Machine cooldowns follow lib/data/memorymatch.ahk there.
+The native board solver, shared task execution and scheduling are independent
+implementations. The black-sky night indicator follows nm_confirmNight's
+visual criterion; the native detector samples the visible sky without OCR.
+
+The seven additional report buff templates in src/game/detection/status_buff_icons.hpp
+use the game artwork listed in Bee-Swarm-icons.txt. Six images come from
+submacros/StatMonitor.ahk at that same checkout. The Natro-derived data and
+routes retain the GNU GPL version 3 or later license described above.
+
+Blender and Wind Shrine routes in src/automation/item_routes.cpp and the shared
+Guild approach in route_helpers.hpp follow gtc-blender.ahk, gtc-megamm.ahk
+and b1ue_guy's gtc-WindShrine.ahk at the same NatroMacroDev revision.
+The shrine loot sweep follows nm_shrine there. Menu recognition, transaction
+handling and module settings are Aurex implementations.
+
+The authored route and loot data described above is now stored in movement/*.lua.
+The C++ route adapters retain catalog metadata and use the shared movement engine.
+The move to editable Lua does not change the attribution or licensing of that data.

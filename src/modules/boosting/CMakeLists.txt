@@ -1,0 +1,2 @@
+add_library(hive_boosting controller.cpp module.cpp)
+target_link_libraries(hive_boosting PUBLIC hive_automation hive_extensions)

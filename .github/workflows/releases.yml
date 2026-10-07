@@ -1,0 +1,21 @@
+name: Release announcement
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+concurrency:
+  group: release-announcement-${{ github.event.release.id }}
+  cancel-in-progress: false
+jobs:
+  discord:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Announce release
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        run: python3 .github/scripts/notify_release.py

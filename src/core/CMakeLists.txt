@@ -1,0 +1,7 @@
+add_library(hive_core runtime.cpp tasks.cpp pointer_tasks.cpp)
+target_include_directories(hive_core PUBLIC "${PROJECT_SOURCE_DIR}/include")
+if(MSVC)
+  target_compile_options(hive_core PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(hive_core PRIVATE -Wall -Wextra -Wpedantic)
+endif()
