@@ -27,6 +27,9 @@ struct Setting {
     unsigned decimals{};
     std::vector<ChoiceGroup> groups;
     std::string enabled_by;
+    int step{1};
+    std::string step_toggle;
+    int checked_step{1};
 };
 struct Metric { std::string label, value; std::optional<double> progress; std::string group,color_key; };
 struct ModuleReport { std::string id,name; std::vector<Metric> metrics; std::vector<Counter> counters; std::vector<Threshold> thresholds; };

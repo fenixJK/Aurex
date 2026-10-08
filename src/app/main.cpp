@@ -793,8 +793,8 @@ public:
             }
             for (const auto& event:session_.take_activity_events()) {
                 const auto& reporting=discord_->settings();
-                status_page_->event(event.status,reporting.enabled && reporting.errors && reporting.error_screenshots
-                    ?hive::app::game_image(event.frame):QImage{});
+                const bool photo=event.image_region.has_value() || (event.status.kind==hive::ActivityKind::failure && reporting.errors && reporting.error_screenshots);
+                status_page_->event(event.status,reporting.enabled && photo?hive::app::game_image(event.frame,event.image_region):QImage{});
             }
             if (status.state==hive::RunState::running && view.feature && view.feature->state==hive::automation::State::running) {
                 last_outcome_.clear();

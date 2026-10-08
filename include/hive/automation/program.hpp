@@ -63,7 +63,7 @@ struct Hold { std::vector<Key> keys; Time duration{}; std::optional<Point> point
 struct Done { std::string reason; };
 struct Defer { std::string reason; };
 struct EndCycle {};
-struct ReportActivity { ActivityStatus status; };
+struct ReportActivity { ActivityStatus status; std::optional<Rect> image_region; };
 struct Wait { Time duration{50}; std::string reason{"Waiting for observations"}; };
 struct AnswerDialog { workflows::DialogPlan plan; };
 struct UseControl { Observation<Point> target; int scroll{}; std::string label; std::optional<Point> rest; };

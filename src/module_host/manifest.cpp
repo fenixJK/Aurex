@@ -152,7 +152,7 @@ Manifest read_manifest(const QString& path) {
     require(obj["settings"].isArray() && obj["settings"].toArray().size()<=static_cast<qsizetype>(maximum_settings),"Invalid settings"); seen.clear();
     for (const auto& value : obj["settings"].toArray()) {
         require(value.isObject(),"Setting must be an object"); auto s=value.toObject();
-        keys(s,{"id","label","type","default","min","max","choices","ordered","inline","help","hidden","suffix","decimals","groups","enabled_by"});
+        keys(s,{"id","label","type","default","min","max","choices","ordered","inline","help","hidden","suffix","decimals","groups","enabled_by","step","step_toggle","checked_step"});
         Setting field; field.id=text(s,"id",80); field.label=text(s,"label",80);
         require(identifier(field.id) && seen.insert(field.id).second,"Invalid or duplicate setting ID");
         const auto type=text(s,"type");
@@ -168,6 +168,9 @@ Manifest read_manifest(const QString& path) {
         field.inline_choices=s["inline"].toBool(); field.hidden=s["hidden"].toBool();
         if(s.contains("help")) field.help=text(s,"help",500);
         if(s.contains("enabled_by")) field.enabled_by=text(s,"enabled_by",80);
+        if(s.contains("step")) field.step=integer(s["step"],1,1000000);
+        if(s.contains("step_toggle")) field.step_toggle=text(s,"step_toggle",80);
+        if(s.contains("checked_step")) field.checked_step=integer(s["checked_step"],1,1000000);
         if (type=="boolean") {
             require(s["default"].isBool() && !s.contains("min") && !s.contains("max") && !s.contains("choices"),"Invalid boolean setting"); field.initial=s["default"].toBool();
         } else if (type=="integer") {
@@ -254,6 +257,17 @@ Manifest read_manifest(const QString& path) {
 
 }
 void validate_page(const Manifest& manifest) {
+    for (const auto& field:manifest.settings) if (field.step!=1 || !field.step_toggle.empty() || field.checked_step!=1) {
+        require(std::holds_alternative<int>(field.initial) && field.minimum>=0 && field.step>0 && field.checked_step>0,
+            "Numeric steps require a nonnegative integer setting and positive intervals");
+        for (const int step:{field.step,field.step_toggle.empty()?field.step:field.checked_step})
+            require(step<=1000000 && (field.minimum+step-1)/step<=field.maximum/step,"Numeric step has no value within the setting range");
+        require(!field.step_toggle.empty() || field.checked_step==1,"Checked step requires a checkbox");
+        if (!field.step_toggle.empty()) {
+            const auto source=std::find_if(manifest.settings.begin(),manifest.settings.end(),[&](const auto& setting) { return setting.id==field.step_toggle; });
+            require(source!=manifest.settings.end() && !source->hidden && std::holds_alternative<bool>(source->initial),"Numeric step must refer to a visible checkbox");
+        }
+    }
     for (const auto& setting:manifest.settings) if (!setting.enabled_by.empty()) {
         const auto source=std::find_if(manifest.settings.begin(),manifest.settings.end(),[&](const auto& field) { return field.id==setting.enabled_by; });
         require(source!=manifest.settings.end() && source->id!=setting.id && !source->hidden

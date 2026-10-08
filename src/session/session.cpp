@@ -271,16 +271,16 @@ void Session::launch_feature(Window window,automation::Launch launch,Time now) {
             automation::attach_hotbar(actions,*hotbar_,hotbar);
         });
         feature_=std::make_unique<automation::Runner>(std::move(launch.program),std::move(launch.permissions),*feature_tasks_,*feature_scope_,navigation_);
-        feature_->configure_reporting([this](const ActivityStatus& status) {
+        feature_->configure_reporting([this](const automation::ReportActivity& event) {
             if (activity_events_.size()>=8) activity_events_.erase(activity_events_.begin());
             std::shared_ptr<const Frame> frame;
-            if (status.kind==ActivityKind::failure) {
+            if (event.image_region || event.status.kind==ActivityKind::failure) {
                 frame=observer_.latest_frame();
                 const auto now=monotonic_now();
                 if (frame && (!frame->valid() || frame->window.id!=active_window_.id || frame->window.process!=active_window_.process
                     || frame->window.bounds!=active_window_.bounds || frame->captured>now || now-frame->captured>Time(3000))) frame.reset();
             }
-            activity_events_.push_back({status,std::move(frame)});
+            activity_events_.push_back({event.status,std::move(frame),event.image_region});
         });
         feature_->configure_conversion(hive_conversion_); feature_->configure_statistics(recovery_counts_);
         feature_->configure_connection_recovery(connection_reconnect_,connection_replacement_);

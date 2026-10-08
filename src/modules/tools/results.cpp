@@ -120,7 +120,21 @@ Observation<Amulet> read_amulet(const ObservationContext& c,const game::State& s
         if (stat==amulet_stats().end() || unit!=(stat->multiplier?'x':'%') || amount<stat->minimum || amount>stat->maximum
             || !result.value.stats.emplace(stat->name,amount).second) return result;
     }
-    if (capacity && result.value.stats.size()==5 && !result.value.passives.empty() && result.value.passives.size()<=2) result.knowledge=Knowledge::present;
+    if (capacity && result.value.stats.size()==5 && !result.value.passives.empty() && result.value.passives.size()<=2) {
+        result.knowledge=Knowledge::present;
+        const auto title=unique(text,"supreme star amulet",area),button=unique(text,"keep old",area);
+        if (title && button) {
+            const double half=(buttons.value.no.x-buttons.value.yes.x)*text.width;
+            double top=title->pixels.y-half*.8;
+            for (const auto& line:text.lines) if (usable(line,.25f) && words(line.text).starts_with("you created a")
+                && line.pixels.x>=divider-half && line.pixels.x+line.pixels.width<=divider+half && line.pixels.y<title->pixels.y)
+                top=line.pixels.y-line.pixels.height*.25;
+            const double left=std::max(0.,divider-half),right=std::min(double(text.width),divider+half);
+            top=std::max(0.,top);
+            const double bottom=std::min(double(text.height),button->pixels.y+button->pixels.height*1.25);
+            result.value.popup=Rect{left/text.width,top/text.height,(right-left)/text.width,(bottom-top)/text.height};
+        }
+    }
     return result;
 }
 Observation<JellyResult> read_jelly(const ObservationContext& c,const game::State& state) {

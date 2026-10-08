@@ -123,7 +123,13 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
 void register_native_modules(extensions::Host& host,const NativeModules& modules) {
     const auto navigation=modules.navigation;
     if(modules.accounts) add(host,features::accounts::module_manifest(),features::accounts::module_factory(modules.accounts),Requirements{});
-    add(host,features::tools::module_manifest(),features::tools::module_factory(modules.collection.inventory),Requirements{});
+    add(host,features::tools::module_manifest(),features::tools::module_factory(modules.collection.inventory),Requirements{},
+        [](int,Settings settings) {
+            settings.erase("ssa-delay");
+            if (const auto limit=settings.find("ssa-limit"); limit!=settings.end())
+                if (auto* value=std::get_if<int>(&limit->second)) *value=std::max(10,*value);
+            return settings;
+        });
     if (modules.field_boosts) {
         std::vector<features::boosting::Booster> boosters;
         for (const auto& station:modules.collection.plan.stations) {

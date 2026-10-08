@@ -9,7 +9,7 @@ class Rolling : public Program {
 protected:
     std::shared_ptr<RollProgress> progress_;
     RollReport report_;
-    Time delay_,minimum_{},deadline_{},frame_{Time(-1)};
+    Time minimum_{},deadline_{},frame_{Time(-1)};
     bool acted_{};
     Time settle_{};
     Step waiting(const View& view,const char* message) {
@@ -31,8 +31,8 @@ protected:
         return UseControl{{Knowledge::present,point,text.captured,text.window,text.generation},0,std::move(message),game::pointer_rest(view.context,*view.observations)};
     }
 public:
-    Rolling(Time delay,std::shared_ptr<RollProgress> progress):progress_(std::move(progress)),delay_(delay) {
-        if (!progress_ || delay<Time(500) || delay>Time(5000)) throw std::invalid_argument("Roll delay must be between 0.5 and 5 seconds");
+    Rolling(std::shared_ptr<RollProgress> progress):progress_(std::move(progress)) {
+        if (!progress_) throw std::invalid_argument("Roll progress is required");
         report_.status="Waiting for the open result"; publish();
     }
     RunConfig config() const override { return {std::chrono::hours(8),28,{},true,true}; }
@@ -50,11 +50,12 @@ class Ssa final : public Rolling {
     enum class Stage { current,purchase,result } stage_{Stage::current};
     bool pressed_{};
 public:
-    Ssa(SsaPlan plan,std::shared_ptr<RollProgress> progress):Rolling(plan.delay,std::move(progress)),plan_(std::move(plan)) {
+    Ssa(SsaPlan plan,std::shared_ptr<RollProgress> progress):Rolling(std::move(progress)),plan_(std::move(plan)) {
         validate(plan_.filter);
         if (!plan_.honey_billions || plan_.honey_billions>1000000) throw std::invalid_argument("Set a finite honey limit in billions");
     }
     Step next(const View& view) override {
+        if (report_.matched) return Done{report_.status};
         if (!fresh(view)) return waiting(view,"Reading SSA");
         const auto& c=view.context;
         const auto& state=*view.observations;
@@ -62,7 +63,10 @@ public:
         const auto result=read_amulet(c,state);
         if (!purchase.has_value(c,Time(2000),minimum_) && stage_!=Stage::purchase && result.has_value(c,Time(2000),minimum_)) {
             report_.result.clear(); for (const auto& name:result.value.passives) { if (!report_.result.empty()) report_.result+=" / "; report_.result+=name; }
-            if (matches(result.value,plan_.filter)) return finish("Match found; choose Keep Old or Replace in-game",true);
+            if (matches(result.value,plan_.filter)) {
+                finish("Match found; choose Keep Old or Replace in-game",true);
+                return ReportActivity{{"SSA match found",report_.result+" · Choose Keep Old or Replace in-game"},result.value.popup};
+            }
             stage_=Stage::purchase; pressed_=false;
         }
         const unsigned cost=plan_.filter.double_passive?500:10;
@@ -70,11 +74,11 @@ public:
             if (report_.attempts>=plan_.honey_billions/cost) return finish("Honey limit reached");
             if (purchase.has_value(c,Time(2000),minimum_)) {
                 ++report_.attempts; stage_=Stage::result; pressed_=false;
-                return click(view,plan_.filter.double_passive?purchase.value.yes:purchase.value.no,"Roll SSA",delay_);
+                return click(view,plan_.filter.double_passive?purchase.value.yes:purchase.value.no,"Roll SSA",Time{});
             }
             if (!pressed_ && (result.has_value(c,Time(2000),minimum_) || game::read_prompt_landmark(c,state.text,
                 {{"Generate a Supreme Star Amulet"},{.15,0,.7,.3},.5f,game::PromptMatch::phrase}).has_value(c,Time(2000),minimum_))) {
-                stage_=Stage::purchase; pressed_=true; acted_=true; settle_=Time(100);
+                stage_=Stage::purchase; pressed_=true; acted_=true; settle_=Time{};
                 return Hold{{Key::interact},Time(80)};
             }
         }
@@ -84,7 +88,8 @@ public:
 class Jelly final : public Rolling {
     JellyPlan plan_;
 public:
-    Jelly(JellyPlan plan,std::shared_ptr<RollProgress> progress):Rolling(plan.delay,std::move(progress)),plan_(std::move(plan)) {
+    Jelly(JellyPlan plan,std::shared_ptr<RollProgress> progress):Rolling(std::move(progress)),plan_(std::move(plan)) {
+        if (plan_.delay<Time(500) || plan_.delay>Time(5000)) throw std::invalid_argument("Roll delay must be between 0.5 and 5 seconds");
         validate(plan_.filter,plan_.require_mutation);
         if (plan_.require_mutation) validate(plan_.mutations);
         if (!plan_.rolls || plan_.rolls>1000000) throw std::invalid_argument("Set a finite Royal Jelly roll limit");
@@ -107,7 +112,7 @@ public:
         if (report_.attempts>=plan_.rolls) return finish("Royal Jelly roll limit reached");
         if (!result.value.again) return waiting(view,"Waiting for the Royal Jelly button");
         ++report_.attempts;
-        return click(view,*result.value.again,"Roll Royal Jelly",delay_);
+        return click(view,*result.value.again,"Roll Royal Jelly",plan_.delay);
     }
 };
 }

@@ -13,7 +13,7 @@ class Runner : private TaskPort {
 public:
     Runner(std::unique_ptr<Program> program,Permissions permissions,TaskPort& tasks,ModuleScope scope,NavigationServices navigation={},unsigned depth=0);
     ~Runner();
-    using ActivitySink=std::function<void(const ActivityStatus&)>;
+    using ActivitySink=std::function<void(const ReportActivity&)>;
     void configure_reporting(ActivitySink sink) { activity_sink_=std::move(sink); }
     void configure_conversion(std::shared_ptr<game::HiveConversion> conversion) { hive_conversion_=std::move(conversion); }
     void start(const ObservationContext& context);

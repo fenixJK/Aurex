@@ -131,7 +131,7 @@ bool Runner::close_menu(const ObservationContext& c,const game::State& s) {
 }
 bool Runner::activity(const ObservationContext& c,const game::State& s) {
     if (const auto* report=std::get_if<ReportActivity>(&*step_)) {
-        if (activity_sink_) { try { activity_sink_(report->status); } catch (...) {} }
+        if (activity_sink_) { try { activity_sink_(*report); } catch (...) {} }
         complete_step(c,s); return true;
     }
     if (std::holds_alternative<EndCycle>(*step_)) { complete_step(c,s); return true; }

@@ -50,7 +50,6 @@ public:
                 else if (std::find(required.begin(),required.end(),stat.name)!=required.end()) plan.filter.minimums[stat.name]=stat.minimum;
             }
             plan.honey_billions=std::get<int>(settings_.at("ssa-limit"));
-            plan.delay=Time(std::get<int>(settings_.at("ssa-delay")));
             return roll_ssa(std::move(plan),progress_);
         }
         if (command=="bitter") {
@@ -83,6 +82,7 @@ public:
 }
 extensions::Manifest module_manifest() {
     extensions::Manifest m; m.id="hive.native-tools"; m.provider="native-tools"; m.name="Tools"; m.version="0.1.0";
+    m.settings_version=2;
     m.description="Start individual bee and amulet tools here. Tools are not part of the farming rotation.";
     m.permissions={automation::Permission::interact};
     m.settings={{"bees","Bees to keep",SettingSelection{},0,0,bees()},
@@ -93,11 +93,13 @@ extensions::Manifest module_manifest() {
         {"jelly-limit","Roll limit",100,1,1000000},{"jelly-delay","Roll delay",800,500,5000},
         {"ssa-main","Main passive",std::string("Pop Star"),0,0,passives()},
         {"ssa-sides","Side passives",SettingSelection{},0,0,passives()},
-        {"ssa-double","Double passive · 500B / roll",false},{"ssa-limit","Honey budget",500,1,1000000},
-        {"ssa-delay","Roll delay",800,500,5000}};
+        {"ssa-double","Double passive · 500B / roll",false},{"ssa-limit","Honey budget",500,10,1000000}};
     for (auto& setting:m.settings) {
         if (setting.id.ends_with("delay")) setting.suffix=" ms";
-        if (setting.id=="ssa-limit") { setting.suffix=" B"; setting.help="Maximum honey spent this run. Single rolls cost 10B; double rolls cost 500B."; }
+        if (setting.id=="ssa-limit") {
+            setting.suffix=" B"; setting.help="Maximum honey spent this run. Single rolls cost 10B; double rolls cost 500B.";
+            setting.step=10; setting.step_toggle="ssa-double"; setting.checked_step=500;
+        }
         if (setting.id=="bees" || setting.id=="ssa-sides") setting.inline_choices=true;
         if (setting.id=="ssa-sides") { setting.enabled_by="ssa-double"; setting.help="Choose acceptable second passives, different from the main. Leave empty to accept any second passive. Either order matches."; }
         if (setting.id=="neon-limit") setting.enabled_by="bitter-neon";
@@ -142,7 +144,7 @@ extensions::Manifest module_manifest() {
     }
     section("ssa-required","Stats to keep",{"ssa-required-stats"},"SSA Roller",1,"Choose up to five stats. Set minimums below only if you need specific values.");
     section("ssa-stats","Advanced · stat minimums",keys,"SSA Roller",3); sections.back().collapsed=true;
-    section("ssa-run","Limits",{"ssa-limit","ssa-delay"},"SSA Roller",2);
+    section("ssa-run","Limits",{"ssa-limit"},"SSA Roller",2);
     sections.push_back({"progress","Last result",{},{},true,2});
     sections.back().collapsed=true;
     return m;

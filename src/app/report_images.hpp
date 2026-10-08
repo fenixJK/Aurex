@@ -5,10 +5,16 @@
 #include <memory>
 
 namespace hive::app {
-inline QImage game_image(std::shared_ptr<const Frame> frame) {
+inline QImage game_image(std::shared_ptr<const Frame> frame,std::optional<Rect> region={}) {
     if (!frame || !frame->valid()) return {};
-    return QImage(frame->rgba.data(),frame->width,frame->height,frame->width*4,QImage::Format_RGBA8888,
+    QImage image(frame->rgba.data(),frame->width,frame->height,frame->width*4,QImage::Format_RGBA8888,
         [](void* data) { delete static_cast<std::shared_ptr<const Frame>*>(data); },new std::shared_ptr<const Frame>(frame));
+    if (!region) return image;
+    if (!region->valid() || region->x<0 || region->y<0 || region->x+region->width>1 || region->y+region->height>1) return {};
+    const int x=std::lround(region->x*image.width()),y=std::lround(region->y*image.height());
+    const int right=std::lround((region->x+region->width)*image.width()),bottom=std::lround((region->y+region->height)*image.height());
+    if (right<=x || bottom<=y) return {};
+    return image.copy(x,y,right-x,bottom-y);
 }
 inline QImage resource_image(std::shared_ptr<const Frame> frame) {
     if (!frame) return {};

@@ -8,7 +8,7 @@ struct Stat { std::string name; double minimum{},maximum{}; bool multiplier{}; }
 const std::vector<Stat>& amulet_stats();
 const std::vector<std::string>& passives();
 const std::vector<std::string>& bees();
-struct Amulet { std::map<std::string,double> stats; std::set<std::string> passives; };
+struct Amulet { std::map<std::string,double> stats; std::set<std::string> passives; std::optional<Rect> popup; };
 struct AmuletFilter {
     std::string main{"Pop Star"};
     std::set<std::string> sides;

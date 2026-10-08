@@ -12,7 +12,7 @@
 #include <atomic>
 
 namespace hive {
-struct ActivityEvent { ActivityStatus status; std::shared_ptr<const Frame> frame; };
+struct ActivityEvent { ActivityStatus status; std::shared_ptr<const Frame> frame; std::optional<Rect> image_region; };
 struct SessionSnapshot {
     Status status;
     Time now{};

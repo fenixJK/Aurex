@@ -205,6 +205,7 @@ void Discord::activity_event(const ActivityStatus& activity,const QImage& screen
     if (!settings_.enabled || activity.empty()) return;
     Message message{payload({{"title",text(QString::fromStdString(activity.title),256)},
         {"description",text(QString::fromStdString(activity.detail),1800)},{"color",0x8abea1}}),{}};
+    message.game=screenshot;
     enqueue(std::move(message));
 }
 void Discord::notice(const QString& message) {

@@ -269,6 +269,19 @@ struct ExtensionsUi::Page {
     void update_conditions(const extensions::Manifest& manifest,bool busy) {
         for (const auto& field:manifest.settings) if (!field.enabled_by.empty() && controls.contains(field.id))
             controls.at(field.id)->setEnabled(!busy && static_cast<QCheckBox*>(controls.at(field.enabled_by))->isChecked());
+        for (const auto& field:manifest.settings) if ((field.step!=1 || !field.step_toggle.empty()) && controls.contains(field.id)) {
+            const int step=!field.step_toggle.empty() && static_cast<QCheckBox*>(controls.at(field.step_toggle))->isChecked()?field.checked_step:field.step;
+            auto* control=controls.at(field.id); const QSignalBlocker block(control);
+            const int minimum=(field.minimum+step-1)/step*step,maximum=field.maximum/step*step;
+            const int value=std::clamp(read_number(control,field)/step*step,minimum,maximum);
+            if (auto* number=qobject_cast<QDoubleSpinBox*>(control)) {
+                const auto divisor=std::pow(10.,field.decimals);
+                number->setRange(minimum/divisor,maximum/divisor); number->setSingleStep(step/divisor);
+            } else {
+                auto* integer=static_cast<QSpinBox*>(control); integer->setRange(minimum,maximum); integer->setSingleStep(step);
+            }
+            set_number(control,value,field);
+        }
     }
     extensions::Settings read(const extensions::Manifest& manifest) const {
         extensions::Settings result=baseline;
@@ -717,7 +730,12 @@ void ExtensionsUi::configure_module(const std::string& id,const extensions::Sett
         if (!page.controls.contains(field.id)) continue;
         auto* control=page.controls.at(field.id);const QSignalBlocker block(control);const auto& value=values.at(field.id);
         if (const auto* v=std::get_if<bool>(&value)) static_cast<QCheckBox*>(control)->setChecked(*v);
-        else if (const auto* v=std::get_if<int>(&value)) set_number(control,*v,field);
+        else if (const auto* v=std::get_if<int>(&value)) {
+            if (auto* number=qobject_cast<QDoubleSpinBox*>(control)) {
+                const auto divisor=std::pow(10.,field.decimals); number->setRange(field.minimum/divisor,field.maximum/divisor);
+            } else static_cast<QSpinBox*>(control)->setRange(field.minimum,field.maximum);
+            set_number(control,*v,field);
+        }
         else if (const auto* v=std::get_if<std::string>(&value)) static_cast<QComboBox*>(control)->setCurrentText(q(*v));
         else dynamic_cast<SelectionValue*>(control)->setValue(std::get<SettingSelection>(value));
     }

@@ -13,7 +13,7 @@ public:
     RollReport read() const { std::lock_guard lock(mutex_); return report_; }
     void set(RollReport report) { std::lock_guard lock(mutex_); report_=std::move(report); }
 };
-struct SsaPlan { AmuletFilter filter; unsigned honey_billions{500}; Time delay{800}; };
+struct SsaPlan { AmuletFilter filter; unsigned honey_billions{500}; };
 struct JellyPlan { BeeFilter filter; unsigned rolls{100}; Time delay{800}; bool require_mutation{}; MutationFilter mutations; };
 struct BitterPlan {
     WindowPoint target;

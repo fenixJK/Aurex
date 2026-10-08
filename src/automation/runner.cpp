@@ -238,7 +238,7 @@ void Runner::interrupt(Interruption interruption,const ObservationContext& c,con
         const bool recovered=interruption==Interruption::client_rejoin?prepare_client_rejoin(c.now):recover(interruption,c,observations);
         if (recovered && activity_sink_) {
             const auto action=failed.status.empty()?failed.activity_label:failed.status.text();
-            activity_sink_({action.empty()?"Action failed":action,message+" — recovering",ActivityKind::failure});
+            activity_sink_({{action.empty()?"Action failed":action,message+" — recovering",ActivityKind::failure}});
         }
         if (!recovered) finish(State::failed,std::move(message),interruption);
     }
