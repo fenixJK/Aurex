@@ -42,6 +42,9 @@ void Conversion::update(const game::Context& context,const game::State& s,TaskPo
     auto fail=[&](std::string reason) { finish(ConversionStage::recovery_required,std::move(reason),tasks,scope); };
     if (now<last_tick_ || scope.generation!=context.generation || context.generation!=started_.generation || context.window.id!=started_.window.id || context.window.process!=started_.window.process || context.window.bounds!=started_.window.bounds) { fail("Session or window changed; re-observe before recovery"); return; }
     last_tick_=now;
+    const bool converting=s.hive_prompt.has_value(context,config_.reading_age,minimum_capture_)
+        && s.hive_prompt.value==game::HivePrompt::stop_making_honey;
+    if (converting) started_.now=now;
     if (now-started_.now>=config_.total_timeout) { fail("Honey conversion timed out"); return; }
     if ((s.connection.has_value(context,config_.reading_age) && s.connection.value==game::Connection::disconnected)
         || (s.alive.has_value(context,config_.reading_age) && !s.alive.value)) { fail("Disconnected or dead; recovery required"); return; }

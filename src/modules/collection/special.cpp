@@ -77,6 +77,7 @@ public:
     explicit CenterDrop(std::shared_ptr<const game::InventorySource> source):source_(std::move(source)) {
         if (!source_) throw std::invalid_argument("Glue collection needs inventory observations");
     }
+    void request_quantities(const ObservationContext& c,std::span<const std::string> names) const override { source_->request_quantities(c,names); }
     Observation<game::InventoryView> read(const ObservationContext& c,const game::State& state) const override {
         auto value=source_->read(c,state);
         if (value.has_value(c,Time(2000))) {

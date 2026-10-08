@@ -34,9 +34,11 @@ private:
     HoneyFilter honey_;
     std::shared_ptr<const MovementSpeedSource> speed_source_;
     std::atomic<std::uint64_t> revision_{};
+    std::atomic<std::uint64_t> text_revision_{};
     struct Entry { DetectorConfig config; std::shared_ptr<DetectionChannel> channel; Time next{}; };
     std::vector<Entry> detectors_;
     std::shared_ptr<const Frame> frame_;
+    std::shared_ptr<const HudFeatures> frame_hud_;
     std::uint64_t frame_sequence_{};
     bool hud_{true};
     std::vector<Rect> text_regions_;
@@ -44,8 +46,8 @@ private:
     std::string capture_error_;
     void clear_detections();
     bool exiting_{};
-    std::thread capture_worker_,pixel_worker_,text_worker_;
+    std::thread capture_worker_,pixel_worker_,responsive_worker_,text_worker_;
     void capture();
-    void detect(DetectionMode mode);
+    void detect(DetectionMode mode,DetectionPriority priority=DetectionPriority::normal);
 };
 }

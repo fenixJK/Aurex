@@ -1,4 +1,4 @@
-Bee Swarm Simulator buff and ability icons
+Bee Swarm Simulator icons
 
 Game artwork belongs to Onett and its respective rights holders. These files are game UI references, not Aurex artwork. Original PNG files were obtained from the Bee Swarm Simulator Wiki image CDN unless noted below.
 
@@ -47,3 +47,74 @@ pop-star.png, melody.png, jelly-bean-sharing.png, guiding-star.png,
 reindeer-fetch.png and festive-mark.png are the game artwork embedded in
 NatroMacroDev's submacros/StatMonitor.ahk at
 d33899a74d67dee31dd52fcb33d89733688ee588. See Natro-ports.txt and GPL-3.0.txt.
+
+Bee selection icons
+
+bomber.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/7/7a/Bomber_Bee.png/revision/latest?format=original
+brave.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/1/10/Brave_Bee.png/revision/latest?format=original
+bumble.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/3/30/Bumble_Bee.png/revision/latest?format=original
+cool.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/8/8b/Cool_Bee.png/revision/latest?format=original
+hasty.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/b/be/Hasty_Bee.png/revision/latest?format=original
+looker.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/5/5d/Looker_Bee.png/revision/latest?format=original
+rad.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/8/8d/Rad_Bee.png/revision/latest?format=original
+rascal.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/4/44/Rascal_Bee.png/revision/latest?format=original
+stubborn.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/3/3f/Stubborn_Bee.png/revision/latest?format=original
+bubble.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/f/fa/Bubble_Bee.png/revision/latest?format=original
+bucko.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/3/30/Bucko_Bee.png/revision/latest?format=original
+commander.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/0/0e/Commander_Bee.png/revision/latest?format=original
+demo.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/3/3a/Demo_Bee.png/revision/latest?format=original
+exhausted.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/d/d2/Exhausted_Bee.png/revision/latest?format=original
+fire.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/a/a4/Fire_Bee.png/revision/latest?format=original
+frosty.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/f/fb/Frosty_Bee.png/revision/latest?format=original
+honey.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/c/c3/Honey_Bee.png/revision/latest?format=original
+rage.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/7/7b/Rage_Bee.png/revision/latest?format=original
+riley.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/6/64/Riley_Bee.png/revision/latest?format=original
+shocked.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/c/c0/Shocked_Bee.png/revision/latest?format=original
+baby.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/1/1f/Baby_Bee.png/revision/latest?format=original
+carpenter.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/7/75/Carpenter_Bee.png/revision/latest?format=original
+demon.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/8/84/Demon_Bee.png/revision/latest?format=original
+diamond.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/0/0a/Diamond_Bee.png/revision/latest?format=original
+lion.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/b/b3/Lion_Bee.png/revision/latest?format=original
+music.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/3/38/Music_Bee.png/revision/latest?format=original
+ninja.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/9/97/Ninja_Bee.png/revision/latest?format=original
+shy.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/e/e8/Shy_Bee.png/revision/latest?format=original
+buoyant.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/d/d7/Buoyant_Bee.png/revision/latest?format=original
+fuzzy.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/c/c3/Fuzzy_Bee.png/revision/latest?format=original
+precise.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/2/29/Precise_Bee.png/revision/latest?format=original
+spicy.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/4/43/Spicy_Bee.png/revision/latest?format=original
+tadpole.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/5/54/Tadpole_Bee.png/revision/latest?format=original
+vector.png
+https://static.wikia.nocookie.net/bee-swarm-simulator/images/a/a6/Vector_Bee.png/revision/latest?format=original

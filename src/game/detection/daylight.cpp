@@ -11,7 +11,7 @@ public:
         auto result=std::make_shared<Daylight>();
         const auto& f=input.frame;
         if (!f.valid() || !input.generation || std::size_t(f.width)*f.height>32000000) return result;
-        const auto hud=resource_hud_regions(f);
+        const auto hud=resource_hud_regions(input);
         const double scale=f.width/f.window.bounds.width;
         unsigned dark=0,blue=0;
         if (hud) {

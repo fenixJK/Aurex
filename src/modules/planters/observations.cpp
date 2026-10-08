@@ -79,8 +79,7 @@ Observation<HarvestEvidence> harvest_receipt(const Stats& planter,const Observat
     if (planter.nectar<Nectar::comforting || planter.nectar>Nectar::invigorating || minimum<Time{} || minimum>c.now
         || !before.has_value(c,Time(30000)) || before.captured>=minimum
         || !after.nectar_levels.has_value(c,Time(2000),minimum)
-        || !after.harvest_prompt.usable(c,Time(2000),minimum) || after.harvest_prompt.knowledge!=Knowledge::absent
-        || std::chrono::abs(after.nectar_levels.captured-after.harvest_prompt.captured)>Time(500)) return {};
+        || !after.harvest_prompt.usable(c,Time(2000),minimum) || after.harvest_prompt.knowledge!=Knowledge::absent) return {};
     const auto id=identity(planter);
     if (after.placements.has_value(c,Time(2000),minimum) && after.placements.value.identities.contains(id)) return {};
     const auto index=static_cast<std::size_t>(planter.nectar);
@@ -98,8 +97,7 @@ Observation<HarvestEvidence> reward_receipt(const Stats& planter,const Observati
     if (planter.nectar<Nectar::comforting || planter.nectar>Nectar::invigorating || minimum<Time{} || minimum>c.now
         || !before.has_value(c,Time(30000)) || before.captured>=minimum
         || !after.rewards.has_value(c,Time(2000),minimum) || after.rewards.captured<=minimum
-        || !after.harvest_prompt.usable(c,Time(2000),minimum) || after.harvest_prompt.knowledge!=Knowledge::absent
-        || std::chrono::abs(after.rewards.captured-after.harvest_prompt.captured)>Time(500)) return {};
+        || !after.harvest_prompt.usable(c,Time(2000),minimum) || after.harvest_prompt.knowledge!=Knowledge::absent) return {};
     const auto id=identity(planter);
     if (after.placements.has_value(c,Time(2000),minimum) && after.placements.value.identities.contains(id)) return {};
     for (const auto& reward : after.rewards.value) {

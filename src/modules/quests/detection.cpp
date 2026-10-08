@@ -82,9 +82,11 @@ class QuestDetector final : public game::Detector {
     }
 public:
     QuestDetector(std::shared_ptr<const LayoutSource> layout,bool desktop=false):layout_(std::move(layout)),desktop_(desktop) {}
-    std::vector<Rect> text_regions(const Frame& frame,std::uint64_t generation) const override {
+    std::vector<Rect> text_regions(const Frame& frame,std::uint64_t generation) const override { return text_regions({frame,{},generation,{}}); }
+    std::vector<Rect> text_regions(const game::DetectionInput& input) const override {
+        const auto& frame=input.frame; const auto generation=input.generation;
         if (!desktop_) return {{0,0,1,1}};
-        for (const auto& control:game::menu_controls({frame,{},generation,{}})) if (control.tab==game::MenuTab::quests) {
+        for (const auto& control:game::menu_controls(input)) if (control.tab==game::MenuTab::quests) {
             if (control.selected==false) { visible_.clear(); scene_.reset(); return {}; }
             if (control.selected!=false && same_cards(frame,generation)) return {};
             if (reading_area_ && menu_ && control.bounds==*menu_ && layout_context_.generation==generation

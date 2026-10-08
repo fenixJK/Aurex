@@ -1,4 +1,5 @@
 #include "hive/game/detection/menus.hpp"
+#include "hive/game/detection/perception.hpp"
 #include "menu_icons.hpp"
 #include <algorithm>
 #include <array>
@@ -30,6 +31,7 @@ Point pointer_rest(const ObservationContext& c,const State& state) {
 std::vector<MenuControl> menu_controls(const DetectionInput& input) {
     const auto& f=input.frame;
     if (!f.valid() || !f.window.id || !input.generation || (input.cancelled && input.cancelled())) return {};
+    if (input.hud) return input.hud->menus;
     const int width=(f.width+1)/2,height=(f.height+1)/2;
     if (static_cast<std::size_t>(width)*height>8000000) return {};
     auto color=[&](int x,int y) {

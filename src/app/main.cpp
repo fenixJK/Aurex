@@ -501,6 +501,7 @@ public:
             return hive::ObservationContext{snapshot.window,snapshot.generation,hive::monotonic_now()};
         };
         native_modules_.quests.fields=hive::features::quests::default_fields();
+        auto inventory_requests=std::make_shared<hive::game::InventoryRequests>();
         std::vector<hive::game::DetectorConfig> detectors{
             {"enemies",hive::game::enemy_detector()},
             {"memory-board",hive::game::memory_match_detector()},
@@ -508,11 +509,11 @@ public:
             {"item-menu",hive::game::item_menu_detector(),hive::Time(750),hive::game::DetectionMode::text,true},
             {"buff-upkeep",hive::game::buff_detector(),hive::Time(6000),hive::game::DetectionMode::pixels},
             {"field-boosts",hive::game::field_boost_detector(),hive::Time(1000),hive::game::DetectionMode::pixels},
-            {"movement-buffs",hive::game::movement_buff_detector(),hive::Time(100),hive::game::DetectionMode::pixels},
+            {"movement-buffs",hive::game::movement_buff_detector(),hive::Time(100),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::responsive},
             {"respawn-menu",hive::game::respawn_detector()},
             {"nectar",hive::game::nectar_detector(),hive::Time(750),hive::game::DetectionMode::pixels},
             {"planters",hive::game::planter_detector()},
-            {"inventory",hive::game::inventory_detector(hive::game::inventory_layout())},
+            {"inventory",hive::game::inventory_detector(hive::game::inventory_layout(),inventory_requests)},
             {"blooms",hive::game::bloom_detector(),hive::Time(250),hive::game::DetectionMode::pixels},
             {"npc-conversation",hive::game::conversation_detector()},
             {"quest-cards",hive::features::quests::desktop_detector(native_modules_.quests.fields),hive::Time(750)},
@@ -528,7 +529,7 @@ public:
         native_modules_.field_boosts=channels.at("field-boosts");
         session_.configure_hotbar(native_modules_.boosting);
         reporting_nectar_=channels.at("nectar"); reporting_buffs_=channels.at("movement-buffs");
-        native_modules_.planters.inventory=hive::game::inventory_source(channels.at("inventory"));
+        native_modules_.planters.inventory=hive::game::inventory_source(channels.at("inventory"),inventory_requests);
         native_modules_.planters.detection=hive::game::planter_source(channels.at("planters"));
         native_modules_.planters.observations=hive::features::planters::interaction_source(
             hive::game::nectar_source(channels.at("nectar")),native_modules_.planters.detection);

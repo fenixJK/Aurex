@@ -13,6 +13,7 @@ public:
     bool ready(const View& view,const game::RespawnSource& source,Time minimum) {
         const auto& c=view.context;
         const auto* state=view.observations;
+        if (state && state->last_death.has_value(c,Time(25000),minimum) && state->last_death.value) saw_death_=true;
         const bool health=state && state->alive.has_value(c,Time(2000),minimum);
         const bool hud=state && state->game_hud.has_value(c,Time(2000),minimum);
         if (health && !state->alive.value) { saw_death_=true; return false; }

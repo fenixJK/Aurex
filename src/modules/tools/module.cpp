@@ -107,6 +107,10 @@ extensions::Manifest module_manifest() {
             setting.step=10; setting.step_toggle="ssa-double"; setting.checked_step=500;
         }
         if (setting.id=="bees" || setting.id=="ssa-sides") setting.inline_choices=true;
+        if (setting.id=="bees") for (const auto& bee:setting.choices) {
+            auto name=bee; std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c) { return char(std::tolower(c)); });
+            setting.icons.emplace(bee,":/bees/"+name+".png");
+        }
         if (setting.id=="ssa-sides") { setting.enabled_by="ssa-double"; setting.help="Choose acceptable second passives, different from the main. Leave empty to accept any second passive. Either order matches."; }
         if (setting.id=="neon-limit") setting.enabled_by="bitter-neon";
         if (setting.id=="jelly-neon-limit") setting.enabled_by="jelly-neon";
@@ -121,7 +125,7 @@ extensions::Manifest module_manifest() {
     auto section=[&](std::string id,std::string title,std::vector<std::string> settings,std::string tab,unsigned columns=2,std::string description={}) {
         sections.push_back({std::move(id),std::move(title),std::move(description),std::move(settings),false,columns}); sections.back().tab=std::move(tab);
     };
-    section("jelly-help","Bee Genetics",{},"Bee Genetics",1,"Choose bees, mutations, or both. Leave a Royal Jelly result open, or enable Automatic Neonberries and select a bee at your hive. Esc stops.");
+    section("jelly-help","Bee Genetics",{},"Bee Genetics",1,"Choose bees and optional mutations. Start from a Royal Jelly result, or select a bee with Automatic Neonberries enabled.");
     section("bees","Bees to keep",{"bees"},"Bee Genetics",1);
     section("stops","Stop on",{"gifted","mythic","jelly-mutations"},"Bee Genetics",3);
     section("jelly-neon","Radioactive",{"jelly-neon","jelly-neon-limit"},"Bee Genetics");

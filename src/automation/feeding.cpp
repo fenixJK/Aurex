@@ -12,6 +12,7 @@ public:
     SelectedDestination(std::shared_ptr<const game::InventorySource> source,WindowPoint target):source_(std::move(source)),target_(std::move(target)) {
         if (!source_ || !target_.valid()) throw std::invalid_argument("Choose a target in the game window");
     }
+    void request_quantities(const ObservationContext& c,std::span<const std::string> names) const override { source_->request_quantities(c,names); }
     Observation<game::InventoryView> read(const ObservationContext& c,const game::State& state) const override {
         if (!target_.belongs_to(c.window)) throw std::runtime_error("Game window changed; select the bee again");
         auto view=source_->read(c,state);
@@ -72,7 +73,7 @@ public:
         const auto& c=view.context;
         if (stage_==Stage::setup) { stage_=Stage::position; return RunProgram{[] { return set_shift_lock(false); }}; }
         if (stage_==Stage::position) { stage_=Stage::inspect; return RunProgram{plan_.prepare}; }
-        if (stage_==Stage::inspect) { stage_=Stage::drag; return InspectInventoryItem{{plan_.food},plan_.inventory,item_}; }
+        if (stage_==Stage::inspect) { stage_=Stage::drag; return InspectInventoryItem{{plan_.food},plan_.inventory,item_,false,false,true}; }
         if (stage_==Stage::drag) {
             if (!receipt_) {
                 if (!item_->has_value(c,Time(2000)) || !item_->value.item.quantity) return Done{"Food quantity could not be confirmed"};

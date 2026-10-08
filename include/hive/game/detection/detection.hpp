@@ -8,6 +8,7 @@
 #include <condition_variable>
 
 namespace hive::game {
+struct HudFeatures;
 struct Detection { virtual ~Detection()=default; };
 struct DetectionInput {
     const Frame& frame;
@@ -15,6 +16,7 @@ struct DetectionInput {
     std::uint64_t generation{};
     std::function<bool()> cancelled;
     std::function<std::vector<TextLine>(const Frame&)> recognize;
+    const HudFeatures* hud{};
 };
 class Detector {
     friend class Observer;
@@ -22,6 +24,7 @@ class Detector {
 public:
     virtual ~Detector()=default;
     virtual std::vector<Rect> text_regions(const Frame&,std::uint64_t) const { return {{0,0,1,1}}; }
+    virtual std::vector<Rect> text_regions(const DetectionInput& input) const { return text_regions(input.frame,input.generation); }
     virtual std::shared_ptr<const Detection> detect(const DetectionInput& input) const=0;
 };
 struct DetectionResult {
@@ -36,12 +39,14 @@ public:
     virtual std::optional<DetectionResult> peek() const { return read(); }
 };
 enum class DetectionMode { pixels, text };
+enum class DetectionPriority { normal, responsive };
 struct DetectorConfig {
     std::string id;
     std::shared_ptr<const Detector> detector;
     Time interval{750};
     DetectionMode mode{DetectionMode::text};
     bool on_demand{};
+    DetectionPriority priority{DetectionPriority::normal};
 };
 struct DetectionWake { std::condition_variable changed; std::atomic<std::uint64_t> revision{}; };
 class Observer;

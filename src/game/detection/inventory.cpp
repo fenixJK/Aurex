@@ -70,10 +70,10 @@ std::optional<InventoryQuantity> read_quantity(const DetectionInput& input,const
     if (candidate->pixels.width<digits*candidate->pixels.height*0.5) return {};
     return quantity(candidate->text);
 }
-void refine_quantities(const DetectionInput& input,const InventoryLayout& layout,InventoryView& view) {
-    if (!input.recognize || !view.open) return;
+void refine_quantities(const DetectionInput& input,const InventoryLayout& layout,InventoryView& view,std::span<const std::string> wanted) {
+    if (wanted.empty() || !input.recognize || !view.open) return;
     std::vector<std::pair<std::size_t,InventoryRow>> missing;
-    for (std::size_t i=0;i<view.items.size();++i) if (!view.items[i].quantity) {
+    for (std::size_t i=0;i<view.items.size();++i) if (!view.items[i].quantity && std::find(wanted.begin(),wanted.end(),inventory_name(view.items[i].name))!=wanted.end()) {
         const auto row=std::find_if(layout.rows.begin(),layout.rows.end(),[&](const auto& r) { return r.bounds==view.items[i].bounds; });
         if (row!=layout.rows.end()) missing.emplace_back(i,*row);
     }
@@ -145,11 +145,14 @@ void refine_quantities(const DetectionInput& input,const InventoryLayout& layout
 class Reader final : public Detector {
     std::shared_ptr<const InventoryLayoutSource> layout_;
     mutable Observation<InventoryLayout> previous_;
+    std::shared_ptr<InventoryRequests> requests_;
 public:
-    explicit Reader(std::shared_ptr<const InventoryLayoutSource> layout):layout_(std::move(layout)) {}
-    std::vector<Rect> text_regions(const Frame& frame,std::uint64_t generation) const override {
+    Reader(std::shared_ptr<const InventoryLayoutSource> layout,std::shared_ptr<InventoryRequests> requests):layout_(std::move(layout)),requests_(std::move(requests)) {}
+    std::vector<Rect> text_regions(const Frame& frame,std::uint64_t generation) const override { return text_regions({frame,{},generation,{}}); }
+    std::vector<Rect> text_regions(const DetectionInput& input) const override {
+        const auto& frame=input.frame; const auto generation=input.generation;
         const ObservationContext context{frame.window,generation,frame.captured};
-        const auto layout=layout_->read({frame,{},generation,{}});
+        const auto layout=layout_->read(input);
         if (layout.has_value(context,Time(0))) return layout.value.open?std::vector<Rect>{layout.value.viewport}:std::vector<Rect>{};
         if (previous_.has_value(context,Time(2000)) && previous_.value.open) return {previous_.value.viewport};
         return {{0,0,1,1}};
@@ -159,15 +162,20 @@ public:
         const auto layout=layout_->read(input);
         previous_=layout;
         auto result=std::make_shared<InventoryDetection>(); result->view=read_inventory(input,layout);
-        if (result->view.knowledge==Knowledge::present) refine_quantities(input,layout.value,result->view.value);
+        if (requests_ && result->view.knowledge==Knowledge::present)
+            refine_quantities(input,layout.value,result->view.value,requests_->quantities({input.frame.window,input.generation,input.frame.captured}));
         if (input.cancelled && input.cancelled()) return {};
         return result;
     }
 };
 class Source final : public InventorySource {
     std::shared_ptr<const DetectionSource> source_;
+    std::shared_ptr<InventoryRequests> requests_;
 public:
-    explicit Source(std::shared_ptr<const DetectionSource> source):source_(std::move(source)) {}
+    Source(std::shared_ptr<const DetectionSource> source,std::shared_ptr<InventoryRequests> requests):source_(std::move(source)),requests_(std::move(requests)) {}
+    void request_quantities(const ObservationContext& c,std::span<const std::string> names) const override {
+        if (requests_) requests_->quantities(c,names);
+    }
     Observation<InventoryView> read(const ObservationContext& c,const State& state) const override {
         if (state.menus.has_value(c,Time(1000))) for (const auto& control:state.menus.value)
             if (control.tab==MenuTab::inventory && control.selected==false) {
@@ -235,11 +243,26 @@ Observation<InventoryView> read_inventory(const DetectionInput& input,const Obse
     if (input.cancelled && input.cancelled()) return {};
     validate(view); return {Knowledge::present,std::move(view),context.now,context.window,context.generation};
 }
-std::shared_ptr<const Detector> inventory_detector(std::shared_ptr<const InventoryLayoutSource> layout) {
-    if (!layout) throw std::invalid_argument("Inventory detection needs an observed layout"); return std::make_shared<Reader>(std::move(layout));
+void InventoryRequests::quantities(const ObservationContext& c,std::span<const std::string> names) {
+    std::vector<std::string> requested;
+    if (names.size()>32) throw std::invalid_argument("Too many inventory quantity requests");
+    for (const auto& name:names) {
+        if (name.empty() || name.size()>160) throw std::invalid_argument("Invalid inventory quantity request");
+        requested.push_back(inventory_name(name));
+    }
+    std::lock_guard lock(mutex_); context_=c; names_=std::move(requested);
 }
-std::shared_ptr<const InventorySource> inventory_source(std::shared_ptr<const DetectionSource> channel) {
-    if (!channel) throw std::invalid_argument("Inventory detection channel is missing"); return std::make_shared<Source>(std::move(channel));
+std::vector<std::string> InventoryRequests::quantities(const ObservationContext& c) const {
+    std::lock_guard lock(mutex_);
+    if (c.generation!=context_.generation || c.window.id!=context_.window.id || c.window.process!=context_.window.process
+        || c.window.bounds!=context_.window.bounds || std::chrono::abs(c.now-context_.now)>Time(2000)) return {};
+    return names_;
+}
+std::shared_ptr<const Detector> inventory_detector(std::shared_ptr<const InventoryLayoutSource> layout,std::shared_ptr<InventoryRequests> requests) {
+    if (!layout) throw std::invalid_argument("Inventory detection needs an observed layout"); return std::make_shared<Reader>(std::move(layout),std::move(requests));
+}
+std::shared_ptr<const InventorySource> inventory_source(std::shared_ptr<const DetectionSource> channel,std::shared_ptr<InventoryRequests> requests) {
+    if (!channel) throw std::invalid_argument("Inventory detection channel is missing"); return std::make_shared<Source>(std::move(channel),std::move(requests));
 }
 std::vector<InventoryRow> inventory_rows(const Frame& frame,Rect viewport) {
     if (!frame.valid() || !region(viewport)) throw std::invalid_argument("Invalid inventory row scan");

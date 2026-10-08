@@ -70,7 +70,8 @@ public:
         const auto bytes=QJsonDocument(QJsonObject{{"version",1},{"cooldowns",values}}).toJson(QJsonDocument::Compact);
         if (bytes.size()>65536 || QFileInfo(path_).isSymLink()) throw std::runtime_error("Cannot prepare saved cooldown file");
         QSaveFile file(path_); file.setDirectWriteFallback(false);
-        if (!file.open(QIODevice::WriteOnly) || file.write(bytes)!=bytes.size() || !file.commit()) throw std::runtime_error("Cannot save cooldowns atomically");
+        if (!file.open(QIODevice::WriteOnly) || file.write(bytes)!=bytes.size() || !file.commit())
+            throw std::runtime_error("Cannot save cooldowns: "+file.errorString().toStdString());
     }
 };
 }

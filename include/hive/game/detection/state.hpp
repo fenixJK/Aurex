@@ -28,6 +28,7 @@ struct State {
     Reading<std::vector<MenuControl>> menus;
     Reading<DialogButtons> confirmation;
     Reading<std::uint64_t> honey;
+    Reading<bool> last_death;
 };
 Reading<HivePrompt> read_hive_prompt(const Frame& frame,const std::vector<TextLine>& lines,Rect region,std::uint64_t generation);
 }

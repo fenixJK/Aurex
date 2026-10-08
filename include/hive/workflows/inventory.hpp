@@ -11,6 +11,7 @@ struct InventoryDragPlan {
     unsigned max_scrolls{40};
     bool inspect_only{},current_page_only{},allow_absent{},start_at_bottom{};
     bool use_recent_view{};
+    bool require_quantity{};
 };
 void validate(const InventoryDragPlan& plan);
 enum class InventoryStage { idle, searching, opening, scrolling, dragging, completed, failed, stopped };

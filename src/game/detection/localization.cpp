@@ -39,6 +39,7 @@ public:
 };
 class PromptDetector final : public Detector {
     std::vector<PromptAnchor> anchors_;
+    std::vector<std::pair<std::string,std::string>> specific_names_;
 public:
     explicit PromptDetector(std::vector<PromptAnchor> anchors):anchors_(std::move(anchors)) {
         if (anchors_.empty() || anchors_.size()>32) throw std::invalid_argument("Invalid landmark catalog size");
@@ -49,6 +50,15 @@ public:
                 throw std::invalid_argument("Invalid landmark identity");
             std::visit([](const auto& target) { validate(target); },anchor.prompt);
             if (anchor.status) validate(*anchor.status);
+        }
+        for (const auto& anchor:anchors_) {
+            const auto* target=std::get_if<TextTarget>(&anchor.prompt);
+            if (!target || !target->station_name) continue;
+            for (const auto& other:anchors_) {
+                const auto* specific=std::get_if<TextTarget>(&other.prompt);
+                if (specific && specific->station_name && specific->region==target->region
+                    && specific->words.ends_with(" "+target->words)) specific_names_.emplace_back(anchor.id,other.id);
+            }
         }
     }
     std::vector<Rect> text_regions(const Frame&,std::uint64_t) const override {
@@ -81,6 +91,12 @@ public:
                 else if (status.knowledge==Knowledge::unknown) reading.knowledge=Knowledge::unknown;
             }
             result->readings.emplace(anchor.id,std::move(reading));
+        }
+        for (const auto& [generic,specific]:specific_names_) {
+            auto& reading=result->readings.at(generic);
+            if (reading.value && result->readings.at(specific).value) {
+                reading.knowledge=Knowledge::absent; reading.value=false;
+            }
         }
         return result;
     }

@@ -85,6 +85,7 @@ struct InspectInventoryItem {
     std::shared_ptr<Observation<workflows::InventoryMatch>> result;
     bool current_page_only{};
     bool start_at_bottom{};
+    bool quantity{};
 };
 struct Navigate { std::string destination; std::optional<InspectInventoryItem> inventory_search; };
 class Program;

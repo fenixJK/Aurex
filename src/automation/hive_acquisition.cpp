@@ -20,7 +20,7 @@ public:
     }
     RunConfig config() const override { return {Time(reentry_==Reentry::reconnect?360000:300000),speed_,{},true,true}; }
     std::string activity_label() const override { return reentry_==Reentry::reconnect?"Rejoining Bee Swarm":"Returning to hive"; }
-    bool expects_respawn() const noexcept override { return !phase_; }
+    bool expects_respawn() const noexcept override { return phase_<2; }
     bool expects_reconnect() const noexcept override { return reentry_==Reentry::reconnect && !phase_; }
     ProgramFactory recovery(Interruption reason,const View&) override {
         if (reason!=Interruption::death) return {};

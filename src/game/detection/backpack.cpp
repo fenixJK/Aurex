@@ -1,11 +1,12 @@
 #include "hive/game/detection/connection.hpp"
 #include "hive/game/detection/perception.hpp"
+#include "hive/game/detection/menus.hpp"
 #include <algorithm>
 #include <array>
 
 namespace hive::game {
 namespace {
-struct BackpackBar { Rect pixels; double percent; };
+struct BackpackBar { Rect pixels; std::optional<double> percent; };
 std::optional<BackpackBar> backpack_bar(const Frame& frame,bool region_only=false) {
     if (!frame.valid()) return {};
     const double scale=frame.width/frame.window.bounds.width;
@@ -30,6 +31,7 @@ std::optional<BackpackBar> backpack_bar(const Frame& frame,bool region_only=fals
     const int margin=std::max(1,int(std::round(scale*2)));
     const int first=int(frame.width*.5+35*scale),last=std::min(frame.width-margin-1,int(frame.width*.5+330*scale));
     const int limit=std::min(frame.height-margin-1,int(140*scale));
+    std::optional<BackpackBar> outlined_bar;
     for (int y=margin;y<limit;++y) for (int x=first;x<last;) {
         if (!interior(x,y)) { ++x; continue; }
         const int left=x++;
@@ -60,29 +62,57 @@ std::optional<BackpackBar> backpack_bar(const Frame& frame,bool region_only=fals
             if (color>=2) { ++fill; if (ended) ++gaps; }
             else if (gray>=2) { ++valid; ended=true; }
         }
-        if (fill+valid<width*.95 || gaps>std::max(2.,width*.015)) continue;
+        if (fill+valid<width*.95 || gaps>std::max(2.,width*.015)) {
+            if (!outlined_bar) outlined_bar=BackpackBar{region,{}};
+            continue;
+        }
         return BackpackBar{region,std::clamp(100.*fill/width,0.,100.)};
     }
-    return {};
+    return outlined_bar;
 }
-}
-Reading<double> read_backpack_percent(const Frame& frame,std::uint64_t generation) {
-    Reading<double> result{Knowledge::unknown,0,frame.captured,frame.window,generation};
-    if (generation) if (const auto bar=backpack_bar(frame)) { result.knowledge=Knowledge::present; result.value=bar->percent; }
-    return result;
-}
-std::optional<std::array<Rect,2>> resource_hud_regions(const Frame& frame) {
-    const auto bar=backpack_bar(frame,true); if (!bar) return {};
+std::optional<std::array<Rect,2>> resource_regions(const Frame& frame,const Rect& bar) {
     const double scale=frame.width/frame.window.bounds.width,center=frame.width/2.;
-    const double width=bar->pixels.x+bar->pixels.width-center+14*scale;
-    const double top=bar->pixels.y-5*scale,height=bar->pixels.height+10*scale;
+    const double width=bar.x+bar.width-center+14*scale;
+    const double top=bar.y-5*scale,height=bar.height+10*scale;
     const Rect honey{center-width-6*scale,top,width,height},backpack{center,top,width,height};
     if (honey.x<0 || top<0 || backpack.x+width>frame.width || top+height>frame.height) return {};
     return std::array{honey,backpack};
 }
+}
+Reading<double> read_backpack_percent(const Frame& frame,std::uint64_t generation) {
+    Reading<double> result{Knowledge::unknown,0,frame.captured,frame.window,generation};
+    if (generation) if (const auto bar=backpack_bar(frame); bar && bar->percent) { result.knowledge=Knowledge::present; result.value=*bar->percent; }
+    return result;
+}
+std::optional<std::array<Rect,2>> resource_hud_regions(const Frame& frame) {
+    const auto bar=backpack_bar(frame,true);
+    return bar?resource_regions(frame,bar->pixels):std::nullopt;
+}
+std::optional<std::array<Rect,2>> resource_hud_regions(const DetectionInput& input) {
+    return input.hud?input.hud->resources:resource_hud_regions(input.frame);
+}
+HudFeatures inspect_hud(const Frame& frame,std::uint64_t generation) {
+    HudFeatures result;
+    result.menus=menu_controls({frame,{},generation,{}});
+    result.backpack={Knowledge::unknown,0,frame.captured,frame.window,generation};
+    if (generation) if (const auto bar=backpack_bar(frame)) {
+        result.resources=resource_regions(frame,bar->pixels);
+        if (bar->percent) { result.backpack.knowledge=Knowledge::present; result.backpack.value=*bar->percent; }
+    }
+    return result;
+}
 std::vector<Rect> hud_text_regions(bool in_game) {
     if (!in_game) return {{0,0,1,1}};
     return {{0,0,1,.3},{.2,.2,.6,.65}};
+}
+std::vector<Rect> hud_text_regions(const Frame& frame,const HudFeatures& hud) {
+    const bool in_game=hud.backpack.knowledge==Knowledge::present || std::count_if(hud.menus.begin(),hud.menus.end(),
+        [](const auto& control) { return control.selected.has_value(); })>=2;
+    if (!in_game || !hud.resources) return hud_text_regions(in_game);
+    std::vector<Rect> regions{{.2,.2,.6,.65}};
+    for (const auto& r:*hud.resources) regions.push_back({r.x/frame.width,r.y/frame.height,r.width/frame.width,r.height/frame.height});
+    regions.push_back({.15,0,.7,.2});
+    return regions;
 }
 State read_hud(const Frame& frame,const std::vector<TextLine>& lines,std::uint64_t generation) {
     State state;

@@ -35,6 +35,12 @@ inline void apply_theme(QApplication& app) {
         QPushButton:checked { background:#263e35; border-color:#6a9874; color:#c8f3cd; }
         QPushButton:pressed { background:#14221d; border-color:#9ccdb0; padding-top:7px; padding-bottom:3px; }
         QToolButton:pressed { background:#263e35; border-radius:4px; padding-top:7px; padding-bottom:3px; }
+        QToolButton#image-choice { background:#19252c; border:2px solid #34444d; border-radius:6px; padding:4px; }
+        QToolButton#image-choice:hover { background:#283c43; border-color:#6a9874; }
+        QToolButton#image-choice:checked { background:#305d45; border-color:#a9e7b4; }
+        QToolButton#image-choice:focus { border-color:#dfeddc; }
+        QToolButton#image-choice:pressed { background:#142b20; padding-top:6px; padding-bottom:2px; }
+        QToolButton#image-choice:disabled { background:#182026; border-color:#283139; }
         QTabWidget::pane { border:none; background:transparent; }
         QTabBar::tab { background:transparent; color:#9cacae; padding:5px 9px; margin:0 4px 5px 0; border-radius:5px; }
         QTabBar::tab:selected { background:#263e35; color:#c8f3cd; }

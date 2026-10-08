@@ -107,6 +107,7 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
         }
         if (selected) {
             if (plan_.inspect_only) {
+                if (plan_.require_quantity && !selected->quantity) { reason_="Reading "+selected->name+" quantity"; return; }
                 match_={Knowledge::present,{*selected,first_seen_},reading.captured,reading.window,reading.generation};
                 finish(InventoryStage::completed,"Inventory item inspected",tasks,scope); return;
             }

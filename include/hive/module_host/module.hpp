@@ -30,6 +30,7 @@ struct Setting {
     int step{1};
     std::string step_toggle;
     int checked_step{1};
+    std::map<std::string,std::string> icons;
 };
 struct Metric { std::string label, value; std::optional<double> progress; std::string group,color_key; };
 struct ModuleReport { std::string id,name; std::vector<Metric> metrics; std::vector<Counter> counters; std::vector<Threshold> thresholds; };

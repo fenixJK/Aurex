@@ -152,7 +152,7 @@ Manifest read_manifest(const QString& path) {
     require(obj["settings"].isArray() && obj["settings"].toArray().size()<=static_cast<qsizetype>(maximum_settings),"Invalid settings"); seen.clear();
     for (const auto& value : obj["settings"].toArray()) {
         require(value.isObject(),"Setting must be an object"); auto s=value.toObject();
-        keys(s,{"id","label","type","default","min","max","choices","ordered","inline","help","hidden","suffix","decimals","groups","enabled_by","step","step_toggle","checked_step"});
+        keys(s,{"id","label","type","default","min","max","choices","ordered","inline","help","hidden","suffix","decimals","groups","enabled_by","step","step_toggle","checked_step","icons"});
         Setting field; field.id=text(s,"id",80); field.label=text(s,"label",80);
         require(identifier(field.id) && seen.insert(field.id).second,"Invalid or duplicate setting ID");
         const auto type=text(s,"type");
@@ -207,6 +207,14 @@ Manifest read_manifest(const QString& path) {
                 field.groups.push_back(std::move(item));
             }
         }
+        if (s.contains("icons")) {
+            require(s["icons"].isObject(),"Choice icons must be an object");
+            const auto icons=s["icons"].toObject();
+            for (auto it=icons.begin();it!=icons.end();++it) {
+                require(it.value().isString(),"Choice icon must be a resource path");
+                field.icons.emplace(it.key().toStdString(),it.value().toString().toStdString());
+            }
+        }
         m.settings.push_back(std::move(field));
     }
     require(obj["bindings"].isArray() && obj["bindings"].toArray().size()<=16,"Invalid bindings");
@@ -257,6 +265,14 @@ Manifest read_manifest(const QString& path) {
 
 }
 void validate_page(const Manifest& manifest) {
+    for (const auto& setting:manifest.settings) if (!setting.icons.empty()) {
+        require(setting.inline_choices && std::holds_alternative<SettingSelection>(setting.initial)
+            && setting.icons.size()==setting.choices.size(),"Icon selection needs an icon for each choice");
+        for (const auto& [choice,path]:setting.icons)
+            require(std::find(setting.choices.begin(),setting.choices.end(),choice)!=setting.choices.end()
+                && path.starts_with(":/") && path.size()<=200 && path.find("..") == std::string::npos,
+                "Invalid choice icon resource");
+    }
     for (const auto& field:manifest.settings) if (field.step!=1 || !field.step_toggle.empty() || field.checked_step!=1) {
         require(std::holds_alternative<int>(field.initial) && field.minimum>=0 && field.step>0 && field.checked_step>0,
             "Numeric steps require a nonnegative integer setting and positive intervals");

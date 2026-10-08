@@ -274,9 +274,11 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         if (!inventory_) {
             *item->result={}; workflows::InventoryDragPlan plan{item->names,{}}; plan.inspect_only=true; plan.current_page_only=item->current_page_only;
             plan.start_at_bottom=item->start_at_bottom;
+            plan.require_quantity=item->quantity;
             if (plan.current_page_only) plan.timeout=Time(5000);
             inventory_.emplace(std::move(plan)); inventory_->start(c);
         }
+        if (item->quantity) item->source->request_quantities(c,item->names);
         inventory_->update(c,s,item->source->read(c,s),tasks_,scope_); progress_.message=inventory_->reason();
         if (inventory_->stage()==workflows::InventoryStage::completed) { *item->result=inventory_->match(); complete_step(c,s); }
         else if (inventory_->stage()==workflows::InventoryStage::failed || inventory_->stage()==workflows::InventoryStage::stopped)
@@ -364,6 +366,7 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
                 *item.result={};
                 workflows::InventoryDragPlan plan{item.names,{}}; plan.inspect_only=true;
                 plan.start_at_bottom=item.start_at_bottom;
+                plan.require_quantity=item.quantity;
                 travel_inventory_.emplace(std::move(plan)); travel_inventory_->start(c);
                 travel_pointer_=std::make_shared<PointerTasks>(scope_);
             }
@@ -373,6 +376,7 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         if (travel_inventory_) {
             const auto& item=*destination->inventory_search;
             travel_pointer_->clock(c.now);
+            if (item.quantity) item.source->request_quantities(c,item.names);
             travel_inventory_->update(c,s,item.source->read(c,s),*travel_pointer_,scope_);
             if (travel_inventory_->stage()==workflows::InventoryStage::completed) *item.result=travel_inventory_->match();
             if (travel_inventory_->stage()==workflows::InventoryStage::completed || travel_inventory_->stage()==workflows::InventoryStage::failed

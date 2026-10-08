@@ -37,14 +37,14 @@ void Interaction::update(const ObservationContext& c,const game::State& state,Ta
     if (c.now<last_tick_ || c.generation!=started_.generation || scope.generation!=c.generation
         || c.window.id!=started_.window.id || c.window.process!=started_.window.process || c.window.bounds!=started_.window.bounds) { fail("Interaction context changed"); return; }
     last_tick_=c.now;
-    if (c.now-started_.now>=timeout_) { fail("Station result was not confirmed; interaction was not repeated"); return; }
+    if (c.now-started_.now>=timeout_) { fail("Station result was not confirmed"); return; }
     if ((state.connection.has_value(c,Time(2000)) && state.connection.value==game::Connection::disconnected)
         || (state.alive.has_value(c,Time(2000)) && !state.alive.value)) { fail("Game disconnected or player respawning"); return; }
     try {
         for (const auto& result : tasks.results(scope)) if (result.id==pending_) {
             pending_.clear();
             if (result.outcome!=TaskOutcome::executed) { fail("Interaction interrupted; check the game before retrying"); return; }
-            minimum_=result.finished+Time(1); stage_=InteractionStage::confirming;
+            pressed_=result.finished; minimum_=pressed_+Time(1); stage_=InteractionStage::confirming;
         }
         const bool exact=std::holds_alternative<game::PromptLandmark>(prompt_);
         if (exact && !owned_) {
@@ -57,19 +57,28 @@ void Interaction::update(const ObservationContext& c,const game::State& state,Ta
             if (state.text.captured>last_result_) {
                 last_result_=state.text.captured;
                 const auto result=read(result_,c,state);
-                if (result.knowledge==Knowledge::present) { fail("Station already shows its result or cooldown"); return; }
+                if (result.knowledge==Knowledge::present && result.value) {
+                    if (exact) fail("Interaction already shows its result");
+                    else finish(InteractionStage::completed,"Station result confirmed",tasks,scope);
+                    return;
+                }
                 const auto prompt=read(prompt_,c,state);
                 prompt_seen_=(result.knowledge==Knowledge::absent || (exact && !result.value))
                     && prompt.knowledge==Knowledge::present && prompt.value;
             }
             if (!prompt_seen_ || !tasks.acquire(scope)) return;
-            pending_=tasks.submit(scope,TaskClass::interaction,{{"Use station",{Key::interact},Time(100),{}}},Time(2000)); stage_=InteractionStage::pressing;
+            pending_=tasks.submit(scope,TaskClass::interaction,{{"Use station",{Key::interact},Time(100),{}}},Time(2000));
+            ++attempts_; stage_=InteractionStage::pressing;
         } else if (stage_==InteractionStage::confirming && state.text.captured>last_result_) {
             const auto observed=read(result_,c,state);
             const bool result=observed.knowledge==Knowledge::present && observed.value
                 && (!exact || !read(prompt_,c,state).value);
             last_result_=state.text.captured;
             if (result) finish(InteractionStage::completed,"Station result confirmed",tasks,scope);
+            else if (!exact && attempts_<3 && observed.knowledge==Knowledge::absent
+                && state.text.captured>=pressed_+Time(750) && read(prompt_,c,state).value) {
+                prompt_seen_=true; stage_=InteractionStage::waiting;
+            }
         }
     } catch (const std::exception& e) { fail(e.what()); }
 }

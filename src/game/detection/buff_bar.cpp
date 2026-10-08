@@ -81,7 +81,7 @@ std::optional<BuffBar> hud_buff_bar(const DetectionInput& input) {
     const auto& f=input.frame;
     if (!f.valid() || !input.generation || std::size_t(f.width)*f.height>32000000
         || (input.cancelled && input.cancelled())) return {};
-    if (const auto hud=resource_hud_regions(f)) {
+    if (const auto hud=resource_hud_regions(input)) {
         const double scale=f.width/f.window.bounds.width;
         const double bottom=(*hud)[1].y+(*hud)[1].height+37*scale;
         if (bottom>=38*scale && bottom<f.height) return BuffBar{scale,38*scale,0,bottom,true};

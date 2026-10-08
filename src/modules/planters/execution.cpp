@@ -407,6 +407,7 @@ public:
             if ((reconcile_ || missing) && locate && !inspected_) {
                 inspection_=actions_->inspect(selected_);
                 if (inspection_) {
+                    inspection_->quantity=true;
                     minimum_=view.context.now; phase_=Phase::inspecting; publish(ExecutionStage::reconciling);
                     return emit(*inspection_);
                 }

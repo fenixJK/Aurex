@@ -2,6 +2,7 @@
 #include "hive/platform/platform.hpp"
 
 namespace hive::game {
+std::vector<Rect> exclude_text_region(std::vector<Rect> regions,Rect excluded);
 class RecognitionCache {
     struct Entry { Rect area; std::vector<std::uint8_t> pixels; std::vector<TextLine> lines; Time recognized{}; };
     std::vector<Entry> entries_;

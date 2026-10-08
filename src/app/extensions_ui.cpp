@@ -12,6 +12,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QToolButton>
+#include <QImageReader>
 #include <QVBoxLayout>
 #include <QFormLayout>
 #include <QGridLayout>
@@ -120,7 +121,7 @@ public:
     }
 };
 class InlineSelection final : public QWidget, public SelectionValue {
-    std::vector<std::pair<std::string,QCheckBox*>> choices_;
+    std::vector<std::pair<std::string,QAbstractButton*>> choices_;
     SettingSelection order_;
     bool ordered_;
 public:
@@ -128,20 +129,31 @@ public:
         const auto& choices=field.choices; const bool ordered=field.ordered;
         auto layout=new QVBoxLayout(this); layout->setContentsMargins(0,0,0,0); layout->setSpacing(4);
         auto content=new QWidget; auto grid=new QGridLayout(content); grid->setContentsMargins(0,0,0,0);
-        grid->setHorizontalSpacing(18); grid->setVerticalSpacing(compact?2:8);
+        grid->setHorizontalSpacing(field.icons.empty()?18:6); grid->setVerticalSpacing(field.icons.empty()?(compact?2:8):6);
         const auto add=[&](const std::string& choice,QGridLayout* target,int index,int columns) {
-            auto check=new QCheckBox(q(choice)); check->setObjectName(ordered?"choice-tile":"compact-choice"); check->setProperty("compact",compact);
+            QAbstractButton* check;
+            if (const auto icon=field.icons.find(choice);icon!=field.icons.end()) {
+                auto tile=new QToolButton; tile->setCheckable(true); tile->setObjectName("image-choice");
+                const QSize size{44,34}; QImageReader image(q(icon->second));
+                image.setScaledSize(image.size().scaled(size*2,Qt::KeepAspectRatio));
+                tile->setIcon(QPixmap::fromImage(image.read())); tile->setIconSize(size); tile->setFixedSize(56,44);
+                tile->setToolTip(q(choice)); tile->setAccessibleName(q(choice));
+                tile->setFocusPolicy(Qt::StrongFocus); check=tile;
+            } else {
+                check=new QCheckBox(q(choice)); check->setObjectName(ordered?"choice-tile":"compact-choice"); check->setProperty("compact",compact);
+            }
             target->addWidget(check,index/columns,index%columns); choices_.emplace_back(choice,check);
-            connect(check,&QCheckBox::toggled,this,[this,choice](bool enabled) {
+            connect(check,&QAbstractButton::toggled,this,[this,choice](bool enabled) {
                 std::erase(order_,choice); if(enabled) order_.push_back(choice);
                 if(changed) changed();
             });
         };
         if (field.groups.empty()) {
-            const int columns=choices.size()>24 && std::all_of(choices.begin(),choices.end(),[](const auto& name) { return name.size()<=12; })?4:
+            const int columns=!field.icons.empty()?9:choices.size()>24 && std::all_of(choices.begin(),choices.end(),[](const auto& name) { return name.size()<=12; })?4:
                 choices.size()>=6 && std::all_of(choices.begin(),choices.end(),[](const auto& name) { return name.size()<=20; })?3:2;
             for (std::size_t i=0;i<choices.size();++i) add(choices[i],grid,int(i),columns);
-            for (int column=0;column<columns;++column) grid->setColumnStretch(column,1);
+            if (field.icons.empty()) for (int column=0;column<columns;++column) grid->setColumnStretch(column,1);
+            else grid->setColumnStretch(columns,1);
         } else {
             for (std::size_t i=0;i<field.groups.size();++i) {
                 const auto& group=field.groups[i]; auto panel=new QWidget;

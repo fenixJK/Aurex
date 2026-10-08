@@ -4,6 +4,18 @@
 #include <span>
 
 namespace hive::game {
+std::vector<Rect> exclude_text_region(std::vector<Rect> regions,Rect excluded) {
+    std::vector<Rect> result;
+    for (const auto& r:regions) {
+        const auto left=std::max(r.x,excluded.x),right=std::min(r.x+r.width,excluded.x+excluded.width);
+        const auto top=std::max(r.y,excluded.y),bottom=std::min(r.y+r.height,excluded.y+excluded.height);
+        if (left>=right || top>=bottom) { result.push_back(r); continue; }
+        for (const auto part:std::array{Rect{r.x,r.y,r.width,top-r.y},Rect{r.x,bottom,r.width,r.y+r.height-bottom},
+            Rect{r.x,top,left-r.x,bottom-top},Rect{right,top,r.x+r.width-right,bottom-top}})
+            if (part.width>0 && part.height>0) result.push_back(part);
+    }
+    return result;
+}
 void RecognitionCache::clear() { entries_.clear(); context_={}; width_=height_=0; }
 std::vector<TextLine> RecognitionCache::read(Desktop& desktop,const Frame& frame,std::uint64_t generation,
     std::vector<Rect> regions,const std::function<bool()>& cancelled) {
@@ -28,7 +40,7 @@ std::vector<TextLine> RecognitionCache::read(Desktop& desktop,const Frame& frame
                 const Rect bounds{std::min(a.x,b.x),std::min(a.y,b.y),std::max(a.x+a.width,b.x+b.width)-std::min(a.x,b.x),std::max(a.y+a.height,b.y+b.height)-std::min(a.y,b.y)};
                 const double overlap=std::max(0.,std::min(a.x+a.width,b.x+b.width)-std::max(a.x,b.x))
                     *std::max(0.,std::min(a.y+a.height,b.y+b.height)-std::max(a.y,b.y));
-                if (bounds.width*bounds.height>(a.width*a.height+b.width*b.height-overlap)*1.1) continue;
+                if (bounds.width*bounds.height>a.width*a.height+b.width*b.height-overlap) continue;
                 regions[i]=bounds; regions.erase(regions.begin()+j); merged=true; break;
             }
         }

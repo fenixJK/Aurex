@@ -8,6 +8,7 @@ class FieldInventory final : public game::InventorySource {
 public:
     FieldInventory(std::shared_ptr<const game::InventorySource> inventory,std::string target)
         :inventory_(std::move(inventory)),target_(std::move(target)) {}
+    void request_quantities(const ObservationContext& c,std::span<const std::string> names) const override { inventory_->request_quantities(c,names); }
     Observation<game::InventoryView> read(const ObservationContext& c,const game::State& state) const override {
         auto result=inventory_->read(c,state);
         if (!result.has_value(c,Time(2000))) return {};

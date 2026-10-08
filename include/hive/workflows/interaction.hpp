@@ -24,6 +24,8 @@ private:
     std::string pending_,reason_;
     bool prompt_seen_{};
     bool owned_{};
+    unsigned attempts_{};
+    Time pressed_{};
     game::Reading<bool> read(const Target& target,const ObservationContext& context,const game::State& state) const;
     void finish(InteractionStage stage,std::string reason,TaskPort& tasks,ModuleScope scope);
 };
