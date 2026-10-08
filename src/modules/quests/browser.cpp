@@ -1,4 +1,5 @@
 #include "hive/modules/quests/browser.hpp"
+#include "hive/game/detection/menus.hpp"
 #include <algorithm>
 #include <charconv>
 #include <string_view>
@@ -64,7 +65,7 @@ class Browser final : public automation::Program {
             if (row.known) ++report_.readable; else ++report_.unresolved;
         }
     }
-    automation::Step finish(const Observation<BrowserScene>& scene) {
+    automation::Step finish(const Observation<BrowserScene>& scene,const automation::View& view) {
         if (close_when_finished_ && opened_ && (scene.value.panel_visible || scene.value.scroll)) {
             if (!scene.value.toggle) throw automation::ObservationUnavailable("Quest scan could not locate the control to close the log");
             stage_=Stage::closing; ++close_attempts_;
@@ -74,7 +75,8 @@ class Browser final : public automation::Program {
         ScannedQuests snapshot{{scene.window,scene.generation,scene.captured},{},reached_end_,names_complete_};
         for (const auto& [id,card]:confirmed_) snapshot.cards.push_back(card);
         results_->complete(std::move(snapshot));
-        results_->publish(report_); return automation::Done{report_.status};
+        results_->publish(report_);
+        return automation::Hold{{},Time(1),game::pointer_rest(view.context,view.observations?*view.observations:game::State{})};
     }
     automation::Step defer(const Observation<BrowserScene>& scene,std::string reason) {
         if (scene.value.panel_visible || scene.value.scroll) {
@@ -91,6 +93,7 @@ public:
     automation::RunConfig config() const override { return {Time(60000),28,{},false,true}; }
     ActivityStatus activity_status() const override { return {"Reading quests",{}}; }
     automation::Step next(const automation::View& view) override {
+        if (stage_==Stage::done) return automation::Done{report_.status};
         if (began_<Time::zero()) { began_=view.context.now; minimum_=began_; deadline_=began_+Time(5000); report_={}; results_->publish(report_); }
         const auto scene=source_->read();
         if (!scene.has_value(view.context,Time(2000),minimum_) || scene.captured<=last_frame_) {
@@ -117,7 +120,7 @@ public:
             }
             opened_=false;
             if (!deferred_reason_.empty()) return defer(scene,deferred_reason_);
-            return finish(scene);
+            return finish(scene,view);
         }
         if (!scene.value.scroll || scene.value.fingerprint.empty()) {
             if (stage_==Stage::initial && scene.value.toggle && !scene.value.panel_visible) {
@@ -136,7 +139,7 @@ public:
         remember(scene);
         if (!requested_.empty() && std::all_of(requested_.begin(),requested_.end(),[&](const std::string& giver) {
             return std::any_of(cards_.begin(),cards_.end(),[&](const auto& item) { return item.second.giver==giver && item.second.complete_view; });
-        })) return finish(scene);
+        })) return finish(scene,view);
         if (stage_==Stage::initial || stage_==Stage::opening) stage_=Stage::up;
         if (!before_.empty()) {
             const bool unchanged=same_page(scene.value.fingerprint,before_);
@@ -144,10 +147,10 @@ public:
             if (!unchanged) ++report_.pages;
         } else ++report_.pages;
         if (unchanged_>=2) {
-            if (stage_==Stage::down) { reached_end_=true; return finish(scene); }
+            if (stage_==Stage::down) { reached_end_=true; return finish(scene,view); }
             stage_=Stage::down; unchanged_=0;
         }
-        if (scrolls_>=30 || view.context.now-began_>=Time(50000)) return finish(scene);
+        if (scrolls_>=30 || view.context.now-began_>=Time(50000)) return finish(scene,view);
         before_=scene.value.fingerprint; ++scrolls_;
         if (!scroll_anchor_) scroll_anchor_=scene.value.scroll;
         return use(scene,*scroll_anchor_,stage_==Stage::up?4:-4,stage_==Stage::up?"Finding start of quest log":"Reading quest log");

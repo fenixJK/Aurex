@@ -115,6 +115,7 @@ public:
     virtual WorkActivity activity() const noexcept { return WorkActivity::other; }
     virtual std::string field() const { return {}; }
     virtual std::optional<SharedActivity> shared_activity() const { return {}; }
+    virtual std::optional<game::MenuTab> movement_menu() const { return {}; }
     virtual std::string activity_label() const { return {}; }
     virtual ActivityStatus activity_status() const { return {activity_label(),{}}; }
     virtual std::unique_ptr<RunGuard> guard() const { return {}; }

@@ -375,7 +375,7 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
                     throw std::invalid_argument("Invalid key action");
             }
         }
-        if (close_menu(c,observations)) return;
+        if (prepare_menu(c,observations)) return;
         if (activity(c,observations)) return;
         if (!owned_) { if (!tasks_.acquire(scope_)) { progress_.message="Waiting for game control"; return; } owned_=true; }
         const auto remaining=config_.duration-progress_.elapsed;

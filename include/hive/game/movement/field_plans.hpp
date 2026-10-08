@@ -1,5 +1,6 @@
 #pragma once
 #include "navigation.hpp"
+#include "hive/game/detection/state.hpp"
 #include <span>
 #include <string_view>
 
@@ -17,6 +18,7 @@ struct FieldGoal {
     bool complete{};
     unsigned hotbar_slot{};
     bool interrupt{};
+    std::optional<MenuTab> menu;
 };
 void validate_field_targets(const std::string& field,std::span<const std::string> alternatives);
 bool accepts(const FieldGoal& goal,std::string_view field);

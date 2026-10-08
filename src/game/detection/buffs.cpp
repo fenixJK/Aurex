@@ -47,9 +47,10 @@ public:
         std::vector<bool> found(result->buffs.size());
         std::vector<double> best_scores(result->buffs.size(),255);
         std::vector<Rect> cells(result->buffs.size());
+        const double stride=layout->scale<1?1.:2*layout->scale;
         for (int dy=-6;dy<=6;++dy) {
             if (input.cancelled && input.cancelled()) return result;
-            for (double left=0;left+layout->pitch<=frame.width;left+=std::max(1.,2*layout->scale)) {
+            for (double left=0;left+layout->pitch<=frame.width;left+=stride) {
                 const auto patch=sample(frame,left,layout->bottom-layout->pitch+dy*layout->scale,layout->scale);
                 if (!patch) continue;
                 std::array<double,detail::status_buff_icons.size()> errors; errors.fill(255);

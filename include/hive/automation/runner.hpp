@@ -83,6 +83,8 @@ private:
     std::string pending_,menu_pending_;
     Time menu_after_{};
     unsigned menu_attempts_{};
+    std::function<std::optional<game::MenuTab>()> parent_menu_;
+    std::optional<game::MenuTab> movement_menu() const;
     bool owned_{};
     std::optional<unsigned> pending_heading_;
     void finish(State state,std::string message,std::optional<Interruption> interruption={});
@@ -91,7 +93,7 @@ private:
     void clear_operations();
     bool recover(Interruption interruption,const ObservationContext& context,const game::State& observations);
     bool same_context(const ObservationContext& context) const;
-    bool close_menu(const ObservationContext& context,const game::State& observations);
+    bool prepare_menu(const ObservationContext& context,const game::State& observations);
     bool activity(const ObservationContext& context,const game::State& observations);
     void complete_step(const ObservationContext& context,const game::State& observations);
     void check_scope(ModuleScope scope) const;

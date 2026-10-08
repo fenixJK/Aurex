@@ -4,6 +4,14 @@
 #include "hive/game/data/fields.hpp"
 
 namespace hive::game {
+namespace {
+constexpr std::array<std::string_view,3> menu_names{"inventory","quests","settings"};
+MenuTab request_menu(const SettingValue& value) {
+    if (const auto* name=std::get_if<std::string>(&value))
+        for (std::size_t i=0;i<menu_names.size();++i) if (*name==menu_names[i]) return MenuTab(i);
+    throw std::invalid_argument("Invalid field tracking menu");
+}
+}
 RequestContracts game_request_contracts() {
     return {
         {"servers",[](const Settings& data) {
@@ -16,14 +24,16 @@ RequestContracts game_request_contracts() {
         }},
         {"fields",[](const Settings& data) {
             const auto field=data.find("field"),alternatives=data.find("alternatives"),complete=data.find("complete"),slot=data.find("hotbar-slot"),interrupt=data.find("interrupt");
+            const auto menu=data.find("menu");
             if (field==data.end() || !std::holds_alternative<std::string>(field->second)
-                || data.size()!=1+unsigned(alternatives!=data.end())+unsigned(complete!=data.end())+unsigned(slot!=data.end())+unsigned(interrupt!=data.end())
+                || data.size()!=1+unsigned(alternatives!=data.end())+unsigned(complete!=data.end())+unsigned(slot!=data.end())+unsigned(interrupt!=data.end())+unsigned(menu!=data.end())
                 || (interrupt!=data.end() && !std::holds_alternative<bool>(interrupt->second))
                 || (slot!=data.end() && (!std::holds_alternative<int>(slot->second) || std::get<int>(slot->second)<0 || std::get<int>(slot->second)>7))
                 || (complete!=data.end() && !std::holds_alternative<bool>(complete->second))
                 || (alternatives!=data.end() && !std::holds_alternative<SettingSelection>(alternatives->second)))
                 throw std::invalid_argument("Invalid field request data");
             validate_field_targets(std::get<std::string>(field->second),alternatives==data.end()?SettingSelection{}:std::get<SettingSelection>(alternatives->second));
+            if (menu!=data.end()) request_menu(menu->second);
         }},
         {"enemies",[](const Settings& data) {
             const auto enemy=data.find("enemy"),field=data.find("field");
@@ -53,8 +63,11 @@ RequestBatch channel_batch(const Requests& requests) {
     RequestBatch result{requests.generation,requests.revision,requests.channels};
     if (!requests.fields.empty()) {
         if (result.channels.contains("fields")) throw std::invalid_argument("Duplicate field request representations");
-        for (const auto& r : requests.fields)
-            result.channels["fields"].push_back({r.id,r.priority,r.expires,{{"field",r.field},{"alternatives",r.alternatives},{"complete",r.complete},{"hotbar-slot",int(r.hotbar_slot)},{"interrupt",r.interrupt}}});
+        for (const auto& r : requests.fields) {
+            Settings data{{"field",r.field},{"alternatives",r.alternatives},{"complete",r.complete},{"hotbar-slot",int(r.hotbar_slot)},{"interrupt",r.interrupt}};
+            if (r.menu) data["menu"]=std::string(menu_names.at(unsigned(*r.menu)));
+            result.channels["fields"].push_back({r.id,r.priority,r.expires,std::move(data)});
+        }
     }
     if (!requests.enemies.empty()) {
         if (result.channels.contains("enemies")) throw std::invalid_argument("Duplicate enemy request representations");
@@ -81,7 +94,8 @@ std::vector<FieldGoal> RequestBroker::snapshot(Time now,std::uint64_t generation
             alternatives==m.data.end()?SettingSelection{}:std::get<SettingSelection>(alternatives->second),
             m.data.contains("complete") && std::get<bool>(m.data.at("complete")),
             m.data.contains("hotbar-slot")?unsigned(std::get<int>(m.data.at("hotbar-slot"))):0u,
-            m.data.contains("interrupt") && std::get<bool>(m.data.at("interrupt"))});
+            m.data.contains("interrupt") && std::get<bool>(m.data.at("interrupt")),
+            m.data.contains("menu")?std::optional(request_menu(m.data.at("menu"))):std::nullopt});
     }
     return result;
 }

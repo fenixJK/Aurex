@@ -56,6 +56,7 @@ class Gathering final : public automation::Program {
     std::optional<unsigned> pattern_heading_;
     std::string gather_end_;
     bool objective_complete_{};
+    std::optional<game::MenuTab> tracking_menu_;
     game::FieldDecision choose(const automation::View& view) const {
         auto snapshot=source_->read(view.context,view.observations?*view.observations:game::State{});
         snapshot.field.route_position=view.route_position;
@@ -81,6 +82,8 @@ class Gathering final : public automation::Program {
         std::lock_guard lock(results_->mutex_); results_->report_.phase=phase;
     }
     void selection(const game::FieldDecision& decision) {
+        tracking_menu_.reset();
+        for (const auto& goal:decision.contributors) if (!goal.complete && goal.menu) { tracking_menu_=goal.menu; break; }
         std::lock_guard lock(results_->mutex_);
         results_->report_.field=decision.field; results_->report_.reason=decision.reason; results_->report_.contributors=decision.contributors;
     }
@@ -174,6 +177,9 @@ public:
     }
     bool request_yield() override { if (stage_!=Stage::gathered) return false; yielding_=true; return true; }
     automation::RunConfig config() const override { return plan_.config; }
+    std::optional<game::MenuTab> movement_menu() const override {
+        return stage_<=Stage::gathered?tracking_menu_:std::nullopt;
+    }
     std::string field() const override { return stage_==Stage::gathered?plan_.fields[selected_].preference.field:std::string{}; }
     ActivityStatus activity_status() const override {
         switch (stage_) {
@@ -216,6 +222,11 @@ public:
             stage_=Stage::prepare_hive;
         }
         if (stage_==Stage::prepare_hive) {
+            tracking_menu_.reset();
+            for (const auto& goal:source_->goals(view.context,view.observations?*view.observations:game::State{}))
+                if (!goal.complete && goal.menu && goal.generation==view.context.generation && goal.expires>view.context.now) {
+                    tracking_menu_=goal.menu; break;
+                }
             stage_=Stage::hive_unlocked;
             if (std::any_of(plan_.fields.begin(),plan_.fields.end(),[this](const auto& field) { return field.shift_lock.value_or(plan_.shift_lock); })) return automation::RunProgram{[] { return automation::set_shift_lock(false); }};
         }

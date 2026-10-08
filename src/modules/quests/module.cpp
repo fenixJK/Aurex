@@ -199,6 +199,7 @@ public:
     game::Requests requests() const override {
         auto requests=report_.requests;
         requests.fields.insert(requests.fields.end(),report_.completed_fields.begin(),report_.completed_fields.end());
+        for (auto& request:requests.fields) request.menu=game::MenuTab::quests;
         if (goo_slot_) for (auto& request:requests.fields) {
             if (request.complete) continue;
             for (const auto& [giver,card]:tracker_.observed_cards())

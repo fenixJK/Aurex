@@ -15,6 +15,7 @@ struct FieldRequest {
     bool complete{};
     unsigned hotbar_slot{};
     bool interrupt{};
+    std::optional<MenuTab> menu;
 };
 struct EnemyRequest {
     std::string id, enemy;

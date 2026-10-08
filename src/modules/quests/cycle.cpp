@@ -60,6 +60,10 @@ public:
         for (const auto& name:plan_.givers) { game::npc(name); if (!unique.insert(name).second) throw std::invalid_argument("Duplicate quest giver"); }
     }
     automation::RunConfig config() const override { return {std::chrono::hours(1),plan_.speed,{},true,true}; }
+    std::optional<game::MenuTab> movement_menu() const override {
+        if (stage_==Stage::returned || (stage_==Stage::action_verify && !retryable_action_.empty())) return game::MenuTab::quests;
+        return {};
+    }
     ActivityStatus activity_status() const override {
         switch (stage_) {
         case Stage::prepare: return {};
