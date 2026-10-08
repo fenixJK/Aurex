@@ -29,6 +29,7 @@ struct PlanterServices {
     std::shared_ptr<const features::planters::Source> observations;
     std::shared_ptr<const features::planters::Actions> actions;
     features::planters::WallClock clock;
+    std::function<ObservationContext()> context;
     std::shared_ptr<const game::InventorySource> inventory;
     std::shared_ptr<const game::PlanterSource> detection;
 };

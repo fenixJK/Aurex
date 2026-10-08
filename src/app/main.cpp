@@ -496,6 +496,10 @@ public:
 #endif
         native_modules_.planters.account=std::make_shared<hive::features::planters::Account>(hive::features::planters::file_store(planter_path));
         native_modules_.planters.clock=[] { return std::chrono::time_point_cast<hive::Time>(std::chrono::system_clock::now()); };
+        native_modules_.planters.context=[this] {
+            const auto snapshot=session_.snapshot();
+            return hive::ObservationContext{snapshot.window,snapshot.generation,hive::monotonic_now()};
+        };
         native_modules_.quests.fields=hive::features::quests::default_fields();
         std::vector<hive::game::DetectorConfig> detectors{
             {"enemies",hive::game::enemy_detector()},

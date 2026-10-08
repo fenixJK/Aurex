@@ -31,8 +31,11 @@ public:
     void stop() noexcept override {}
     bool executable() const noexcept override { return true; }
     std::vector<extensions::Command> commands() const override {
-        return {{"jelly","Roll Royal Jelly",{},false,true,"Royal Jelly"},
-            {"bitter","Select bee and start",{},false,true,"Mutator","Click the bee you want to mutate. Escape cancels without feeding."},
+        extensions::Command jelly{"jelly","Roll Royal Jelly",{},false,true,"Bee Genetics"};
+        if (!settings_.empty() && std::get<bool>(settings_.at("jelly-mutations")) && std::get<bool>(settings_.at("jelly-neon")))
+            jelly.target_prompt="Click the bee to reroll. It will receive Neonberries and Royal Jelly. Escape cancels.";
+        return {std::move(jelly),
+            {"bitter","Select bee and feed",{},false,true,"Bitterberries","Click the bee you want to mutate. Escape cancels without feeding."},
             {"ssa","Roll SSA",{},false,true,"SSA Roller"}};
     }
     std::unique_ptr<automation::Program> command_program(const std::string& command) const override { return command_program(command,{}); }
@@ -66,6 +69,8 @@ public:
             plan.filter.stop_gifted=std::get<bool>(settings_.at("gifted")); plan.filter.stop_mythic=std::get<bool>(settings_.at("mythic"));
             plan.rolls=std::get<int>(settings_.at("jelly-limit")); plan.delay=Time(std::get<int>(settings_.at("jelly-delay")));
             plan.require_mutation=std::get<bool>(settings_.at("jelly-mutations")); plan.mutations=mutation_filter(settings_);
+            plan.neon=plan.require_mutation && std::get<bool>(settings_.at("jelly-neon"));
+            plan.neon_limit=std::get<int>(settings_.at("jelly-neon-limit")); plan.target=input.target; plan.inventory=inventory_;
             return roll_jelly(std::move(plan),progress_);
         }
         throw std::invalid_argument("Unknown tool");
@@ -87,7 +92,8 @@ extensions::Manifest module_manifest() {
     m.permissions={automation::Permission::interact};
     m.settings={{"bees","Bees to keep",SettingSelection{},0,0,bees()},
         {"gifted","Any gifted",true},{"mythic","Any mythic",true},
-        {"jelly-mutations","Must be mutated",false},
+        {"jelly-mutations","Mutation rolling",false},
+        {"jelly-neon","Automatic Neonberries",false},{"jelly-neon-limit","Neonberry limit",1,1,1000},
         {"bitter-batch","Berries per feed",30,1,1000000},{"bitter-limit","Total berry limit",1000,1,1000000},
         {"bitter-neon","Use Neonberries",false},{"neon-limit","Neonberry limit",1,1,1000},{"bitter-delay","Feed delay",800,500,5000},
         {"jelly-limit","Roll limit",100,1,1000000},{"jelly-delay","Roll delay",800,500,5000},
@@ -103,7 +109,9 @@ extensions::Manifest module_manifest() {
         if (setting.id=="bees" || setting.id=="ssa-sides") setting.inline_choices=true;
         if (setting.id=="ssa-sides") { setting.enabled_by="ssa-double"; setting.help="Choose acceptable second passives, different from the main. Leave empty to accept any second passive. Either order matches."; }
         if (setting.id=="neon-limit") setting.enabled_by="bitter-neon";
-        if (setting.id=="jelly-mutations") setting.help="Selected bees must also match Mutation filters. Any gifted and Any mythic still stop independently.";
+        if (setting.id=="jelly-neon-limit") setting.enabled_by="jelly-neon";
+        if (setting.id=="jelly-neon") setting.help="When mutation rolling, feed one Neonberry before rolling and refresh after 11 minutes. Stops at your Neonberry limit.";
+        if (setting.id=="jelly-mutations") setting.help="Use Royal Jelly until both the bee and mutation match. No bees selected accepts any species. Any gifted and Any mythic still stop independently.";
         if (setting.id=="jelly-limit") setting.help="Limits button presses. Turn off in-game Auto-Jelly if you want one jelly per press.";
     }
     std::vector<std::string> stat_names; for (const auto& stat:amulet_stats()) stat_names.push_back(stat.name);
@@ -113,15 +121,12 @@ extensions::Manifest module_manifest() {
     auto section=[&](std::string id,std::string title,std::vector<std::string> settings,std::string tab,unsigned columns=2,std::string description={}) {
         sections.push_back({std::move(id),std::move(title),std::move(description),std::move(settings),false,columns}); sections.back().tab=std::move(tab);
     };
-    section("jelly-help","Royal Jelly",{},"Royal Jelly",1,"Leave a Royal Jelly result open. Select bees to keep, then roll. Esc stops.");
-    section("bees","Bees to keep",{"bees"},"Royal Jelly",1);
-    section("stops","Keep rules",{"gifted","mythic","jelly-mutations"},"Royal Jelly",3);
-    section("jelly-run","Limits",{"jelly-limit","jelly-delay"},"Royal Jelly");
-    section("jelly-filter-link","Mutation filters",{},"Royal Jelly",1); sections.back().tool="Mutation filters";
-    section("bitter-run","Mutator",{"bitter-batch","bitter-limit"},"Mutator",2,"Face your hive. Choose mutations, then select a bee to start feeding. Esc stops.");
-    section("neon","Radioactive",{"bitter-neon","neon-limit"},"Mutator",2,"Uses one Neonberry before feeding and refreshes it after 11 minutes, up to your limit.");
-    section("bitter-timing","Feed delay",{"bitter-delay"},"Mutator",1);
-    section("mutation-help","Mutation filters",{},"Mutator",1,"Shared by Mutator and Royal Jelly's Must be mutated. No selection accepts any mutation; minimum 0 accepts any value and unit.");
+    section("jelly-help","Bee Genetics",{},"Bee Genetics",1,"Choose bees, mutations, or both. Leave a Royal Jelly result open, or enable Automatic Neonberries and select a bee at your hive. Esc stops.");
+    section("bees","Bees to keep",{"bees"},"Bee Genetics",1);
+    section("stops","Stop on",{"gifted","mythic","jelly-mutations"},"Bee Genetics",3);
+    section("jelly-neon","Radioactive",{"jelly-neon","jelly-neon-limit"},"Bee Genetics");
+    section("jelly-run","Limits",{"jelly-limit","jelly-delay"},"Bee Genetics");
+    section("mutation-help","Mutation filters",{},"Bee Genetics",1,"Shared by mutation rolling and Bitterberries. No selection accepts any mutation; minimum 0 accepts any value and unit.");
     sections.back().tool="Mutation filters";
     for (const auto& type:mutation_types()) {
         const auto key=key_for(type.name,"mutation-");
@@ -131,8 +136,12 @@ extensions::Manifest module_manifest() {
         std::vector<std::string> units;if (type.flat) units.push_back("+");if (type.percent) units.push_back("%");
         m.settings.push_back({key+"-unit","Unit",units.front(),0,0,units});
         m.settings.back().enabled_by=key;
-        section(key,type.name,{key,key+"-minimum",key+"-unit"},"Mutator",3);sections.back().row=true; sections.back().tool="Mutation filters";
+        section(key,type.name,{key,key+"-minimum",key+"-unit"},"Bee Genetics",3);sections.back().row=true; sections.back().tool="Mutation filters";
     }
+    section("bitter-run","Bitterberries",{"bitter-batch","bitter-limit"},"Bitterberries",2,"Keep the current bee and reroll its mutation. Face your hive, choose mutations, then select a bee. Esc stops.");
+    section("neon","Radioactive",{"bitter-neon","neon-limit"},"Bitterberries",2,"Uses one Neonberry before feeding and refreshes it after 11 minutes, up to your limit.");
+    section("bitter-timing","Feed delay",{"bitter-delay"},"Bitterberries",1);
+    section("bitter-filter-link","Mutation filters",{},"Bitterberries",1); sections.back().tool="Mutation filters";
     section("ssa-passives","SSA Roller",{"ssa-main","ssa-double"},"SSA Roller",2,"Start at the SSA generator or an open result. Matches stay open. Escape stops.");
     section("ssa-sides","Second passive · none selected accepts any",{"ssa-sides"},"SSA Roller",1);
     std::vector<std::string> keys;

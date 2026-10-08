@@ -48,6 +48,7 @@ public:
     explicit Account(std::shared_ptr<Store> store);
     std::vector<Plant> plants() const;
     Ledger saved() const;
+    PlanningSnapshot forecast_state(std::vector<Group> groups,const Preferences& preferences,WallTime now,std::size_t capacity) const;
     bool busy() const { return busy_.load(); }
     std::uint64_t edit_revision() const { return edit_revision_.load(); }
     void remove_saved(std::uint64_t id);

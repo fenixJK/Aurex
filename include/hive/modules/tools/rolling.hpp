@@ -14,7 +14,17 @@ public:
     void set(RollReport report) { std::lock_guard lock(mutex_); report_=std::move(report); }
 };
 struct SsaPlan { AmuletFilter filter; unsigned honey_billions{500}; };
-struct JellyPlan { BeeFilter filter; unsigned rolls{100}; Time delay{800}; bool require_mutation{}; MutationFilter mutations; };
+struct JellyPlan {
+    BeeFilter filter;
+    unsigned rolls{100};
+    Time delay{800};
+    bool require_mutation{};
+    MutationFilter mutations;
+    bool neon{};
+    unsigned neon_limit{1};
+    std::optional<WindowPoint> target;
+    std::shared_ptr<const game::InventorySource> inventory;
+};
 struct BitterPlan {
     WindowPoint target;
     std::shared_ptr<const game::InventorySource> inventory;

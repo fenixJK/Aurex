@@ -212,7 +212,7 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
         auto manifest=features::planters::module_manifest(service.plan,"hive.native-planters");
         manifest.description="Build and maintain nectar using observed placement, growth and harvest outcomes. Select fields you can enter and planters you own. Choose Walk to keep carried pollen or Reset for a respawn return. Start with no planters placed by another macro; this profile tracks its own placements. Interrupted actions are checked before another attempt.";
         add(host,std::move(manifest),[service,navigation](const auto& manifest) {
-            return features::planters::module_factory(service.plan,navigation,service.account,service.observations,service.actions,service.clock)(manifest);
+            return features::planters::module_factory(service.plan,navigation,service.account,service.observations,service.actions,service.clock,service.context)(manifest);
         },requirements,[](int version,const Settings& previous) {
             if (version!=1) throw std::invalid_argument("Unknown previous Planter settings version");
             auto values=previous; values.erase("resolved-action"); return values;

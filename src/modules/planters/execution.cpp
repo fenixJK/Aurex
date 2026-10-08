@@ -11,6 +11,23 @@ Account::Account(std::shared_ptr<Store> store):store_(std::move(store)) {
 }
 std::vector<Plant> Account::plants() const { std::lock_guard lock(snapshot_mutex_); return plants_; }
 Ledger Account::saved() const { return store_->load().value_or(Ledger{}); }
+PlanningSnapshot Account::forecast_state(std::vector<Group> groups,const Preferences& preferences,WallTime now,std::size_t capacity) const {
+    const auto ledger=saved();
+    if (ledger.pending) throw std::runtime_error("A planter action is in progress. Try again after it finishes.");
+    TravelTimes travel;
+    for (const auto& [field,samples]:ledger.travel) for (double seconds:samples) travel.record(field,seconds);
+    {
+        std::lock_guard lock(snapshot_mutex_);
+        for (auto& group:groups) {
+            const auto i=static_cast<std::size_t>(group.nectar);
+            if (nectar_phases_.at(i)) group.phase=*nectar_phases_[i];
+            group.last_field=last_fields_.at(i).second;
+            for (auto& candidate:group.candidates) candidate.travel=travel.estimate(candidate.stats.field);
+        }
+    }
+    apply_preferences(groups,preferences);
+    return planning_snapshot(ledger,std::move(groups),travel,now,0,capacity);
+}
 void Account::remove_saved(std::uint64_t id) {
     if (busy_.exchange(true)) throw std::runtime_error("Planters is using these timers. Try again after its current run.");
     try {
@@ -124,6 +141,7 @@ class Execution final : public automation::Program {
         else { phase_=Phase::placed; publish(ExecutionStage::confirming); }
     }
     void remember_fields() {
+        std::lock_guard lock(account_->snapshot_mutex_);
         for (const auto& plant : controller_->ledger().plants) {
             auto& previous=account_->last_fields_[static_cast<std::size_t>(plant.stats.nectar)];
             if (plant.id>previous.first) previous={plant.id,plant.stats.field};
@@ -458,6 +476,7 @@ public:
         auto snapshot=at_field?source_->read_at(view,selected_.field):source_->read(view);
         const bool planning=phase_==Phase::select || phase_==Phase::planning || (phase_==Phase::baseline && !harvest_);
         if (snapshot.nectar.has_value(view.context,Time(2000))) {
+            std::lock_guard lock(account_->snapshot_mutex_);
             auto& groups=snapshot.nectar.value;
             if (!planning) for (auto& group : groups) group.candidates.clear();
             validate_configuration(groups,{},plan_.capacity);

@@ -2,6 +2,7 @@
 #include "hive/module_host/presentation.hpp"
 #include <QWidget>
 namespace hive {
+QImage plot_image(const extensions::Plot& plot,QSize size={1000,620});
 class ModulePlot final : public QWidget {
     std::shared_ptr<const extensions::Plot> plot_;
     void paintEvent(QPaintEvent*) override;

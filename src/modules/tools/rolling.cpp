@@ -1,6 +1,7 @@
 #include "hive/modules/tools/rolling.hpp"
 #include "hive/game/detection/dialog.hpp"
 #include "hive/game/detection/menus.hpp"
+#include "hive/automation/feeding.hpp"
 
 namespace hive::features::tools {
 namespace {
@@ -87,16 +88,45 @@ public:
 };
 class Jelly final : public Rolling {
     JellyPlan plan_;
+    std::shared_ptr<const game::InventorySource> inventory_;
+    std::shared_ptr<FeedReceipt> receipt_;
+    enum class Stage { result,feed,restart,confirm } stage_{Stage::result};
+    Time next_neon_{};
+    Step feed_neon() {
+        if (report_.neonberries>=plan_.neon_limit) return finish("Neonberry limit reached");
+        receipt_=std::make_shared<FeedReceipt>(); stage_=Stage::feed;
+        report_.status="Feeding one Neonberry"; publish();
+        return RunProgram{[inventory=inventory_,receipt=receipt_,delay=plan_.delay] { return feed_item("Neonberry",1,inventory,receipt,delay); }};
+    }
 public:
     Jelly(JellyPlan plan,std::shared_ptr<RollProgress> progress):Rolling(std::move(progress)),plan_(std::move(plan)) {
         if (plan_.delay<Time(500) || plan_.delay>Time(5000)) throw std::invalid_argument("Roll delay must be between 0.5 and 5 seconds");
         validate(plan_.filter,plan_.require_mutation);
         if (plan_.require_mutation) validate(plan_.mutations);
         if (!plan_.rolls || plan_.rolls>1000000) throw std::invalid_argument("Set a finite Royal Jelly roll limit");
+        if (plan_.neon) {
+            if (!plan_.require_mutation || !plan_.target || !plan_.target->valid() || !plan_.inventory || !plan_.neon_limit || plan_.neon_limit>1000)
+                throw std::invalid_argument("Automatic Neonberries need mutation rolling, a selected bee and a Neonberry limit");
+            inventory_=inventory_target(plan_.inventory,*plan_.target);
+        }
     }
     Step next(const View& view) override {
+        if (plan_.neon && !plan_.target->belongs_to(view.context.window)) return finish("Game window changed; select the bee again");
+        if (stage_==Stage::restart) {
+            stage_=Stage::confirm;
+            return DragInventoryItem{{{"Royal Jelly"},"hive.bee"},inventory_};
+        }
+        if (stage_==Stage::confirm) {
+            if (!fresh(view)) return waiting(view,"Reading Royal Jelly confirmation");
+            const auto dialog=game::read_dialog(view.context,view.observations->text,
+                {{"royal jelly"},{.15,.15,.7,.7},.25f,game::PromptMatch::phrase});
+            if (!dialog.has_value(view.context,Time(2000),minimum_)) return waiting(view,"Waiting for Royal Jelly confirmation");
+            ++report_.attempts; stage_=Stage::result;
+            return click(view,dialog.value.yes,"Use Royal Jelly",plan_.delay);
+        }
         if (!fresh(view)) return waiting(view,"Reading bee result");
         const auto result=read_jelly(view.context,*view.observations);
+        if (plan_.neon && !report_.neonberries && result.knowledge==Knowledge::absent) return feed_neon();
         if (!result.has_value(view.context,Time(2000),minimum_)) return waiting(view,"Waiting for the bee result");
         const auto& bee=result.value.bee;
         report_.result=(bee.gifted?"Gifted ":"")+bee.name+" Bee";
@@ -110,9 +140,20 @@ public:
             }
         }
         if (report_.attempts>=plan_.rolls) return finish("Royal Jelly roll limit reached");
+        if (plan_.neon && view.context.now>=next_neon_) return feed_neon();
         if (!result.value.again) return waiting(view,"Waiting for the Royal Jelly button");
         ++report_.attempts;
         return click(view,*result.value.again,"Roll Royal Jelly",plan_.delay);
+    }
+    void step_completed(const View& view) override {
+        if (stage_==Stage::feed) {
+            if (!receipt_ || !receipt_->completed || receipt_->amount!=1) throw std::runtime_error("Neonberry feed was not confirmed; no Royal Jelly submitted");
+            ++report_.neonberries; next_neon_=view.context.now+std::chrono::minutes(11); receipt_.reset();
+            stage_=Stage::restart; publish();
+        } else if (stage_==Stage::confirm) {
+            minimum_=view.context.now; deadline_=minimum_+Time(8000);
+        }
+        Rolling::step_completed(view);
     }
 };
 }

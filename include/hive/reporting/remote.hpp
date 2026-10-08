@@ -20,6 +20,7 @@ struct RemoteReply {
     QList<QPair<QString,QString>> fields;
     QImage image;
     bool inline_fields{};
+    std::function<RemoteReply()> deferred;
 };
 enum class RemoteOptionType { text=3, integer=4, boolean=5, number=10 };
 struct RemoteOption {
@@ -75,6 +76,7 @@ private:
     unsigned revision_{},failures_{},command_revision_{},registration_revision_{};
     bool registration_active_{};
     bool blocked_{},awaiting_ack_{},live_{},registered_{},preparing_image_{};
+    bool preparing_response_{};
     int heartbeat_ms_{};
     QList<QString> seen_;
     void status(QString message);

@@ -31,12 +31,15 @@ struct Command {
 };
 struct ModuleTimer { std::string id,label,detail; std::optional<Time> remaining; std::optional<double> progress; };
 struct CommandInput { std::optional<WindowPoint> target; CommandArguments arguments; };
+struct Plot;
 struct CommandResult {
     std::string title,message;
     std::vector<std::pair<std::string,std::string>> fields;
     std::vector<ModuleTimer> timers;
     std::optional<double> progress;
     std::shared_ptr<const Frame> image;
+    std::shared_ptr<const Plot> chart;
+    std::function<CommandResult()> deferred;
 };
 struct RegisteredCommand { std::string owner; Command command; };
 void validate_commands(const std::vector<Command>& commands);

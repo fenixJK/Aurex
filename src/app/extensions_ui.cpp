@@ -749,11 +749,12 @@ void ExtensionsUi::enable_module(const std::string& id,bool enabled) {
     render();
 }
 extensions::CommandResult ExtensionsUi::invoke_module(const std::string& id,const std::string& command,bool remote,extensions::CommandInput input) {
-    const auto definition=host_.commands().find(id,command);
+    auto definition=host_.commands().find(id,command);
     if (remote && (!definition.remote || !definition.target_prompt.empty())) throw std::invalid_argument("This command is local only");
     if (definition.access==extensions::CommandAccess::stopped) {
         if (busy_()) throw std::runtime_error("Stop the current session before running this command");
         host_.configure(id,module_settings(id));
+        definition=host_.commands().find(id,command);
     }
     if (!remote && !definition.target_prompt.empty() && !input.target) {
         if (!picker_) throw std::runtime_error("Target selection is unavailable");

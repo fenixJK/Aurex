@@ -1,5 +1,6 @@
 #include "remote_modules.hpp"
 #include "extensions_ui.hpp"
+#include "module_plot.hpp"
 #include "hive/module_host/settings_text.hpp"
 #include <algorithm>
 #include <cmath>
@@ -33,6 +34,10 @@ extensions::CommandInput command_input(const RemoteArguments& args) {
 }
 RemoteReply command_reply(const extensions::CommandResult& result) {
     RemoteReply reply{q(result.title),q(result.message)};
+    if (result.deferred) {
+        reply.deferred=[work=result.deferred] { return command_reply(work()); };
+        return reply;
+    }
     for(const auto& [label,value]:result.fields)reply.fields.append({q(label),q(value)});
     QList<RemoteCard> cards;
     for(const auto& timer:result.timers) cards.append({q(timer.label),timer_value(timer),timer.progress});
@@ -41,6 +46,7 @@ RemoteReply command_reply(const extensions::CommandResult& result) {
     if(result.image && result.image->valid()) {
         const auto& frame=*result.image;reply.image=QImage(frame.rgba.data(),frame.width,frame.height,frame.width*4,QImage::Format_RGBA8888).copy();
     }
+    if (result.chart) reply.image=plot_image(*result.chart);
     return reply;
 }
 

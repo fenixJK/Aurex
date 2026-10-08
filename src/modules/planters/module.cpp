@@ -46,6 +46,7 @@ class PlanterModule final : public extensions::Module {
     std::shared_ptr<const Source> source_;
     std::shared_ptr<const Actions> actions_;
     WallClock clock_;
+    std::function<ObservationContext()> context_;
     mutable std::shared_ptr<const ExecutionResults> results_;
     mutable Counters counters_;
     mutable std::uint64_t report_run_{};
@@ -62,8 +63,8 @@ class PlanterModule final : public extensions::Module {
     std::string preview_status_;
 public:
     PlanterModule(const extensions::Manifest& manifest,ExecutionPlan defaults,std::shared_ptr<const game::RouteNetwork> network,
-        std::shared_ptr<Account> account,std::shared_ptr<const Source> source,std::shared_ptr<const Actions> actions,WallClock clock)
-        :defaults_(std::move(defaults)),network_(std::move(network)),account_(std::move(account)),source_(std::move(source)),actions_(std::move(actions)),clock_(std::move(clock)),id_(manifest.id) {
+        std::shared_ptr<Account> account,std::shared_ptr<const Source> source,std::shared_ptr<const Actions> actions,WallClock clock,std::function<ObservationContext()> context)
+        :defaults_(std::move(defaults)),network_(std::move(network)),account_(std::move(account)),source_(std::move(source)),actions_(std::move(actions)),clock_(std::move(clock)),context_(std::move(context)),id_(manifest.id) {
         const auto expected=module_manifest(defaults_);
         if (manifest.id.empty() || manifest.permissions!=permissions || manifest.requests!=expected.requests || !manifest.scripts.empty()
             || !manifest.sources.empty() || !manifest.bindings.empty() || manifest.settings.size()!=expected.settings.size())
@@ -172,9 +173,31 @@ public:
         timers.arguments.push_back(std::move(field));
         extensions::Command check{"check","Check planters",{},false,false};
         check.access=extensions::CommandAccess::queued;check.visible=false;
-        return {{"simulate","Run","Simulation"},std::move(timers),std::move(check)};
+        extensions::Command forecast{"forecast","Nectar prediction",{},false,false,{},{},true,"Predict nectar levels and time to target with your current planters","nectar-predict"};
+        forecast.access=extensions::CommandAccess::read; forecast.visible=false;
+        forecast.arguments={{"hours","Hours","Hours ahead to predict (default 24)",extensions::ArgumentType::integer,false,24,1,72}};
+        return {{"simulate","Run","Simulation"},std::move(timers),std::move(check),std::move(forecast)};
     }
     extensions::CommandResult execute_command(const std::string& id,const extensions::CommandInput& input) override {
+        if (id=="forecast") {
+            if (!started_ || !plan_.preferences || !context_) throw std::runtime_error("Enable Planters and run the macro before predicting nectar");
+            const auto context=context_();
+            const auto reading=source_->read({{},0,{},context}).nectar;
+            if (!reading.has_value(context,Time(2000))) throw std::runtime_error("No recent nectar reading. Try again with the buff bar visible.");
+            auto groups=reading.value;
+            for (auto& group:groups) {
+                group.current=std::max(0.,group.current-(context.now-reading.captured).count()/864000.);
+                std::erase_if(group.candidates,[&](const auto& candidate) { return !plan_.destinations.contains(candidate.stats.field); });
+            }
+            auto snapshot=account_->forecast_state(std::move(groups),*plan_.preferences,clock_(),plan_.capacity);
+            const auto hours=std::get<int>(input.arguments.at("hours"));
+            extensions::CommandResult result{"Nectar prediction"};
+            result.deferred=[snapshot=std::move(snapshot),hours]() mutable {
+                extensions::CommandResult reply{"Nectar prediction","Estimated from current readings and saved planters. The graph shows natural decay between harvests."};
+                reply.chart=forecast_plot(std::move(snapshot),hours); return reply;
+            };
+            return result;
+        }
         if (id=="timers") {
             extensions::CommandResult result{"Planters"};result.timers=timers();
             if (const auto field=input.arguments.find("field");field!=input.arguments.end())
@@ -346,12 +369,12 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
     return result;
 }
 extensions::Factory module_factory(ExecutionPlan defaults,automation::NavigationServices navigation,std::shared_ptr<Account> account,
-    std::shared_ptr<const Source> source,std::shared_ptr<const Actions> actions,WallClock clock) {
+    std::shared_ptr<const Source> source,std::shared_ptr<const Actions> actions,WallClock clock,std::function<ObservationContext()> context) {
     if (!navigation.routes || !navigation.perception) throw std::invalid_argument("Planters needs navigation services");
     auto network=std::make_shared<const game::RouteNetwork>(navigation.routes->network());
     module_manifest(defaults); planters::program(defaults,network,account,source,actions,clock);
-    return [defaults=std::move(defaults),network=std::move(network),account=std::move(account),source=std::move(source),actions=std::move(actions),clock=std::move(clock)](const extensions::Manifest& m) {
-        return std::make_unique<PlanterModule>(m,defaults,network,account,source,actions,clock);
+    return [defaults=std::move(defaults),network=std::move(network),account=std::move(account),source=std::move(source),actions=std::move(actions),clock=std::move(clock),context=std::move(context)](const extensions::Manifest& m) {
+        return std::make_unique<PlanterModule>(m,defaults,network,account,source,actions,clock,context);
     };
 }
 }

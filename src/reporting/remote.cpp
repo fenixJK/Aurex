@@ -307,6 +307,21 @@ void DiscordRemote::register_commands(int index,QJsonArray existing) {
     });
 }
 void DiscordRemote::respond(const QString& key,RemoteReply reply) {
+    if (reply.deferred) {
+        if (preparing_response_) { respond(key,{reply.title,"Another command is being prepared. Try again shortly."}); return; }
+        preparing_response_=true;
+        auto watcher=new QFutureWatcher<RemoteReply>(this); const auto revision=revision_;
+        connect(watcher,&QFutureWatcher<RemoteReply>::finished,this,[this,watcher,revision,key] {
+            preparing_response_=false; auto result=watcher->result(); watcher->deleteLater();
+            if (revision==revision_ && settings_.enabled) respond(key,std::move(result));
+        });
+        watcher->setFuture(QtConcurrent::run([work=std::move(reply.deferred),title=reply.title] {
+            try { return work(); }
+            catch (const std::exception& error) { return RemoteReply{title,"Could not complete the command: "+QString::fromUtf8(error.what())}; }
+            catch (...) { return RemoteReply{title,"Could not complete the command."}; }
+        }));
+        return;
+    }
     if (!reply.image.isNull() && preparing_image_) {
         reply.image={}; reply.description="A screenshot is still being prepared. Try again shortly.";
     }

@@ -148,6 +148,7 @@ Observation<JellyResult> read_jelly(const ObservationContext& c,const game::Stat
         if (label=="use another royal jelly") { if (button) return result; button=&line; }
         if (label.starts_with("transformed") || label.find(" transformed into")!=std::string::npos) { if (heading) return result; heading=&line; }
     }
+    if (!heading && !button) { result.knowledge=Knowledge::absent; return result; }
     if (!heading || (button && button->pixels.y<=heading->pixels.y)) return result;
     const auto x=button?button->pixels.x+button->pixels.width/2:heading->pixels.x+heading->pixels.width/2;
     const auto bottom=button?button->pixels.y:area.y+area.height;

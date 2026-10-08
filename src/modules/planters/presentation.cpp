@@ -6,6 +6,7 @@
 namespace hive::features::planters {
 namespace {
 std::string decimal(double value) { std::ostringstream out;out<<std::fixed<<std::setprecision(1)<<value;return out.str(); }
+constexpr std::array<const char*,5> colors{"#7e9eb3","#78b375","#b398a7","#937db3","#b35951"};
 }
 std::shared_ptr<const extensions::Plot> simulation_plot(Preferences preferences,std::size_t capacity,unsigned days,std::shared_ptr<const std::atomic_bool> cancelled) {
     if (days<1 || days>30 || !cancelled) throw std::invalid_argument("Invalid simulation duration");
@@ -25,7 +26,7 @@ std::shared_ptr<const extensions::Plot> simulation_plot(Preferences preferences,
     plot->description="From zero nectar with the applied settings. Estimated travel: 90 seconds per trip. Weather, sipping and game delays are not predicted.";
     plot->x_label="Days";plot->y_label="Nectar (%)";plot->x_max=days;
     for(unsigned i=0;i<5;++i) if(preferences.targets[i].minimum>0) {
-        extensions::PlotSeries series{nectar_names()[i],{}};
+        extensions::PlotSeries series{nectar_names()[i],{},colors[i]};
         const auto append=[&](std::size_t index) {
             const auto& segment=result.segments[index];
             series.points.push_back({segment.begin/86400.,segment.levels[i]});
@@ -42,6 +43,39 @@ std::shared_ptr<const extensions::Plot> simulation_plot(Preferences preferences,
         plot->statistics.push_back({nectar_names()[i],decimal(result.coverage_seconds[i]/config.seconds*100)+"% coverage, "+(result.built_at[i]?decimal(*result.built_at[i]/3600)+"h to build":"not built")});
     }
     plot->statistics.insert(plot->statistics.begin(),{{"Collections/day",decimal(double(result.harvests)/days)},{"Travel/day",decimal(result.travel_seconds/days/3600)+"h"}});
+    return plot;
+}
+std::shared_ptr<const extensions::Plot> forecast_plot(PlanningSnapshot snapshot,unsigned hours) {
+    if (hours<1 || hours>72) throw std::invalid_argument("Choose 1–72 hours");
+    planning_groups(snapshot);
+    if (snapshot.groups.size()!=5 || std::any_of(snapshot.groups.begin(),snapshot.groups.end(),[](const auto& group) { return !group.current_known; }))
+        throw std::invalid_argument("All five nectar readings are needed for a prediction");
+    SimulationConfig config; config.groups=snapshot.groups; config.growing=snapshot.growing;
+    config.capacity=snapshot.capacity; config.seconds=hours*3600.; config.record_segments=true;
+    const auto deadline=monotonic_now()+Time(30000);
+    config.cancelled=[deadline] { return monotonic_now()>=deadline; };
+    AdaptivePlanner planner;
+    config.choose=[&](const PlanningSnapshot& state) { return planner.select(state,{4096,config.cancelled}).selection; };
+    const auto result=simulate(config);
+    auto plot=std::make_shared<extensions::Plot>(); plot->title="Nectar prediction · next "+std::to_string(hours)+" hours";
+    plot->description="Current nectar, saved planters and your settings. Uses recorded travel times (90 seconds where unknown). Weather, sipping and time spent on other work can change the result.";
+    plot->x_label="Hours from now"; plot->y_label="Nectar (%)"; plot->x_max=hours;
+    for (const auto& group:snapshot.groups) {
+        const auto i=static_cast<std::size_t>(group.nectar);
+        extensions::PlotSeries series{nectar_names()[i],{},colors[i]};
+        for (const auto& segment:result.segments) {
+            series.points.push_back({segment.begin/3600.,segment.levels[i]});
+            series.points.push_back({segment.end/3600.,std::max(0.,segment.levels[i]-(segment.end-segment.begin)/864)});
+        }
+        series.points.push_back({double(hours),result.final[i]}); plot->series.push_back(std::move(series));
+        auto value=decimal(group.current)+"% now → "+decimal(result.final[i])+"% at "+std::to_string(hours)+"h";
+        if (group.target.minimum>0) {
+            const auto upper=bounds(group.target).upper;
+            value+=" · "+decimal(upper)+"% target: ";
+            value+=group.current>=upper?"already reached":result.built_at[i]?decimal(*result.built_at[i]/3600)+"h":"not reached in this window";
+        } else value+=" · maintenance off";
+        plot->statistics.push_back({nectar_names()[i],std::move(value)});
+    }
     return plot;
 }
 }
