@@ -12,10 +12,10 @@ public:
         :nectar_(std::move(nectar)),field_(std::move(field)),planters_(std::move(planters)) {
         if (!nectar_ || !field_) throw std::invalid_argument("Planters needs nectar and field observations");
     }
-    Snapshot read(const automation::View& view) const override { return sample(view,field_->read(view)); }
-    Snapshot read_at(const automation::View& view,const std::string& field) const override { return sample(view,field_->read_at(view,field)); }
-    Snapshot sample(const automation::View& view,Snapshot snapshot) const {
-        if (planters_) {
+    Snapshot read(const automation::View& view) const override { return sample(view,field_->read(view),false); }
+    Snapshot read_at(const automation::View& view,const std::string& field) const override { return sample(view,field_->read_at(view,field),true); }
+    Snapshot sample(const automation::View& view,Snapshot snapshot,bool at_field) const {
+        if (planters_ && at_field) {
             snapshot.growth={};
             snapshot.rewards=planters_->rewards(view.context);
             snapshot.harvest_prompt=planters_->interaction(view.context);

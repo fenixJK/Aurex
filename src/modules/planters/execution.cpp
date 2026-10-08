@@ -117,6 +117,12 @@ class Execution final : public automation::Program {
         if (name.find("Planter")==std::string::npos) name+=" Planter";
         pending_report_=ActivityStatus{harvest_?"Planter harvested":"Planter placed",name+" · "+selected_.field};
     }
+    void complete_action() {
+        recoveries_=0;
+        ++confirmed_; if (harvest_) ++harvests_; else ++placements_; loot_step_=0; remember_fields(); report_outcome();
+        if (harvest_) { harvest_confirmed_=true; phase_=Phase::looting; publish(ExecutionStage::looting); }
+        else { phase_=Phase::placed; publish(ExecutionStage::confirming); }
+    }
     void remember_fields() {
         for (const auto& plant : controller_->ledger().plants) {
             auto& previous=account_->last_fields_[static_cast<std::size_t>(plant.stats.nectar)];
@@ -365,6 +371,10 @@ public:
             }
             phase_=Phase::locating;
         }
+        if (phase_==Phase::locating && !harvest_ && !reconcile_) {
+            begin_baseline(view);
+            return wait("Preparing planter placement");
+        }
         if (phase_==Phase::locating) {
             const auto snapshot=source_->read_at(view,selected_.field);
             const auto& local=snapshot.placements;
@@ -443,7 +453,8 @@ public:
                 selected_=due->stats; harvest_=due->id; assignment_.reset(); reconcile_=false; return travel(view);
             }
         }
-        const bool at_field=phase_==Phase::baseline || phase_==Phase::reconciling || phase_==Phase::confirming;
+        const bool at_field=(phase_==Phase::baseline && (harvest_ || !plan_.attempt_unscanned_placement))
+            || phase_==Phase::reconciling || phase_==Phase::confirming;
         auto snapshot=at_field?source_->read_at(view,selected_.field):source_->read(view);
         const bool planning=phase_==Phase::select || phase_==Phase::planning || (phase_==Phase::baseline && !harvest_);
         if (snapshot.nectar.has_value(view.context,Time(2000))) {
@@ -548,18 +559,15 @@ public:
         }
         if (phase_==Phase::acting) return emit(steps_.at(action_step_++));
         if (phase_==Phase::confirming) {
-            if (view.context.now>=deadline_) throw ObservationUnavailable("Planter placement or harvest was not confirmed");
+            if (view.context.now>=deadline_) throw ObservationUnavailable(harvest_?"Planter harvest was not confirmed":"Planter placement was not confirmed");
             const auto evidence=scan(view,snapshot)?snapshot.placements:Observation<Placements>{};
             auto receipt=harvest_action_?harvest_receipt(selected_,nectar_before_,snapshot,view.context,minimum_):Observation<HarvestEvidence>{};
             if (harvest_action_ && receipt.knowledge!=Knowledge::present)
                 receipt=reward_receipt(selected_,rewards_before_,snapshot,view.context,minimum_);
             const auto result=controller_->observe(controller_->ledger().pending->ticket,view.context,now,evidence,receipt);
-            if (result==Outcome::uncertain) throw ObservationUnavailable("Planter placement or harvest was not confirmed");
+            if (result==Outcome::uncertain) throw ObservationUnavailable(harvest_?"Planter harvest was not confirmed":"Planter placement was not confirmed");
             if (result==Outcome::confirmed) {
-                recoveries_=0;
-                ++confirmed_; if (harvest_) ++harvests_; else ++placements_; loot_step_=0; remember_fields(); report_outcome();
-                if (harvest_) { harvest_confirmed_=true; phase_=Phase::looting; publish(ExecutionStage::looting); }
-                else phase_=Phase::placed;
+                complete_action();
             } else if (harvest_action_ && action_step_<steps_.size() && view.observations
                 && view.observations->confirmation.has_value(view.context,Time(2000),minimum_)) {
                 phase_=Phase::acting;
@@ -584,6 +592,12 @@ public:
         } else if (phase_==Phase::approaching) {
             begin_baseline(view);
         } else if (phase_==Phase::acting && (action_step_==steps_.size() || (harvest_action_ && action_step_==1))) {
+            const auto* dialog=std::get_if<AnswerDialog>(&steps_.at(action_step_-1));
+            if (!harvest_ && dialog && dialog->plan.choice==workflows::DialogChoice::yes) {
+                controller_->placement_accepted(controller_->ledger().pending->ticket,view.context,wall());
+                complete_action();
+                return;
+            }
             if (!harvest_action_ || action_step_==1) controller_->input_finished(controller_->ledger().pending->ticket,view.context);
             phase_=Phase::confirming; minimum_=view.context.now+Time(1); deadline_=view.context.now+Time(10000); publish(ExecutionStage::confirming);
         } else if (phase_==Phase::returning && plan_.conversion && plan_.conversion->enabled && (harvest_confirmed_ || plan_.conversion->every_return)) {

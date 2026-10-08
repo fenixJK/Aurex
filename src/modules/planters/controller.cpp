@@ -202,6 +202,13 @@ void Controller::input_finished(std::uint64_t ticket,const ObservationContext& c
     if (!transaction_ || !ledger_.pending || ledger_.pending->ticket!=ticket) throw std::logic_error("No matching planter action to confirm");
     transaction_->input_finished(context); confirmed_at_.reset();
 }
+void Controller::placement_accepted(std::uint64_t ticket,const ObservationContext& context,WallTime wall) {
+    if (!ledger_.pending || ledger_.pending->operation!=Operation::place)
+        throw std::logic_error("No planter placement to accept");
+    clock(wall);
+    input_finished(ticket,context);
+    finish(true,wall);
+}
 void Controller::abandon_unstarted_placement(std::uint64_t ticket,WallTime wall) {
     if (!ledger_.pending || ledger_.pending->ticket!=ticket || ledger_.pending->operation!=Operation::place
         || !transaction_ || transaction_->input_was_finished())

@@ -58,7 +58,7 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
     try {
         if (!owned_) {
             if (!tasks.acquire(scope)) return;
-            owned_=true; minimum_=c.now;
+            owned_=true; minimum_=plan_.use_recent_view?std::max(Time{},c.now-Time(2000)):c.now;
         }
         for (const auto& result : tasks.results(scope)) if (result.id==pending_) {
             pending_.clear();
