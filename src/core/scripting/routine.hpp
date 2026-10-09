@@ -2,7 +2,7 @@
 #include "core/runtime/program.hpp"
 #include "core/module_host/activity_policy.hpp"
 
-namespace hive::features::routine {
+namespace hive::scripting::routine {
 struct Activity {
     std::string id;
     int priority{};

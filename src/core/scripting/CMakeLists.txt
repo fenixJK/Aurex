@@ -15,5 +15,8 @@ add_library(hive_movement movement.cpp)
 target_include_directories(hive_movement PRIVATE "${PROJECT_BINARY_DIR}/generated")
 target_link_libraries(hive_movement PUBLIC hive_workflows PRIVATE hive_lua)
 
+add_library(hive_routines routine.cpp)
+target_link_libraries(hive_routines PUBLIC hive_automation)
+
 add_library(hive_scripts script.cpp)
 target_link_libraries(hive_scripts PUBLIC hive_automation PRIVATE hive_lua hive_routines)

@@ -39,6 +39,11 @@ void History::sample(qint64 now,const Gauge& reading) {
 }
 void History::sample(qint64 now,const Snapshot& snapshot) {
     sample(now,snapshot.trend);
+    for (auto it=traces_.begin();it!=traces_.end();) {
+        trim(it.value(),now);
+        if (it->empty()) it=traces_.erase(it); else ++it;
+    }
+    for (auto& count:counters_) trim(count.deltas,now);
     const auto gauges=[&](const QList<Gauge>& values) {
         for (const auto& value:values) {
             const auto id=value.id.isEmpty()?value.name:value.id;

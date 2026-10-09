@@ -1,7 +1,5 @@
 add_library(hive_policies policies.cpp)
 target_link_libraries(hive_policies PUBLIC hive_game)
-add_library(hive_routines routine.cpp routine_defaults.cpp)
-target_link_libraries(hive_routines PUBLIC hive_automation PRIVATE hive_policies)
 add_library(hive_visit_module visit_module.cpp visit_cooldowns.cpp)
 target_link_libraries(hive_visit_module PUBLIC hive_automation)
 

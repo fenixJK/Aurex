@@ -60,14 +60,13 @@ public:
             BitterPlan plan; plan.target=*input.target; plan.inventory=inventory_; plan.mutations=mutation_filter(settings_);
             plan.batch=std::get<int>(settings_.at("bitter-batch")); plan.limit=std::get<int>(settings_.at("bitter-limit"));
             plan.neon=std::get<bool>(settings_.at("bitter-neon")); plan.neon_limit=std::get<int>(settings_.at("neon-limit"));
-            plan.delay=Time(std::get<int>(settings_.at("bitter-delay")));
             return roll_mutations(std::move(plan),progress_);
         }
         if (command=="jelly") {
             JellyPlan plan;
             const auto& selected=std::get<SettingSelection>(settings_.at("bees")); plan.filter.names={selected.begin(),selected.end()};
             plan.filter.stop_gifted=std::get<bool>(settings_.at("gifted")); plan.filter.stop_mythic=std::get<bool>(settings_.at("mythic"));
-            plan.rolls=std::get<int>(settings_.at("jelly-limit")); plan.delay=Time(std::get<int>(settings_.at("jelly-delay")));
+            plan.rolls=std::get<int>(settings_.at("jelly-limit"));
             plan.require_mutation=std::get<bool>(settings_.at("jelly-mutations")); plan.mutations=mutation_filter(settings_);
             plan.neon=plan.require_mutation && std::get<bool>(settings_.at("jelly-neon"));
             plan.neon_limit=std::get<int>(settings_.at("jelly-neon-limit")); plan.target=input.target; plan.inventory=inventory_;
@@ -87,7 +86,7 @@ public:
 }
 extensions::Manifest module_manifest() {
     extensions::Manifest m; m.id="hive.native-tools"; m.provider="native-tools"; m.name="Tools"; m.version="0.1.0";
-    m.settings_version=2;
+    m.settings_version=3;
     m.description="Start individual bee and amulet tools here. Tools are not part of the farming rotation.";
     m.permissions={automation::Permission::interact};
     m.settings={{"bees","Bees to keep",SettingSelection{},0,0,bees()},
@@ -95,13 +94,12 @@ extensions::Manifest module_manifest() {
         {"jelly-mutations","Mutation rolling",false},
         {"jelly-neon","Automatic Neonberries",false},{"jelly-neon-limit","Neonberry limit",1,1,1000},
         {"bitter-batch","Berries per feed",30,1,1000000},{"bitter-limit","Total berry limit",1000,1,1000000},
-        {"bitter-neon","Use Neonberries",false},{"neon-limit","Neonberry limit",1,1,1000},{"bitter-delay","Feed delay",800,500,5000},
-        {"jelly-limit","Roll limit",100,1,1000000},{"jelly-delay","Roll delay",800,500,5000},
+        {"bitter-neon","Use Neonberries",false},{"neon-limit","Neonberry limit",1,1,1000},
+        {"jelly-limit","Roll limit",100,1,1000000},
         {"ssa-main","Main passive",std::string("Pop Star"),0,0,passives()},
         {"ssa-sides","Side passives",SettingSelection{},0,0,passives()},
         {"ssa-double","Double passive · 500B / roll",false},{"ssa-limit","Honey budget",500,10,1000000}};
     for (auto& setting:m.settings) {
-        if (setting.id.ends_with("delay")) setting.suffix=" ms";
         if (setting.id=="ssa-limit") {
             setting.suffix=" B"; setting.help="Maximum honey spent this run. Single rolls cost 10B; double rolls cost 500B.";
             setting.step=10; setting.step_toggle="ssa-double"; setting.checked_step=500;
@@ -129,7 +127,7 @@ extensions::Manifest module_manifest() {
     section("bees","Bees to keep",{"bees"},"Bee Genetics",1);
     section("stops","Stop on",{"gifted","mythic","jelly-mutations"},"Bee Genetics",3);
     section("jelly-neon","Radioactive",{"jelly-neon","jelly-neon-limit"},"Bee Genetics");
-    section("jelly-run","Limits",{"jelly-limit","jelly-delay"},"Bee Genetics");
+    section("jelly-run","Limits",{"jelly-limit"},"Bee Genetics");
     section("mutation-help","Mutation filters",{},"Bee Genetics",1,"Shared by mutation rolling and Bitterberries. No selection accepts any mutation; minimum 0 accepts any value and unit.");
     sections.back().tool="Mutation filters";
     for (const auto& type:mutation_types()) {
@@ -144,7 +142,6 @@ extensions::Manifest module_manifest() {
     }
     section("bitter-run","Bitterberries",{"bitter-batch","bitter-limit"},"Bitterberries",2,"Keep the current bee and reroll its mutation. Face your hive, choose mutations, then select a bee. Esc stops.");
     section("neon","Radioactive",{"bitter-neon","neon-limit"},"Bitterberries",2,"Uses one Neonberry before feeding and refreshes it after 11 minutes, up to your limit.");
-    section("bitter-timing","Feed delay",{"bitter-delay"},"Bitterberries",1);
     section("bitter-filter-link","Mutation filters",{},"Bitterberries",1); sections.back().tool="Mutation filters";
     section("ssa-passives","SSA Roller",{"ssa-main","ssa-double"},"SSA Roller",2,"Start at the SSA generator or an open result. Matches stay open. Escape stops.");
     section("ssa-sides","Second passive · none selected accepts any",{"ssa-sides"},"SSA Roller",1);

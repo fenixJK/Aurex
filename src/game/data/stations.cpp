@@ -17,7 +17,7 @@ const std::vector<StationDefinition>& stations() {
         {"Honeystorm","station.honeystorm",hours(4),{"Summon Honeystorm",{.2,0,.6,.3},false,true},Time{},false},
         {"Sticker Printer","station.sticker-printer",hours(1),{"Sticker Printer",{.2,0,.6,.3},false,true},Time{},false,StationInteraction::sticker_printer},
         {"Wealth Clock","station.clock",hours(1),{"Wealth Clock",{.2,0,.6,.3},false,true}},
-        {"Honey Dispenser","station.honey",hours(1),{"Honey Dispenser",{.2,0,.6,.3},false,true}},
+        {"Honey Dispenser","station.honey",hours(1),{"Honey Dispenser",{.2,0,.6,.3},false,true},Time{},true},
         {"Treat Dispenser","station.treats",hours(1),{"Treat Dispenser",{.2,0,.6,.3},false,true}},
         {"Blueberry Dispenser","station.blueberries",hours(4),{"Blueberry Dispenser",{.2,0,.6,.3},false,true}},
         {"Strawberry Dispenser","station.strawberries",hours(4),{"Strawberry Dispenser",{.2,0,.6,.3},false,true}},

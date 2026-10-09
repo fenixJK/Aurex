@@ -1,7 +1,7 @@
 #include "routine.hpp"
 #include <algorithm>
 
-namespace hive::features::routine {
+namespace hive::scripting::routine {
 using namespace automation;
 namespace {
 class RoutineProgram final : public Program {
@@ -74,6 +74,9 @@ public:
         return steps().at(next_step_++);
     }
 };
+}
+std::unique_ptr<Program> routine_program(Routine routine) {
+    return routine_program(std::move(routine),std::make_unique<FairActivityPolicy>());
 }
 std::unique_ptr<Program> routine_program(Routine routine,std::unique_ptr<ActivityPolicy> policy) {
     return std::make_unique<RoutineProgram>(std::move(routine),std::move(policy));

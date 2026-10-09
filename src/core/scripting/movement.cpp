@@ -3,6 +3,7 @@
 #include "runtime.hpp"
 #include "bundled_movement.hpp"
 #include <fstream>
+#include <array>
 #include <mutex>
 #include <cstring>
 
@@ -140,14 +141,16 @@ std::map<std::string,std::string> read_sources(const std::filesystem::path& dire
     if (std::filesystem::is_symlink(directory) || !std::filesystem::is_directory(directory)) throw std::runtime_error("Movement folder must be a regular directory");
     std::map<std::string,std::string> result;
     std::size_t entries=0;
+    std::array<char,131073> buffer;
     for (const auto& entry:std::filesystem::directory_iterator(directory)) {
         if (++entries>256) throw std::runtime_error("Movement folder contains too many entries");
         if (entry.path().extension()!=".lua") continue;
         if (result.size()>=64 || entry.is_symlink() || !entry.is_regular_file()) throw std::runtime_error("Invalid movement file");
-        std::ifstream input(entry.path(),std::ios::binary); std::string source(131073,'\0');
-        input.read(source.data(),static_cast<std::streamsize>(source.size())); source.resize(static_cast<std::size_t>(input.gcount()));
-        if (input.bad() || source.empty() || source.size()>131072) throw std::runtime_error("Cannot read movement file: "+entry.path().filename().string());
-        result.emplace(entry.path().stem().string(),std::move(source));
+        std::ifstream input(entry.path(),std::ios::binary);
+        input.read(buffer.data(),static_cast<std::streamsize>(buffer.size()));
+        const auto size=static_cast<std::size_t>(input.gcount());
+        if (input.bad() || size==0 || size>131072) throw std::runtime_error("Cannot read movement file: "+entry.path().filename().string());
+        result.emplace(entry.path().stem().string(),std::string(buffer.data(),size));
     }
     return result;
 }

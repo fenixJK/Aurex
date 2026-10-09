@@ -57,14 +57,15 @@ std::vector<extensions::Setting> option_settings(const Plan& plan) {
 using Builder=std::function<std::unique_ptr<extensions::Module>(Options,const extensions::Manifest&)>;
 class CombatModule final : public extensions::Module {
     extensions::Manifest visits_;
+    visits::AvailableSettings available_;
     std::vector<extensions::Setting> options_;
     struct Target { std::string id,species; bool boss; int maximum_health; std::shared_ptr<FightProgress> progress; };
     std::vector<Target> targets_;
     Builder build_;
     std::unique_ptr<extensions::Module> delegate_;
 public:
-    CombatModule(const extensions::Manifest& manifest,const Plan& plan,Builder build)
-        :visits_(manifest),options_(option_settings(plan)),build_(std::move(build)) {
+    CombatModule(const extensions::Manifest& manifest,const Plan& plan,const Plan& available,Builder build)
+        :visits_(manifest),available_(visit_plan(plan),visit_plan(available)),options_(option_settings(plan)),build_(std::move(build)) {
         if (manifest.settings.size()>maximum_settings) throw std::invalid_argument("Too many Combat settings");
         for (const auto& enemy:plan.enemies) targets_.push_back({enemy.id,enemy.species,enemy.boss,enemy.maximum_health,enemy.progress});
         for (const auto& expected:options_) {
@@ -77,7 +78,7 @@ public:
                 throw std::invalid_argument("Invalid Combat default preference");
             std::erase_if(visits_.settings,[&](const auto& s) { return s.id==expected.id; });
         }
-        visits_.page.reset();
+        visits_=available_.manifest(std::move(visits_));
         delegate_=build_(plan.options,visits_);
     }
     void start(const Settings& values) override {
@@ -118,7 +119,7 @@ public:
                 std::get<std::string>(values.at("snail-session"))=="Until defeated",std::get<std::string>(values.at("snail-amulet"))=="Keep old"};
         }
         auto next=build_(std::move(options),visits_);
-        next->start(settings);
+        next->start(available_.values(std::move(settings)));
         delegate_=std::move(next);
     }
     void update(const extensions::SessionView& view) override { delegate_->update(view); }
@@ -210,7 +211,7 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     if (manifest.settings.size()>maximum_settings) throw std::invalid_argument("Too many Combat settings");
     return manifest;
 }
-extensions::Factory module_factory(Plan plan,automation::NavigationServices navigation,std::shared_ptr<const automation::AvailabilitySource> availability,std::shared_ptr<const game::EnemyGoalSource> goals,std::shared_ptr<visits::Cooldowns> saved) {
+extensions::Factory module_factory(Plan plan,automation::NavigationServices navigation,std::shared_ptr<const automation::AvailabilitySource> availability,std::shared_ptr<const game::EnemyGoalSource> goals,std::shared_ptr<visits::Cooldowns> saved,std::optional<Plan> configuration) {
     features::visits::Demand demand;
     if (goals) {
         for (auto& enemy:plan.enemies) if (!enemy.hunt_fields.empty())
@@ -234,11 +235,20 @@ extensions::Factory module_factory(Plan plan,automation::NavigationServices navi
     }
     module_manifest(plan,"hive.combat","native-combat",bool(demand));
     features::visits::factory(visit_plan(plan),navigation,availability,permissions,demand);
+    if (configuration) for (auto& enemy:configuration->enemies) {
+        const auto available=std::find_if(plan.enemies.begin(),plan.enemies.end(),[&](const auto& item) { return item.id==enemy.id; });
+        if (available!=plan.enemies.end()) enemy=*available;
+    }
+    const auto display=std::make_shared<const Plan>(configuration?std::move(*configuration):plan);
     const auto defaults=std::make_shared<const Plan>(std::move(plan));
     Builder build=[defaults,navigation=std::move(navigation),availability=std::move(availability),demand=std::move(demand),saved=std::move(saved)](Options options,const extensions::Manifest& manifest) {
-        auto configured=*defaults; configured.options=std::move(options);
+        auto configured=*defaults;
+        const auto available=[&](const auto& id) { return std::any_of(configured.enemies.begin(),configured.enemies.end(),[&](const auto& enemy) { return enemy.id==id; }); };
+        std::erase_if(options.enemies,[&](const auto& item) { return !available(item.first); });
+        std::erase_if(options.boss_order,[&](const auto& id) { return !available(id); });
+        configured.options=std::move(options);
         return features::visits::factory(visit_plan(std::move(configured)),navigation,availability,permissions,demand,saved)(manifest);
     };
-    return [defaults,build=std::move(build)](const extensions::Manifest& manifest) { return std::make_unique<CombatModule>(manifest,*defaults,build); };
+    return [display,defaults,build=std::move(build)](const extensions::Manifest& manifest) { return std::make_unique<CombatModule>(manifest,*display,*defaults,build); };
 }
 }

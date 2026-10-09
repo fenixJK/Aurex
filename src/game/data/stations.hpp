@@ -8,7 +8,7 @@ struct StationDefinition {
     Time cooldown;
     TextTarget prompt;
     Time settle{};
-    bool selected_by_default{true};
+    bool selected_by_default{false};
     StationInteraction interaction{StationInteraction::activate};
     bool night_only{};
     std::vector<std::string> boosted_fields;

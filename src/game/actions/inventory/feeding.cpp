@@ -49,7 +49,6 @@ class Feeding final : public Program {
     unsigned amount_{};
     bool action_{};
     std::shared_ptr<FeedReceipt> receipt_;
-    Time settle_{100};
     Step wait(const View& view,const std::string& message) {
         if (view.context.now>=deadline_) throw std::runtime_error(message+" timed out; no additional feed was submitted");
         return Wait{Time(100),message};
@@ -59,10 +58,10 @@ public:
         if ((plan_.food!="Strawberry" && plan_.food!="Blueberry") || !plan_.amount || plan_.amount>100 || !plan_.prepare
             || !plan_.inventory || !plan_.hive || !plan_.reference) throw std::invalid_argument("Feeding needs a bounded amount, inventory and own-hive observations");
     }
-    Feeding(std::string food,unsigned amount,std::shared_ptr<const game::InventorySource> inventory,std::shared_ptr<FeedReceipt> receipt,Time settle)
-        :stage_(Stage::drag),amount_(amount),receipt_(std::move(receipt)),settle_(settle) {
-        if ((food!="Bitterberry" && food!="Neonberry") || !amount || amount>1000000 || !inventory || !receipt_
-            || settle<Time(500) || settle>Time(5000)) throw std::invalid_argument("Feeding needs a supported food, amount and destination");
+    Feeding(std::string food,unsigned amount,std::shared_ptr<const game::InventorySource> inventory,std::shared_ptr<FeedReceipt> receipt)
+        :stage_(Stage::drag),amount_(amount),receipt_(std::move(receipt)) {
+        if ((food!="Bitterberry" && food!="Neonberry") || !amount || amount>1000000 || !inventory || !receipt_)
+            throw std::invalid_argument("Feeding needs a supported food, amount and destination");
         plan_.food=std::move(food); plan_.inventory=std::move(inventory);
     }
     RunConfig config() const override { return {std::chrono::minutes(6),28,{},true,true}; }
@@ -114,7 +113,7 @@ public:
     }
     void step_completed(const View& view) override {
         if (!action_) return;
-        action_=false; minimum_=view.context.now+(stage_==Stage::closing?settle_:Time(100)); deadline_=minimum_+Time(10000);
+        action_=false; minimum_=view.context.now; frame_=minimum_; deadline_=minimum_+Time(10000);
     }
 };
 }
@@ -122,7 +121,7 @@ std::unique_ptr<Program> feed_bees(FeedingPlan plan) { return std::make_unique<F
 std::shared_ptr<const game::InventorySource> inventory_target(std::shared_ptr<const game::InventorySource> source,WindowPoint target) {
     return std::make_shared<SelectedDestination>(std::move(source),std::move(target));
 }
-std::unique_ptr<Program> feed_item(std::string food,unsigned amount,std::shared_ptr<const game::InventorySource> inventory,std::shared_ptr<FeedReceipt> receipt,Time settle) {
-    return std::make_unique<Feeding>(std::move(food),amount,std::move(inventory),std::move(receipt),settle);
+std::unique_ptr<Program> feed_item(std::string food,unsigned amount,std::shared_ptr<const game::InventorySource> inventory,std::shared_ptr<FeedReceipt> receipt) {
+    return std::make_unique<Feeding>(std::move(food),amount,std::move(inventory),std::move(receipt));
 }
 }

@@ -1,7 +1,9 @@
 #include "scripts.hpp"
 #include "core/scripting/program.hpp"
 #include <algorithm>
+#include <array>
 #include <fstream>
+#include <memory>
 #include "bundled_patterns.hpp"
 
 namespace hive::features::gathering {
@@ -9,15 +11,17 @@ namespace {
 std::string read_source(const std::filesystem::path& file) {
     if (std::filesystem::is_symlink(file) || !std::filesystem::is_regular_file(file))
         throw std::runtime_error("Pattern must be a regular file");
-    std::ifstream input(file,std::ios::binary); std::string source(65537,'\0');
-    input.read(source.data(),static_cast<std::streamsize>(source.size())); source.resize(static_cast<std::size_t>(input.gcount()));
-    if (input.bad() || source.empty() || source.size()>65536) throw std::runtime_error("Pattern must contain between 1 byte and 64 KiB");
-    return source;
+    std::ifstream input(file,std::ios::binary); std::array<char,65537> buffer;
+    input.read(buffer.data(),static_cast<std::streamsize>(buffer.size()));
+    const auto size=static_cast<std::size_t>(input.gcount());
+    if (input.bad() || size==0 || size>65536) throw std::runtime_error("Pattern must contain between 1 byte and 64 KiB");
+    return std::string(buffer.data(),size);
 }
 PatternPreset script_preset(std::string name,const std::string& source,std::filesystem::path file={}) {
     PatternPreset preset; preset.name=std::move(name);
-    preset.configured=[source,file=std::move(file)](const Settings& parameters) -> automation::ProgramFactory {
-        return [source,file,parameters] { return scripting::script_pattern({{"main",file.empty()?source:read_source(file)}},parameters); };
+    auto bundled=file.empty()?std::make_shared<const std::string>(source):nullptr;
+    preset.configured=[bundled=std::move(bundled),file=std::move(file)](const Settings& parameters) -> automation::ProgramFactory {
+        return [bundled,file,parameters] { return scripting::script_pattern({{"main",bundled?*bundled:read_source(file)}},parameters); };
     };
     preset.strategy=[configured=preset.configured](int width) {
         if (width<1 || width>12) throw std::invalid_argument("Pattern width must be between 1 and 12");
@@ -71,8 +75,7 @@ PatternFiles read_pattern_files(const std::filesystem::path& directory) {
                     return (c>='a' && c<='z') || (c>='A' && c<='Z') || (c>='0' && c<='9') || c=='-' || c=='_' || c==' ';
                 })) throw std::runtime_error("Use a filename with letters, numbers, spaces, hyphens or underscores");
                 if (result.presets.size()>=64) throw std::runtime_error("At most 64 Lua patterns can be loaded");
-                const auto source=read_source(file);
-                result.presets.push_back(script_preset(bundled_patterns.contains(name)?name:"Lua: "+name,source,file));
+                result.presets.push_back(script_preset(bundled_patterns.contains(name)?name:"Lua: "+name,{},file));
             } catch (const std::exception& error) {
                 result.errors.push_back(name+".lua: "+error.what());
             }

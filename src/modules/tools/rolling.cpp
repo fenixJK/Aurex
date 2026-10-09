@@ -12,7 +12,6 @@ protected:
     RollReport report_;
     Time minimum_{},deadline_{},frame_{Time(-1)};
     bool acted_{};
-    Time settle_{};
     Step waiting(const View& view,const char* message) {
         if (view.context.now>=deadline_) { report_.status="Could not read the result; no further roll submitted"; publish(); return Done{report_.status}; }
         return Wait{Time(100),message};
@@ -26,8 +25,8 @@ protected:
     }
     void publish() { progress_->set(report_); }
     Step finish(std::string text,bool match=false) { report_.matched=match; report_.status=std::move(text); publish(); return Done{report_.status}; }
-    Step click(const View& view,Point point,std::string message,Time settle) {
-        acted_=true; settle_=settle; report_.status=message; publish();
+    Step click(const View& view,Point point,std::string message) {
+        acted_=true; report_.status=message; publish();
         const auto& text=view.observations->text;
         return UseControl{{Knowledge::present,point,text.captured,text.window,text.generation},0,std::move(message),game::pointer_rest(view.context,*view.observations)};
     }
@@ -40,7 +39,7 @@ public:
     std::vector<Rect> text_regions() const override { return {{.1,0,.8,.95}}; }
     void step_completed(const View& view) override {
         if (!acted_) return;
-        acted_=false; minimum_=view.context.now+settle_; deadline_=minimum_+Time(8000);
+        acted_=false; minimum_=view.context.now; frame_=minimum_; deadline_=minimum_+Time(8000);
     }
     void finished(State state) override {
         if (state==State::stopped || state==State::failed) { report_.status=state==State::stopped?"Stopped":"Stopped after an error"; publish(); }
@@ -75,11 +74,11 @@ public:
             if (report_.attempts>=plan_.honey_billions/cost) return finish("Honey limit reached");
             if (purchase.has_value(c,Time(2000),minimum_)) {
                 ++report_.attempts; stage_=Stage::result; pressed_=false;
-                return click(view,plan_.filter.double_passive?purchase.value.yes:purchase.value.no,"Roll SSA",Time{});
+                return click(view,plan_.filter.double_passive?purchase.value.yes:purchase.value.no,"Roll SSA");
             }
             if (!pressed_ && (result.has_value(c,Time(2000),minimum_) || game::read_prompt_landmark(c,state.text,
                 {{"Generate a Supreme Star Amulet"},{.15,0,.7,.3},.5f,game::PromptMatch::phrase}).has_value(c,Time(2000),minimum_))) {
-                stage_=Stage::purchase; pressed_=true; acted_=true; settle_=Time{};
+                stage_=Stage::purchase; pressed_=true; acted_=true;
                 return Hold{{Key::interact},Time(80)};
             }
         }
@@ -91,16 +90,16 @@ class Jelly final : public Rolling {
     std::shared_ptr<const game::InventorySource> inventory_;
     std::shared_ptr<FeedReceipt> receipt_;
     enum class Stage { result,feed,restart,confirm } stage_{Stage::result};
+    std::optional<Bee> previous_;
     Time next_neon_{};
     Step feed_neon() {
         if (report_.neonberries>=plan_.neon_limit) return finish("Neonberry limit reached");
         receipt_=std::make_shared<FeedReceipt>(); stage_=Stage::feed;
         report_.status="Feeding one Neonberry"; publish();
-        return RunProgram{[inventory=inventory_,receipt=receipt_,delay=plan_.delay] { return feed_item("Neonberry",1,inventory,receipt,delay); }};
+        return RunProgram{[inventory=inventory_,receipt=receipt_] { return feed_item("Neonberry",1,inventory,receipt); }};
     }
 public:
     Jelly(JellyPlan plan,std::shared_ptr<RollProgress> progress):Rolling(std::move(progress)),plan_(std::move(plan)) {
-        if (plan_.delay<Time(500) || plan_.delay>Time(5000)) throw std::invalid_argument("Roll delay must be between 0.5 and 5 seconds");
         validate(plan_.filter,plan_.require_mutation);
         if (plan_.require_mutation) validate(plan_.mutations);
         if (!plan_.rolls || plan_.rolls>1000000) throw std::invalid_argument("Set a finite Royal Jelly roll limit");
@@ -122,10 +121,12 @@ public:
                 {{"royal jelly"},{.15,.15,.7,.7},.25f,game::PromptMatch::phrase});
             if (!dialog.has_value(view.context,Time(2000),minimum_)) return waiting(view,"Waiting for Royal Jelly confirmation");
             ++report_.attempts; stage_=Stage::result;
-            return click(view,dialog.value.yes,"Use Royal Jelly",plan_.delay);
+            previous_.reset();
+            return click(view,dialog.value.yes,"Use Royal Jelly");
         }
         if (!fresh(view)) return waiting(view,"Reading bee result");
         const auto result=read_jelly(view.context,*view.observations);
+        if (result.knowledge==Knowledge::absent) previous_.reset();
         if (plan_.neon && !report_.neonberries && result.knowledge==Knowledge::absent) return feed_neon();
         if (!result.has_value(view.context,Time(2000),minimum_)) return waiting(view,"Waiting for the bee result");
         const auto& bee=result.value.bee;
@@ -139,11 +140,15 @@ public:
                 report_.result+=" · "+describe(mutation.value.mutation); return finish("Match found; bee result left open",true);
             }
         }
+        if (previous_ && previous_->name==bee.name && previous_->gifted==bee.gifted)
+            return waiting(view,"Waiting for the next bee result");
+        previous_.reset();
         if (report_.attempts>=plan_.rolls) return finish("Royal Jelly roll limit reached");
         if (plan_.neon && view.context.now>=next_neon_) return feed_neon();
         if (!result.value.again) return waiting(view,"Waiting for the Royal Jelly button");
         ++report_.attempts;
-        return click(view,*result.value.again,"Roll Royal Jelly",plan_.delay);
+        previous_=bee;
+        return click(view,*result.value.again,"Roll Royal Jelly");
     }
     void step_completed(const View& view) override {
         if (stage_==Stage::feed) {

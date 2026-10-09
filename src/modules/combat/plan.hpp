@@ -77,6 +77,7 @@ struct Plan {
     movement::Source movement;
     automation::ProgramFactory recovery;
 };
+Plan catalog_plan();
 Plan walking_plan(const workflows::RouteCatalog& routes,double speed,std::shared_ptr<const game::DetectionSource> observations,
     automation::ProgramFactory return_to_hive={},automation::FieldReturnOptions returns={},std::shared_ptr<const game::DetectionSource> daylight={});
 automation::VisitPlan visit_plan(Plan plan);

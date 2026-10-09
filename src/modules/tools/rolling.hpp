@@ -17,7 +17,6 @@ struct SsaPlan { AmuletFilter filter; unsigned honey_billions{500}; };
 struct JellyPlan {
     BeeFilter filter;
     unsigned rolls{100};
-    Time delay{800};
     bool require_mutation{};
     MutationFilter mutations;
     bool neon{};
@@ -31,7 +30,6 @@ struct BitterPlan {
     MutationFilter mutations;
     unsigned batch{30},limit{1000},neon_limit{1};
     bool neon{};
-    Time delay{800};
 };
 std::unique_ptr<automation::Program> roll_ssa(SsaPlan plan,std::shared_ptr<RollProgress> progress);
 std::unique_ptr<automation::Program> roll_jelly(JellyPlan plan,std::shared_ptr<RollProgress> progress);

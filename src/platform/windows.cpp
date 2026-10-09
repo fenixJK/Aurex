@@ -11,6 +11,7 @@
 #include <winrt/Windows.Media.Ocr.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 
 namespace hive {
@@ -192,6 +193,11 @@ public:
     }
     catch (const winrt::hresult_error& error) { throw std::runtime_error(winrt::to_string(error.message())); }
     void key(Key key, bool down) override {
+        if (key==Key::primary) {
+            mouse_event(down?MOUSEEVENTF_LEFTDOWN:MOUSEEVENTF_LEFTUP,0,0,0,0);
+            primary_down_=down;
+            return;
+        }
         if (key==Key::select_all) {
             INPUT chord[2]{};
             for (auto& input:chord) input.type=INPUT_KEYBOARD;
@@ -200,48 +206,32 @@ public:
             if (SendInput(2,chord,sizeof(INPUT))!=2) throw std::runtime_error("Number selection was blocked by Windows");
             return;
         }
-        INPUT input{};
-        if (key==Key::primary) { input.type=INPUT_MOUSE; input.mi.dwFlags=down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP; }
-        else {
-            const auto scan=MapVirtualKeyW(code(key),MAPVK_VK_TO_VSC_EX);
-            if (!scan || ((scan>>8)!=0 && (scan>>8)!=0xe0)) throw std::runtime_error("Unsupported keyboard scan code");
-            input.type=INPUT_KEYBOARD; input.ki.wScan=static_cast<WORD>(scan&0xff);
-            input.ki.dwFlags=KEYEVENTF_SCANCODE | (down?0:KEYEVENTF_KEYUP) | ((scan>>8)==0xe0?KEYEVENTF_EXTENDEDKEY:0);
-        }
+        const auto scan=MapVirtualKeyW(code(key),MAPVK_VK_TO_VSC_EX);
+        if (!scan || ((scan>>8)!=0 && (scan>>8)!=0xe0)) throw std::runtime_error("Unsupported keyboard scan code");
+        INPUT input{}; input.type=INPUT_KEYBOARD; input.ki.wScan=static_cast<WORD>(scan&0xff);
+        input.ki.dwFlags=KEYEVENTF_SCANCODE | (down?0:KEYEVENTF_KEYUP) | ((scan>>8)==0xe0?KEYEVENTF_EXTENDEDKEY:0);
         if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Input was blocked by Windows");
-        if (key==Key::primary) primary_down_=down;
     }
     void pointer(Point point) override {
-        const auto x=static_cast<int>(point.x),y=static_cast<int>(point.y);
+        const auto x=static_cast<LONG>(point.x),y=static_cast<LONG>(point.y);
         const int left=GetSystemMetrics(SM_XVIRTUALSCREEN),top=GetSystemMetrics(SM_YVIRTUALSCREEN);
         const int width=GetSystemMetrics(SM_CXVIRTUALSCREEN),height=GetSystemMetrics(SM_CYVIRTUALSCREEN);
         if (width<=0 || height<=0) throw std::runtime_error("Could not read desktop bounds");
-        const auto move=[&](int px,int py) {
-            INPUT input{}; input.type=INPUT_MOUSE;
-            input.mi.dx=static_cast<LONG>(std::clamp((double(px)-left+.5)*65536/width,0.,65535.));
-            input.mi.dy=static_cast<LONG>(std::clamp((double(py)-top+.5)*65536/height,0.,65535.));
-            input.mi.dwFlags=MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_MOVE_NOCOALESCE;
-            if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Pointer movement was blocked by Windows");
+        const auto move=[&](LONG px,LONG py) {
+            mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+                static_cast<DWORD>(std::clamp((double(px)-left+.5)*65536/width,0.,65535.)),
+                static_cast<DWORD>(std::clamp((double(py)-top+.5)*65536/height,0.,65535.)),0,0);
         };
-        if (primary_down_) {
-            move(x,y);
-            return;
-        }
-        POINT start{};
-        if (!GetCursorPos(&start)) throw std::runtime_error("Could not read pointer position");
-        if (start.x==x && start.y==y) { move(x,y); return; }
-        winrt::handle timer{CreateWaitableTimerExW(nullptr,nullptr,CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,TIMER_MODIFY_STATE | SYNCHRONIZE)};
-        if (!timer) throw std::runtime_error("Could not start pointer movement");
-        LARGE_INTEGER interval{}; interval.QuadPart=-20000;
-        const auto began=monotonic_now();
-        for (;;) {
-            if (!SetWaitableTimer(timer.get(),&interval,0,nullptr,nullptr,FALSE)
-                || WaitForSingleObject(timer.get(),INFINITE)!=WAIT_OBJECT_0)
-                throw std::runtime_error("Pointer movement timer failed");
-            const auto progress=std::min(double((monotonic_now()-began).count())/30.0,1.0);
-            move(static_cast<int>(start.x+(double(x)-start.x)*progress),
-                 static_cast<int>(start.y+(double(y)-start.y)*progress));
-            if (progress>=1) break;
+        if (primary_down_) { move(x,y); return; }
+        POINT current{};
+        if (!GetCursorPos(&current)) throw std::runtime_error("Could not read pointer position");
+        while (current.x!=x || current.y!=y) {
+            const auto distance=std::max(std::abs(double(x)-current.x),std::abs(double(y)-current.y));
+            const auto part=std::min(1.,std::max(24.,distance/2)/distance);
+            current.x+=static_cast<LONG>(std::round((double(x)-current.x)*part));
+            current.y+=static_cast<LONG>(std::round((double(y)-current.y)*part));
+            move(current.x,current.y);
+            Sleep(10);
         }
     }
     void scroll(int lines) override {

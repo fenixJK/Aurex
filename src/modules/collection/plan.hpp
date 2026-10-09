@@ -2,6 +2,7 @@
 #include "game/actions/activities/visits.hpp"
 #include "game/detection/detection.hpp"
 #include "items.hpp"
+#include "game/data/stations.hpp"
 
 namespace hive::workflows { class RouteCatalog; }
 
@@ -17,6 +18,7 @@ struct Station {
     automation::ProgramFactory action;
     std::function<bool(const ObservationContext&)> scheduled;
     std::function<std::optional<Time>()> retry_after_completion;
+    game::StationInteraction kind{game::StationInteraction::activate};
 };
 struct Plan {
     std::vector<Station> stations;
@@ -29,6 +31,7 @@ struct Plan {
     std::shared_ptr<const game::InventorySource> inventory;
 };
 void configure_items(Plan& plan);
+Plan catalog_plan();
 Plan default_plan(std::shared_ptr<const game::DetectionSource> memory={},std::shared_ptr<const game::DetectionSource> daylight={},
     std::shared_ptr<const game::DetectionSource> item_menus={});
 Plan routed_plan(const workflows::RouteCatalog& routes,double speed,automation::ProgramFactory return_to_hive={},

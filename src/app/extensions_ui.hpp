@@ -9,6 +9,7 @@ class QVBoxLayout;
 class QLabel;
 class QPushButton;
 class QTabBar;
+class QTimer;
 namespace hive {
 class Navigation;
 class ExtensionsUi final : public QObject {
@@ -58,10 +59,16 @@ private:
     QVBoxLayout* list_{};
     QLabel* message_{};
     QPushButton *reload_{}, *install_{};
+    QTimer* memory_cleanup_{};
     struct Page;
     std::map<std::string,std::unique_ptr<Page>> extension_pages_;
     void scan();
     void reconcile();
+    void show_page();
+    void release_hidden_pages();
+    bool release_page(const std::string& id);
+    void build_page(const std::string& id);
+    void render_page(const std::string& id);
     void refresh_list();
     bool perform(const std::function<void()>& action);
 };

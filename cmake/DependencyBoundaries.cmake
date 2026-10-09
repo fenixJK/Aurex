@@ -54,7 +54,7 @@ function(hive_check_shared_sources root)
   file(GLOB_RECURSE sources CONFIGURE_DEPENDS
     "${root}/src/core/scripting/movement.cpp" "${root}/src/core/scripting/runtime.hpp" "${root}/src/core/scripting/movement.hpp"
     "${root}/src/core/module_host/commands.*" "${root}/src/core/module_host/requests.*"
-    "${root}/src/core/module_host/request_channels.*" "${root}/src/core/module_host/activity_policy.hpp"
+    "${root}/src/core/module_host/request_channels.*" "${root}/src/core/module_host/activity_policy.*"
     "${root}/src/core/module_host/contributor.hpp"
     "${root}/src/core/runtime/*" "${root}/src/core/session/*" "${root}/src/game/*"
     "${root}/src/platform/*" "${root}/src/reporting/*" "${root}/src/coordination/*")
@@ -78,6 +78,20 @@ function(hive_check_module_sources root)
       file(RELATIVE_PATH relative "${root}/src" "${header}")
       if(relative MATCHES "^app/" OR (relative MATCHES "^modules/([^/]+)/" AND NOT CMAKE_MATCH_1 STREQUAL owner AND NOT CMAKE_MATCH_1 STREQUAL "shared"))
         message(FATAL_ERROR "Dependency boundary: module ${owner} must not include ${relative}")
+      endif()
+    endforeach()
+  endforeach()
+endfunction()
+
+function(hive_check_core_sources root)
+  file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${root}/src/core/*.cpp" "${root}/src/core/*.hpp")
+  foreach(source IN LISTS sources)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${source}")
+    hive_project_includes("${root}" "${source}" headers)
+    foreach(header IN LISTS headers)
+      file(RELATIVE_PATH relative "${root}/src" "${header}")
+      if(relative MATCHES "^(modules|app)/")
+        message(FATAL_ERROR "Dependency boundary: core must not include ${relative}")
       endif()
     endforeach()
   endforeach()

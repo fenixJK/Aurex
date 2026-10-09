@@ -47,6 +47,8 @@ void add(extensions::Host& host,extensions::Manifest manifest,extensions::Factor
 }
 void configure_travel_modules(NativeModules& modules,std::optional<double> speed,const HiveSources& hive,
     std::shared_ptr<const game::DetectionSource> enemies) {
+    modules.collection.configuration=features::collection::catalog_plan();
+    modules.combat.configuration=features::combat::catalog_plan();
     if (!speed) {
         modules.startup={}; modules.navigation.routes.reset(); modules.quests.cycle.reset();
         modules.planters.plan={};
@@ -126,6 +128,8 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
     add(host,features::tools::module_manifest(),features::tools::module_factory(modules.collection.inventory),Requirements{},
         [](int,Settings settings) {
             settings.erase("ssa-delay");
+            settings.erase("jelly-delay");
+            settings.erase("bitter-delay");
             if (const auto limit=settings.find("ssa-limit"); limit!=settings.end())
                 if (auto* value=std::get_if<int>(&limit->second)) *value=std::max(10,*value);
             return settings;
@@ -220,7 +224,9 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
     }
     {
         auto service=modules.collection;
-        std::erase_if(service.plan.stations,[](const auto& station) { return station.id.ends_with("Field Booster"); });
+        const auto booster=[](const auto& station) { return station.id.ends_with("Field Booster"); };
+        std::erase_if(service.plan.stations,booster);
+        if (service.configuration) std::erase_if(service.configuration->stations,booster);
         Requirements requirements; requirements.navigation(navigation);
         requirements.need(!service.plan.stations.empty(),"station setup");
         std::vector<std::string> destinations;
@@ -228,12 +234,12 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
         if (service.plan.finish_at) destinations.push_back(*service.plan.finish_at);
         requirements.destinations(navigation,destinations);
         requirements.need(bool(service.availability),"station availability detection");
-        auto manifest=features::collection::module_manifest(service.plan,"hive.native-collection","native-collection",true);
+        auto manifest=features::collection::module_manifest(service.configuration?*service.configuration:service.plan,"hive.native-collection","native-collection",true);
         manifest.settings_version=9;
         manifest.name="Collection";
         manifest.description="Collect dispensers, play Memory Match, craft at the Blender and donate to the Wind Shrine. Activities spend only the items and amounts you select.";
         add(host,std::move(manifest),[service,navigation,requests=host.request_source()](const auto& manifest) {
-            return features::collection::module_factory(service.plan,navigation,service.availability,service.cooldowns,requests)(manifest);
+            return features::collection::module_factory(service.plan,navigation,service.availability,service.cooldowns,requests,service.configuration)(manifest);
         },requirements,[](int version,const Settings& values) {
             if (version<2 || version>8) throw std::invalid_argument("Unknown previous Collection settings version");
             auto result=version==2?features::visits::migrate_selections(values,{"Honey Dispenser"}):values;
@@ -252,13 +258,13 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
         if (service.plan.finish_at) destinations.push_back(*service.plan.finish_at);
         requirements.destinations(navigation,destinations);
         requirements.need(bool(service.availability),"enemy availability detection");
-        auto manifest=features::combat::module_manifest(service.plan,"hive.native-combat","native-combat",true);
+        auto manifest=features::combat::module_manifest(service.configuration?*service.configuration:service.plan,"hive.native-combat","native-combat",true);
         manifest.name="Combat";
         manifest.settings_version=6;
         manifest.description="Fight selected enemies and collect their loot when due. Enemies in the same field share a trip. Quest requests can add needed fights; Gather interrupt allows them during gathering.";
         add(host,std::move(manifest),[service,navigation,goals=host.enemy_goal_source()](const auto& manifest) {
-            return features::combat::module_factory(service.plan,navigation,service.availability,goals,service.cooldowns)(manifest);
-        },requirements,[plan=service.plan](int version,const Settings& values) {
+            return features::combat::module_factory(service.plan,navigation,service.availability,goals,service.cooldowns,service.configuration)(manifest);
+        },requirements,[plan=service.configuration?*service.configuration:service.plan](int version,const Settings& values) {
             return features::combat::migrate_settings(version,values,plan);
         });
     }

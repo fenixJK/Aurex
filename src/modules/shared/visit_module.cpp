@@ -27,6 +27,29 @@ std::string selection_key(std::string_view identity) {
     if (key=="target" || key.size()>80) throw std::invalid_argument("Invalid activity setting identity");
     return key;
 }
+AvailableSettings::AvailableSettings(const automation::VisitPlan& catalog,const automation::VisitPlan& available) {
+    for (const auto& visit:catalog.visits)
+        if (std::none_of(available.visits.begin(),available.visits.end(),[&](const auto& item) { return item.id==visit.id; }))
+            unavailable_.insert(selection_key(visit.id));
+}
+extensions::Manifest AvailableSettings::manifest(extensions::Manifest value) const {
+    for (const auto& key:unavailable_) {
+        const auto found=std::find_if(value.settings.begin(),value.settings.end(),[&](const auto& setting) { return setting.id==key; });
+        if (found==value.settings.end() || !std::holds_alternative<bool>(found->initial) || !found->choices.empty()
+            || found->minimum!=0 || found->maximum!=0) throw std::invalid_argument("Invalid activity selection schema");
+        value.settings.erase(found);
+    }
+    value.page.reset();
+    return value;
+}
+Settings AvailableSettings::values(Settings value) const {
+    for (const auto& key:unavailable_) {
+        const auto found=value.find(key);
+        if (found==value.end() || !std::holds_alternative<bool>(found->second)) throw std::invalid_argument("Missing activity selection");
+        value.erase(found);
+    }
+    return value;
+}
 Settings migrate_selections(const Settings& values,const std::vector<std::string>& previous) {
     Settings result;
     std::map<std::string,std::string> keys;

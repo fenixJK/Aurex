@@ -2,6 +2,8 @@
 #include "modules/shared/movement.hpp"
 #include "game/actions/travel/field_routes.hpp"
 #include "game/detection/daylight.hpp"
+#include <algorithm>
+#include <cmath>
 
 namespace hive::features::combat {
 int commando_health(int level) {
@@ -9,10 +11,7 @@ int commando_health(int level) {
     if (level<3 || level>25) throw std::invalid_argument("Commando level must be between 3 and 25");
     return health[std::min(level-3,17)];
 }
-Plan walking_plan(const workflows::RouteCatalog& routes,double speed,std::shared_ptr<const game::DetectionSource> observations,
-    automation::ProgramFactory return_to_hive,automation::FieldReturnOptions returns,std::shared_ptr<const game::DetectionSource> daylight) {
-    if (!observations || !std::isfinite(speed) || speed<8 || speed>200)
-        throw std::invalid_argument("Walking combat needs enemy detection and a valid movement speed");
+Plan catalog_plan() {
     struct Recipe {
         const char* id; const char* species; const char* field; Time cooldown; bool selected_by_default;
         const char* group{};
@@ -39,21 +38,12 @@ Plan walking_plan(const workflows::RouteCatalog& routes,double speed,std::shared
         {"Mondo Chick","Mondo Chick","mountaintop",Time(2700000),false,nullptr,1,Time(600000),true},
         {"Coconut Crab","Coconut Crab","coconut",Time(129600000),false,nullptr,1,Time(1200000),true},
         {"Stump Snail","Stump Snail","stump",Time(345600000),false,nullptr,1,Time(21600000),true}};
-    Plan plan; plan.movement=returns.movement;
-    const auto motions=movement::snapshot(returns.movement);
-    plan.finish_at="hive.proximity"; plan.config={std::chrono::hours(8),speed,{},true,true};
+    Plan plan; plan.config.duration=std::chrono::hours(8);
     for (const auto& recipe : recipes) {
         Enemy enemy; enemy.id=recipe.id; enemy.species=recipe.species; enemy.destination=std::string(recipe.field).starts_with("boss.")?recipe.field:std::string(recipe.field)+".entry";
-        if (!routes.network().contains(enemy.destination) || !routes.network().contains(*plan.finish_at)) continue;
-        bool outbound=false,inbound=false;
-        for (const auto& route : routes.network().routes()) {
-            if (route.from==*plan.finish_at && route.to==enemy.destination) outbound=true;
-            if (route.from==enemy.destination && route.to==*plan.finish_at) inbound=true;
-        }
-        if (!outbound || (!inbound && !return_to_hive)) continue;
         enemy.approach_location=enemy.destination;
         enemy.cooldown=recipe.cooldown; enemy.inspect_when_unknown=true; enemy.selected_by_default=recipe.selected_by_default;
-        enemy.count=recipe.count; enemy.observations=observations; enemy.boss=recipe.boss;
+        enemy.count=recipe.count; enemy.boss=recipe.boss;
         if (enemy.species=="Mondo Chick") {
             enemy.maximum_health=300000; enemy.shared=true; enemy.field="mountaintop";
             enemy.respawn_reduction=false; enemy.avoid={"Vicious Bee"};
@@ -69,30 +59,58 @@ Plan walking_plan(const workflows::RouteCatalog& routes,double speed,std::shared
         if (enemy.species=="Coconut Crab") enemy.maximum_health=250000;
         if (enemy.species=="Commando Chick") { enemy.maximum_health=commando_health(3); enemy.stationary=true; plan.options.enemies[enemy.id].boss=CommandoOptions{}; }
         if (recipe.group) enemy.group=recipe.group;
-        enemy.fight={movement_walks(*motions,"combat",{{"enemy",enemy.species},{"loot",false}},true),recipe.fight_time,{},{},"Fighting "+enemy.species,
-            game::enemy_defeat_source(observations,enemy.species)};
+        enemy.fight.duration=recipe.fight_time;
         if (enemy.species=="Stump Snail") {
             enemy.stationary=true; enemy.amulet="Shell Amulet"; enemy.maximum_health=30000000;
             plan.options.enemies[enemy.id]={true,Time(900000),SnailOptions{}};
         }
-        if (enemy.maximum_health) enemy.progress=std::make_shared<FightProgress>();
-        enemy.loot=movement_walks(*motions,"combat",{{"enemy",enemy.species},{"loot",true}});
-        if (!inbound) enemy.departure=return_to_hive;
-        else enemy.departure=[field=std::string(recipe.field),speed,returns] { return automation::return_from_field(field,speed,0,returns); };
         plan.enemies.push_back(std::move(enemy));
     }
-    if (return_to_hive && daylight) {
-        Enemy enemy; enemy.id=enemy.species="Vicious Bee"; enemy.shared=true; enemy.destination="hive.proximity";
-        enemy.boss=true; enemy.selected_by_default=false; enemy.inspect_when_unknown=true;
-        enemy.cooldown=std::chrono::minutes(20); enemy.respawn_reduction=false;
-        enemy.scheduled=game::during_night(std::move(daylight)); enemy.observations=observations; enemy.departure=return_to_hive;
-        enemy.progress=std::make_shared<FightProgress>();
-        enemy.fight={movement_walks(*motions,"combat",{{"enemy",enemy.species},{"loot",false}},true),Time(300000),{},{},"Fighting "+enemy.species,
+    Enemy enemy; enemy.id=enemy.species="Vicious Bee"; enemy.shared=true; enemy.destination="hive.proximity";
+    enemy.boss=true; enemy.selected_by_default=false; enemy.inspect_when_unknown=true;
+    enemy.cooldown=std::chrono::minutes(20); enemy.respawn_reduction=false;
+    enemy.fight.duration=Time(300000);
+    enemy.hunt_fields={"pepper","mountaintop","rose","cactus","spider","clover"};
+    plan.enemies.push_back(std::move(enemy));
+    return plan;
+}
+Plan walking_plan(const workflows::RouteCatalog& routes,double speed,std::shared_ptr<const game::DetectionSource> observations,
+    automation::ProgramFactory return_to_hive,automation::FieldReturnOptions returns,std::shared_ptr<const game::DetectionSource> daylight) {
+    if (!observations || !std::isfinite(speed) || speed<8 || speed>200)
+        throw std::invalid_argument("Walking combat needs enemy detection and a valid movement speed");
+    auto plan=catalog_plan(); plan.movement=returns.movement; plan.config.speed=speed; plan.finish_at="hive.proximity";
+    const auto motions=movement::snapshot(returns.movement);
+    std::erase_if(plan.enemies,[&](auto& enemy) {
+        if (!enemy.hunt_fields.empty()) {
+            if (!return_to_hive || !daylight) return true;
+            std::erase_if(enemy.hunt_fields,[&](const auto& field) { return !routes.network().contains(field+".entry"); });
+            if (enemy.hunt_fields.empty()) return true;
+            enemy.scheduled=game::during_night(daylight); enemy.departure=return_to_hive;
+        } else {
+            if (!routes.network().contains(enemy.destination) || !routes.network().contains(*plan.finish_at)) return true;
+            bool outbound=false,inbound=false;
+            for (const auto& route:routes.network().routes()) {
+                if (route.from==*plan.finish_at && route.to==enemy.destination) outbound=true;
+                if (route.from==enemy.destination && route.to==*plan.finish_at) inbound=true;
+            }
+            if (!outbound || (!inbound && !return_to_hive)) return true;
+            if (!inbound) enemy.departure=return_to_hive;
+            else {
+                auto field=enemy.destination;
+                if (field.ends_with(".entry")) field.resize(field.size()-6);
+                enemy.departure=[field=std::move(field),speed,returns] { return automation::return_from_field(field,speed,0,returns); };
+            }
+            enemy.loot=movement_walks(*motions,"combat",{{"enemy",enemy.species},{"loot",true}});
+        }
+        enemy.observations=observations;
+        enemy.fight={movement_walks(*motions,"combat",{{"enemy",enemy.species},{"loot",false}},true),enemy.fight.duration,{},{},"Fighting "+enemy.species,
             game::enemy_defeat_source(observations,enemy.species)};
-        for (const auto* field:{"pepper","mountaintop","rose","cactus","spider","clover"})
-            if (routes.network().contains(std::string(field)+".entry")) enemy.hunt_fields.push_back(field);
-        if (!enemy.hunt_fields.empty()) plan.enemies.push_back(std::move(enemy));
-    }
+        if (enemy.maximum_health || !enemy.hunt_fields.empty()) enemy.progress=std::make_shared<FightProgress>();
+        return false;
+    });
+    std::erase_if(plan.options.enemies,[&](const auto& item) {
+        return std::none_of(plan.enemies.begin(),plan.enemies.end(),[&](const auto& enemy) { return enemy.id==item.first; });
+    });
     return plan;
 }
 }

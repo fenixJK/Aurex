@@ -34,16 +34,27 @@ void configure_items(Plan& plan) {
         }
     }
 }
-Plan default_plan(std::shared_ptr<const game::DetectionSource> memory,std::shared_ptr<const game::DetectionSource> daylight,std::shared_ptr<const game::DetectionSource> item_menus) {
+Plan catalog_plan() {
     Plan plan;
-    plan.item_menus=std::move(item_menus);
-    for (const auto& station : game::stations()) {
-        if (station.interaction==game::StationInteraction::memory_match && !memory) continue;
-        if ((station.interaction==game::StationInteraction::blender || station.interaction==game::StationInteraction::wind_shrine || station.interaction==game::StationInteraction::sticker_printer) && !plan.item_menus) continue;
+    for (const auto& station:game::stations()) {
         plan.stations.push_back({station.name,station.location,{station.name},station.cooldown,true,{},station.selected_by_default,station.settle});
-        if (station.interaction==game::StationInteraction::memory_match)
-            plan.stations.back().action=[memory,name=station.name] { return memory_match(memory,name); };
-        if (station.night_only) plan.stations.back().scheduled=game::during_night(daylight);
+        plan.stations.back().kind=station.interaction;
+    }
+    return plan;
+}
+Plan default_plan(std::shared_ptr<const game::DetectionSource> memory,std::shared_ptr<const game::DetectionSource> daylight,std::shared_ptr<const game::DetectionSource> item_menus) {
+    auto plan=catalog_plan();
+    plan.item_menus=std::move(item_menus);
+    std::erase_if(plan.stations,[&](const auto& station) {
+        return station.kind==game::StationInteraction::memory_match?!memory:
+            station.kind!=game::StationInteraction::activate && !plan.item_menus;
+    });
+    for (auto& station:plan.stations) {
+        if (station.kind==game::StationInteraction::memory_match)
+            station.action=[memory,name=station.id] { return memory_match(memory,name); };
+        const auto& definitions=game::stations();
+        const auto definition=std::find_if(definitions.begin(),definitions.end(),[&](const auto& item) { return item.name==station.id; });
+        if (definition->night_only) station.scheduled=game::during_night(daylight);
     }
     configure_items(plan);
     return plan;

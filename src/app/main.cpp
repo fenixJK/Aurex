@@ -23,7 +23,7 @@
 #include "game/detection/sprinkler_reference.hpp"
 #include "game/detection/menus.hpp"
 #include "game/detection/nectar.hpp"
-#include "modules/shared/policies.hpp"
+#include "core/module_host/activity_policy.hpp"
 #include "player_speed.hpp"
 #include "local_data.hpp"
 #include "modules/planters/ui/timers.hpp"
@@ -180,7 +180,7 @@ class Window final : public QMainWindow {
         if (session_.status().state==hive::RunState::running) return "Already running.";
         if (session_.status().state==hive::RunState::paused) return "Paused. Use Resume to continue, or Stop before starting over.";
         if (!native_modules_.startup) throw std::runtime_error("Set your base move speed in Settings before starting");
-        auto routine=extensions_->routine(session_,std::make_unique<hive::policies::FairActivityPolicy>(),
+        auto routine=extensions_->routine(session_,std::make_unique<hive::automation::FairActivityPolicy>(),
             hive::automation::Launch{"session-setup",{hive::automation::Permission::movement,hive::automation::Permission::interact},native_modules_.startup()});
         prepare_start(); routine_=std::move(routine); pending_feature_.reset(); launch_error_.clear(); resuming_=false;
         countdown_=3; start_timer_.start(1000); log("Starting routine in 3 seconds."); return "Starting in 3 seconds.";
@@ -848,7 +848,10 @@ public:
 int main(int argc,char** argv) {
     QApplication app(argc,argv);
     QCoreApplication::setApplicationVersion(AUREX_VERSION);
-    app.setApplicationDisplayName("Aurex"); app.setWindowIcon(QIcon(":/branding/aurex.png"));
+    app.setApplicationDisplayName("Aurex");
+#ifndef Q_OS_MACOS
+    app.setWindowIcon(QIcon(":/branding/aurex.png"));
+#endif
     app.setApplicationName("Aurex"); app.setOrganizationName("Aurex");
     hive::apply_theme(app);
     try {

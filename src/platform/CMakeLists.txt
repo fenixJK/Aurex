@@ -2,6 +2,7 @@ add_library(hive_ocr ocr.cpp)
 target_link_libraries(hive_ocr PUBLIC hive_core)
 
 if(HIVE_BUILD_DESKTOP)
+  add_library(hive_memory memory.cpp)
   if(APPLE)
     add_library(hive_platform macos.mm)
     target_compile_options(hive_platform PRIVATE -fobjc-arc)

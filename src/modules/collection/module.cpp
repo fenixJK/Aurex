@@ -34,21 +34,22 @@ std::vector<extensions::Setting> item_settings(const Plan& plan) {
 using Builder=std::function<std::unique_ptr<extensions::Module>(ItemOptions,const extensions::Manifest&)>;
 class CollectionModule final : public extensions::Module {
     extensions::Manifest visits_;
+    visits::AvailableSettings available_;
     std::vector<extensions::Setting> options_;
     ItemOptions defaults_;
     Builder build_;
     std::shared_ptr<ItemOrders> orders_;
     std::unique_ptr<extensions::Module> delegate_;
 public:
-    CollectionModule(const extensions::Manifest& manifest,const Plan& plan,Builder build,const extensions::Factory& initial)
-        :visits_(manifest),options_(item_settings(plan)),defaults_(plan.items),build_(std::move(build)),orders_(plan.items.orders) {
+    CollectionModule(const extensions::Manifest& manifest,const Plan& plan,const Plan& available,Builder build,const extensions::Factory& initial)
+        :visits_(manifest),available_(visit_plan(plan),visit_plan(available)),options_(item_settings(plan)),defaults_(plan.items),build_(std::move(build)),orders_(plan.items.orders) {
         for (const auto& option:options_) {
             const auto found=std::find_if(visits_.settings.begin(),visits_.settings.end(),[&](const auto& setting) { return setting.id==option.id; });
             if (found==visits_.settings.end() || found->initial.index()!=option.initial.index() || found->minimum!=option.minimum
                 || found->maximum!=option.maximum || found->choices!=option.choices) throw std::invalid_argument("Invalid Collection item schema");
             visits_.settings.erase(found);
         }
-        visits_.page.reset(); delegate_=initial(visits_);
+        visits_=available_.manifest(std::move(visits_)); delegate_=initial(visits_);
     }
     void start(const Settings& values) override {
         auto settings=values;
@@ -78,7 +79,7 @@ public:
         }
         if (values.contains("shrine-hours")) options.shrine_interval=std::chrono::hours(std::get<int>(values.at("shrine-hours")));
         if (values.contains("printer-egg")) options.printer_egg=std::get<std::string>(values.at("printer-egg"));
-        auto next=build_(std::move(options),visits_); next->start(settings); delegate_=std::move(next);
+        auto next=build_(std::move(options),visits_); next->start(available_.values(std::move(settings))); delegate_=std::move(next);
     }
     void update(const extensions::SessionView& view) override { delegate_->update(view); }
     std::vector<extensions::Metric> metrics() const override {
@@ -136,7 +137,7 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     for (const auto& station:plan.stations) {
         if (station.id=="Blender" || station.id=="Wind Shrine") continue;
         if (station.id=="Sticker Printer") continue;
-        (station.action && station.id!="Glue Dispenser"?games:pickups).settings.push_back(features::visits::selection_key(station.id));
+        (station.kind==game::StationInteraction::memory_match?games:pickups).settings.push_back(features::visits::selection_key(station.id));
     }
     manifest.page->compact=true;
     auto& sections=manifest.page->sections; sections.clear();
@@ -176,7 +177,7 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     }
     return manifest;
 }
-extensions::Factory module_factory(Plan plan,automation::NavigationServices navigation,std::shared_ptr<const automation::AvailabilitySource> availability,std::shared_ptr<visits::Cooldowns> saved,std::shared_ptr<const game::RequestSource> requests) {
+extensions::Factory module_factory(Plan plan,automation::NavigationServices navigation,std::shared_ptr<const automation::AvailabilitySource> availability,std::shared_ptr<visits::Cooldowns> saved,std::shared_ptr<const game::RequestSource> requests,std::optional<Plan> configuration) {
     if (!plan.items.orders) plan.items.orders=std::make_shared<ItemOrders>();
     features::visits::Demand demand;
     if (requests) {
@@ -194,11 +195,13 @@ extensions::Factory module_factory(Plan plan,automation::NavigationServices navi
         };
     }
     const auto initial=features::visits::factory(visit_plan(plan),navigation,availability,permissions,demand,saved);
+    if (configuration) configuration->items=plan.items;
+    const auto display=std::make_shared<const Plan>(configuration?std::move(*configuration):plan);
     const auto defaults=std::make_shared<const Plan>(std::move(plan));
     Builder build=[defaults,navigation=std::move(navigation),availability=std::move(availability),demand=std::move(demand),saved=std::move(saved)](ItemOptions items,const extensions::Manifest& manifest) {
         auto configured=*defaults; configured.items=std::move(items); configure_items(configured);
         return features::visits::factory(visit_plan(std::move(configured)),navigation,availability,permissions,demand,saved)(manifest);
     };
-    return [defaults,build=std::move(build),initial](const extensions::Manifest& manifest) { return std::make_unique<CollectionModule>(manifest,*defaults,build,initial); };
+    return [display,defaults,build=std::move(build),initial](const extensions::Manifest& manifest) { return std::make_unique<CollectionModule>(manifest,*display,*defaults,build,initial); };
 }
 }

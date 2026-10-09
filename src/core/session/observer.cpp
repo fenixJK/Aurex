@@ -210,10 +210,11 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
         if (mode==DetectionMode::text) {
             ObservedState result;
             try {
-                for (const auto& entry:entries) {
-                    std::unique_lock invocation(entry.config.detector->invocation_,std::try_to_lock);
-                    if (!invocation.owns_lock()) { regions={{0,0,1,1}}; break; }
-                    const auto requested=entry.config.detector->text_regions({*frame,{},generation,cancelled,{},features.get()});
+                for (auto entry=entries.begin();entry!=entries.end();) {
+                    std::unique_lock invocation(entry->config.detector->invocation_,std::try_to_lock);
+                    if (!invocation.owns_lock()) { entry=entries.erase(entry); continue; }
+                    const auto requested=entry->config.detector->text_regions({*frame,{},generation,cancelled,{},features.get()});
+                    ++entry;
                     regions.insert(regions.end(),requested.begin(),requested.end());
                     if (regions.size()>64 || std::find(regions.begin(),regions.end(),Rect{0,0,1,1})!=regions.end()) {
                         regions={{0,0,1,1}}; break;

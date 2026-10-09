@@ -1,4 +1,4 @@
-#include "modules/shared/routine.hpp"
+#include "routine.hpp"
 #include "program.hpp"
 #include "game/actions/hive/hive_setup.hpp"
 #include <limits>
@@ -14,7 +14,7 @@ extern "C" {
 
 namespace hive::scripting {
 using namespace automation;
-using namespace features::routine;
+using namespace routine;
 namespace {
 using detail::Memory;
 using detail::memory_limit;

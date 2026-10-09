@@ -143,7 +143,8 @@ Observation<Amulet> read_amulet(const ObservationContext& c,const game::State& s
 Observation<JellyResult> read_jelly(const ObservationContext& c,const game::State& state) {
     const auto& observed=state.text;
     Observation<JellyResult> result{Knowledge::unknown,{},observed.captured,observed.window,observed.generation};
-    if (!observed.has_value(c,Time(2000)) || observed.value.width<=0 || observed.value.height<=0 || observed.value.lines.size()>4096) return result;
+    if (!observed.has_value(c,Time(2000)) || observed.value.width<=0 || observed.value.height<=0
+        || observed.value.lines.empty() || observed.value.lines.size()>4096) return result;
     const auto& text=observed.value; const Rect area{text.width*.2,text.height*.15,text.width*.6,text.height*.8};
     const TextLine* button=nullptr; const TextLine* heading=nullptr;
     for (const auto& line:text.lines) if (usable(line) && in(line.pixels,area)) {

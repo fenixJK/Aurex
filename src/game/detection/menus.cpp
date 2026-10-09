@@ -68,6 +68,7 @@ std::vector<MenuControl> menu_controls(const DetectionInput& input) {
                 }
             }
             const int w=right-left+1,h=bottom-top+1;
+            if (right+1==width || bottom+1==height) continue;
             if (w<20 || h<18 || w>170 || h>190 || count<w*h*.35) continue;
             for (const auto& mask : masks) {
                 const int mh=static_cast<int>(mask.rows.size());

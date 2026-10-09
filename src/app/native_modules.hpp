@@ -42,11 +42,13 @@ struct CollectionServices {
     std::shared_ptr<const game::DetectionSource> item_menus;
     std::shared_ptr<features::collection::ItemOrders> item_orders;
     std::shared_ptr<const game::InventorySource> inventory;
+    std::optional<features::collection::Plan> configuration;
 };
 struct CombatServices {
     features::combat::Plan plan;
     std::shared_ptr<const automation::AvailabilitySource> availability;
     std::shared_ptr<features::visits::Cooldowns> cooldowns;
+    std::optional<features::combat::Plan> configuration;
 };
 struct NativeModules {
     automation::TravelAccess travel_access;

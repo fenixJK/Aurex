@@ -7,6 +7,14 @@
 namespace hive::game {
 namespace {
 using Patch=std::array<std::uint8_t,288>;
+constexpr int difference_limit=288*40;
+constexpr auto icon_totals=[] {
+    std::array<std::array<int,3>,detail::status_buff_icons.size()> totals{};
+    for (std::size_t i=0;i<totals.size();++i)
+        for (const auto pixel:detail::status_buff_icons[i].pixels)
+            for (int c=0;c<3;++c) totals[i][c]+=(pixel>>(16-c*8))&255;
+    return totals;
+}();
 std::optional<Patch> sample(const Frame& frame,double left,double top,double scale) {
     Patch result{};
     for (int y=0;y<8;++y) for (int x=0;x<12;++x) {
@@ -27,7 +35,7 @@ double difference(const Patch& patch,const detail::BuffIcon& icon) {
     unsigned error=0;
     for (int i=0;i<96;++i) for (int c=0;c<3;++c) {
         error+=std::abs(int(patch[i*3+c])-int((icon.pixels[i]>>(16-c*8))&255));
-        if (error>288*40) return 255;
+        if (error>difference_limit) return 255;
     }
     return error/288.;
 }
@@ -54,7 +62,14 @@ public:
                 const auto patch=sample(frame,left,layout->bottom-layout->pitch+dy*layout->scale,layout->scale);
                 if (!patch) continue;
                 std::array<double,detail::status_buff_icons.size()> errors; errors.fill(255);
-                for (std::size_t i=0;i<index.size();++i) errors[index[i]]=std::min(errors[index[i]],difference(*patch,detail::status_buff_icons[i]));
+                std::array<int,3> totals{};
+                for (std::size_t i=0;i<patch->size();i+=3)
+                    for (int c=0;c<3;++c) totals[c]+=(*patch)[i+c];
+                for (std::size_t i=0;i<index.size();++i) {
+                    int minimum_error=0;
+                    for (int c=0;c<3;++c) minimum_error+=std::abs(totals[c]-icon_totals[i][c]);
+                    if (minimum_error<=difference_limit) errors[index[i]]=std::min(errors[index[i]],difference(*patch,detail::status_buff_icons[i]));
+                }
                 const auto first=std::min_element(errors.begin(),errors.end());
                 const auto selected=std::size_t(first-errors.begin()); const auto best=*first;
                 *first=255; const auto second=*std::min_element(errors.begin(),errors.end());
