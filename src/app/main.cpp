@@ -317,17 +317,20 @@ public:
         auto hive_settings=new QVBoxLayout(card(player_page));
         hive_settings->addWidget(label("Hive","title"));
         auto existing_hive=new QComboBox;
-        for (int slot=1;slot<=6;++slot) existing_hive->addItem(QString::number(slot),slot);
+        for (int slot=1;slot<=6;++slot) existing_hive->addItem(QString("Slot %1").arg(slot),slot);
         existing_hive->setObjectName("hive-slot");
+        existing_hive->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+        existing_hive->setSizePolicy(QSizePolicy::Maximum,QSizePolicy::Fixed);
         existing_hive->setCurrentIndex(std::clamp(settings_.value("game/existingHive",1).toInt(),1,6)-1);
-        auto hive_row=new QHBoxLayout; hive_row->addWidget(existing_hive);
+        auto hive_row=new QHBoxLayout; hive_row->setSpacing(8); hive_row->addWidget(existing_hive); hive_row->addSpacing(12);
         hive_row->addWidget(new QLabel("Bees"));
         auto bee_count=new QSpinBox; bee_count->setObjectName("bee-count"); bee_count->setRange(0,50);
+        bee_count->setSizePolicy(QSizePolicy::Maximum,QSizePolicy::Fixed);
         bee_count->setKeyboardTracking(false); bee_count->setValue(std::clamp(settings_.value("game/beeCount",50).toInt(),0,50));
-        hive_row->addWidget(bee_count);
+        hive_row->addWidget(bee_count); hive_row->addSpacing(12);
         auto use_cannon=new QCheckBox("Cannon + glider"); use_cannon->setObjectName("use-cannon");
         use_cannon->setToolTip("Use cannon routes and an equipped glider for travel and returns.");
-        use_cannon->setChecked(settings_.value("game/useCannon",true).toBool()); hive_row->addWidget(use_cannon);
+        use_cannon->setChecked(settings_.value("game/useCannon",true).toBool()); hive_row->addWidget(use_cannon); hive_row->addStretch();
         hive_settings->addLayout(hive_row);
         native_modules_.travel_access={unsigned(bee_count->value()),use_cannon->isChecked()};
         connect(existing_hive,&QComboBox::currentIndexChanged,this,[this,existing_hive] {
