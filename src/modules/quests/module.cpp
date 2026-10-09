@@ -214,6 +214,7 @@ public:
 extensions::Manifest module_manifest(std::string id,std::string provider,bool browser,bool cycle) {
     extensions::Manifest result;
     result.id=std::move(id); result.provider=std::move(provider); result.name="Quests"; result.version="0.1.0";
+    result.enabled_by_default=true;
     result.description="Read supported quest objectives and request work without changing saved field settings.";
     result.requests={extensions::RequestService::fields,extensions::RequestService::enemies,extensions::RequestService::stations};
     if (browser) result.permissions={automation::Permission::interact};

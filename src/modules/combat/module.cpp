@@ -169,6 +169,7 @@ Settings migrate_settings(int version,const Settings& values,const Plan& plan) {
 }
 extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string provider,bool requests) {
     auto manifest=features::visits::manifest(visit_plan(plan),std::move(id),std::move(provider),"Combat",permissions);
+    manifest.enabled_by_default=true;
     if (requests) manifest.consumes.insert(extensions::RequestService::enemies);
     for (const auto& enemy : plan.enemies) for (auto& setting : manifest.settings)
         if (setting.id==features::visits::selection_key(enemy.id)) setting.initial=enemy.selected_by_default;

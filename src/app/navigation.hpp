@@ -16,6 +16,7 @@ public:
     void setModuleStart(int index);
     void addItems(const QStringList& titles);
     void removeItem(int index);
+    void setItemVisible(int index,bool visible);
     void setCurrentRow(int index);
     int currentRow() const { return current_; }
     int count() const { return static_cast<int>(buttons_.size()); }
@@ -28,5 +29,6 @@ private:
     int current_{-1};
     int module_start_{-1};
     QLabel* separator_{};
+    void updateSeparator();
 };
 }

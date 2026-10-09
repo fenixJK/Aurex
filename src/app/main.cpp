@@ -63,12 +63,12 @@
 
 namespace {
 QString q(const std::string& s) { return QString::fromStdString(s); }
-struct BuffStyle { QImage icon; QColor color; };
+struct BuffStyle { QImage icon; QColor color; QString chart_group; };
 BuffStyle buff_style(QString name) {
     static const QMap<QString,BuffStyle> styles=[] {
         QMap<QString,BuffStyle> result{
-            {"blue-boost",{{},"#73aaf2"}}, {"red-boost",{{},"#ee7773"}},
-            {"white-boost",{{},"#e9e9e9"}}, {"pop-star",{{},"#94d9ef"}},
+            {"blue-boost",{{},"#73aaf2","pollen-boost"}}, {"red-boost",{{},"#ee7773","pollen-boost"}},
+            {"white-boost",{{},"#e9e9e9","pollen-boost"}}, {"pop-star",{{},"#94d9ef"}},
             {"melody",{{},"#e8e8e8"}}, {"jelly-bean-sharing",{{},"#f9ccff"}},
             {"guiding-star",{{},"#ead582"}}, {"reindeer-fetch",{{},"#cc4848"}},
             {"festive-mark",{{},"#7ab55e"}},
@@ -410,7 +410,7 @@ public:
             for (const auto* name:{"Haste","Haste+","Oil","Smoothie","Bear morph"})
                 report.buffs.append(hive::reporting::Gauge{name,{},"buff/"+QString(name),{},hive::reporting::Level{{},QString(name)=="Haste"?10.:1.}});
             for (auto& buff:report.buffs) {
-                const auto style=buff_style(buff.name); buff.icon=style.icon; buff.color=style.color;
+                const auto style=buff_style(buff.name); buff.icon=style.icon; buff.color=style.color; buff.chart_group=style.chart_group;
             }
             if (reporting_buffs_) if (const auto packet=reporting_buffs_->peek()) {
                 const auto* value=dynamic_cast<const hive::game::MovementBuffDetection*>(packet->value.get());
@@ -686,14 +686,6 @@ public:
                         const auto window=desktop_->inspect(selected()).window;
                         if (!desktop_->focus_client(window)) throw std::runtime_error("Could not focus the Roblox window");
                         if (++focus_attempts_>8) throw std::runtime_error("Roblox did not come to the foreground");
-                        return;
-                    }
-                    if (!selected() && !desktop_->client_processes().empty()) {
-                        bool activated=false;
-                        for (const auto pid:desktop_->client_processes())
-                            if (desktop_->focus_client_process(pid)) { activated=true; break; }
-                        if (!activated || ++focus_attempts_>8)
-                            throw std::runtime_error("Roblox is open but its game window did not appear");
                         return;
                     }
                     if (!selected()) initial_join_.emplace(session_.connect_client(hive::monotonic_now()));

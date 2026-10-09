@@ -270,6 +270,7 @@ struct ExtensionsUi::Page {
     QLabel* feedback{};
     QLabel* error{};
     QPushButton* enabled{};
+    QPushButton* open{};
     extensions::Settings baseline;
     QLabel* status{};
     ModulePlot* plot{};
@@ -386,6 +387,10 @@ void ExtensionsUi::refresh_list() {
         const auto& entry=host_.entries().at(id);
         QSignalBlocker blocked(page->enabled); page->enabled->setChecked(entry.requested); page->enabled->setText(entry.requested?"Disable":"Enable");
         page->enabled->setEnabled(!busy_());
+        page->open->setVisible(entry.requested);
+        const auto index=pages_->indexOf(page->widget);
+        if (!entry.requested && pages_->currentWidget()==page->widget) navigation_->setCurrentRow(pages_->indexOf(manager_));
+        navigation_->setItemVisible(index,entry.requested);
         page->status->setText(!entry.issue.empty()?"Setup needed":entry.active()?"Enabled":"Off");
         page->status->setToolTip(q(entry.issue)); page->error->setText(q(entry.issue)); page->error->setVisible(!entry.issue.empty());
     }
@@ -435,17 +440,13 @@ void ExtensionsUi::reconcile() {
         auto description=new QVBoxLayout; description->addWidget(text(q(entry.manifest.name),"title")); header->addLayout(description,1);
         page->enabled=new QPushButton(entry.requested?"Disable":"Enable"); page->enabled->setCheckable(true); page->enabled->setObjectName("feature-enabled"); page->enabled->setChecked(entry.requested);
         page->status=text({},"muted"); description->addWidget(page->status); header->addWidget(page->enabled);
-        auto open=new QPushButton("Settings"); header->addWidget(open);
-        connect(open,&QPushButton::clicked,this,[this,id] { navigation_->setCurrentRow(pages_->indexOf(extension_pages_.at(id)->widget)); });
+        page->open=new QPushButton("Settings"); header->addWidget(page->open);
+        connect(page->open,&QPushButton::clicked,this,[this,id] { navigation_->setCurrentRow(pages_->indexOf(extension_pages_.at(id)->widget)); });
         auto scroll=new QScrollArea; scroll->setWidgetResizable(true); scroll->setFrameShape(QFrame::NoFrame);
         page->widget=scroll; scroll->setObjectName("feature-settings"); scroll->setProperty("feature-id",q(id));
         auto body=new QWidget; scroll->setWidget(body);
         auto layout=new QVBoxLayout(body); layout->setContentsMargins(12,10,12,10); layout->setSpacing(8);
         auto title=new QHBoxLayout; title->addWidget(text(q(entry.manifest.name),"heading"),1);
-        if (!entry.active()) {
-            auto enable=new QPushButton("Enable "+q(entry.manifest.name)); title->addWidget(enable);
-            connect(enable,&QPushButton::clicked,page->enabled,&QPushButton::click);
-        }
         layout->addLayout(title);
         page->feedback=text({},"muted"); page->feedback->hide(); layout->addWidget(page->feedback);
         connect(page->enabled,&QPushButton::toggled,this,[this,id](bool on) {
@@ -708,7 +709,8 @@ void ExtensionsUi::reconcile() {
     }
     if (!selected.isEmpty()) {
         const auto found=extension_pages_.find(selected.toStdString());
-        navigation_->setCurrentRow(found==extension_pages_.end()?pages_->indexOf(manager_):pages_->indexOf(found->second->widget));
+        navigation_->setCurrentRow(found==extension_pages_.end() || !host_.entries().at(found->first).requested
+            ?pages_->indexOf(manager_):pages_->indexOf(found->second->widget));
     }
 }
 void ExtensionsUi::update(const extensions::SessionView& view) {

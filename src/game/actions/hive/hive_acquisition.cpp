@@ -178,14 +178,13 @@ public:
             }
             const int candidate=owned.value?1:claim.value?2:0;
             if (candidate==2 && options_.result) options_.result->reset();
-            if (candidate) {
+            if (candidate==1) {
                 auto result=options_.result?options_.result->read():std::nullopt;
-                if (candidate==1 && options_.existing_slot && options_.result && (!result || !result->claimed_slot)) {
+                if (options_.existing_slot && options_.result && (!result || !result->claimed_slot)) {
                     options_.result->claimed(options_.existing_slot,c); result=options_.result->read();
                 }
-                if (candidate==1 && (!result || !result->claimed_slot))
+                if (!result || !result->claimed_slot)
                     throw std::runtime_error("Select your already claimed hive in Setup, or start at spawn to claim one automatically");
-                if (options_.recovery && !recovered_ && (!result || !result->claimed_slot)) return recover(view);
                 begin(Stage::prepare,view); return child_step(view);
             }
             stage_=Stage::zoom; return next(view);

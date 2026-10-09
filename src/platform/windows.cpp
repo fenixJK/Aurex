@@ -37,16 +37,17 @@ WORD code(Key key) {
     default: throw std::invalid_argument("Unsupported keyboard key");
     }
 }
-bool roblox_process(std::int64_t pid) {
-    if (pid<=0 || pid>MAXDWORD) return false;
-    HANDLE process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,static_cast<DWORD>(pid));
-    if (!process) return false;
+bool roblox_process(HANDLE process) {
     wchar_t path[32768]{}; DWORD size=32768,exit_code{};
     const bool ok=GetExitCodeProcess(process,&exit_code) && exit_code==STILL_ACTIVE && QueryFullProcessImageNameW(process,0,path,&size);
-    CloseHandle(process);
     if (!ok) return false;
     std::wstring name(path); const auto slash=name.find_last_of(L"\\/");
     return _wcsicmp(name.substr(slash==std::wstring::npos?0:slash+1).c_str(),L"RobloxPlayerBeta.exe")==0;
+}
+bool roblox_process(std::int64_t pid) {
+    if (pid<=0 || pid>MAXDWORD) return false;
+    winrt::handle process{OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,static_cast<DWORD>(pid))};
+    return process && roblox_process(process.get());
 }
 class WindowsDesktop final : public Desktop {
 public:
@@ -63,11 +64,13 @@ public:
     }
     bool client_running(std::int64_t pid) override { return roblox_process(pid); }
     bool close_client(const Window& window) override {
-        if (!roblox_process(window.process)) return true;
-        const auto hwnd=reinterpret_cast<HWND>(window.id);
-        DWORD pid{}; GetWindowThreadProcessId(hwnd,&pid);
-        if (pid!=window.process) return false;
-        return PostMessageW(hwnd,WM_CLOSE,0,0)!=0;
+        if (window.process<=0 || window.process>MAXDWORD) return false;
+        winrt::handle process{OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE,
+            FALSE,static_cast<DWORD>(window.process))};
+        if (!process) return GetLastError()==ERROR_INVALID_PARAMETER;
+        if (WaitForSingleObject(process.get(),0)==WAIT_OBJECT_0) return true;
+        if (!roblox_process(process.get())) return WaitForSingleObject(process.get(),0)==WAIT_OBJECT_0;
+        return TerminateProcess(process.get(),0) || WaitForSingleObject(process.get(),0)==WAIT_OBJECT_0;
     }
     bool open_client(const std::string& uri) override {
         const auto wide=winrt::to_hstring(uri);
@@ -210,13 +213,23 @@ public:
     }
     void pointer(Point point) override {
         const auto x=static_cast<int>(point.x),y=static_cast<int>(point.y);
+        const int left=GetSystemMetrics(SM_XVIRTUALSCREEN),top=GetSystemMetrics(SM_YVIRTUALSCREEN);
+        const int width=GetSystemMetrics(SM_CXVIRTUALSCREEN),height=GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        if (width<=0 || height<=0) throw std::runtime_error("Could not read desktop bounds");
+        const auto move=[&](int px,int py) {
+            INPUT input{}; input.type=INPUT_MOUSE;
+            input.mi.dx=static_cast<LONG>(std::clamp((double(px)-left+.5)*65536/width,0.,65535.));
+            input.mi.dy=static_cast<LONG>(std::clamp((double(py)-top+.5)*65536/height,0.,65535.));
+            input.mi.dwFlags=MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_MOVE_NOCOALESCE;
+            if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Pointer movement was blocked by Windows");
+        };
         if (primary_down_) {
-            if (!SetCursorPos(x,y)) throw std::runtime_error("Pointer movement failed");
+            move(x,y);
             return;
         }
         POINT start{};
         if (!GetCursorPos(&start)) throw std::runtime_error("Could not read pointer position");
-        if (start.x==x && start.y==y) return;
+        if (start.x==x && start.y==y) { move(x,y); return; }
         winrt::handle timer{CreateWaitableTimerExW(nullptr,nullptr,CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,TIMER_MODIFY_STATE | SYNCHRONIZE)};
         if (!timer) throw std::runtime_error("Could not start pointer movement");
         LARGE_INTEGER interval{}; interval.QuadPart=-20000;
@@ -226,9 +239,8 @@ public:
                 || WaitForSingleObject(timer.get(),INFINITE)!=WAIT_OBJECT_0)
                 throw std::runtime_error("Pointer movement timer failed");
             const auto progress=std::min(double((monotonic_now()-began).count())/30.0,1.0);
-            if (!SetCursorPos(static_cast<int>(start.x+(double(x)-start.x)*progress),
-                              static_cast<int>(start.y+(double(y)-start.y)*progress)))
-                throw std::runtime_error("Pointer movement failed");
+            move(static_cast<int>(start.x+(double(x)-start.x)*progress),
+                 static_cast<int>(start.y+(double(y)-start.y)*progress));
             if (progress>=1) break;
         }
     }

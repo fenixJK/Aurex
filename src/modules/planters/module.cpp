@@ -306,6 +306,7 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
     result.requests={extensions::RequestService::fields};
     result.id=std::move(id); result.provider=std::move(provider); result.name="Planters"; result.version="0.2.0";
     result.settings_version=2;
+    result.enabled_by_default=true;
     result.description="Build and maintain nectar with observed placement, growth and harvest outcomes."; result.permissions=permissions;
     result.settings={{"run-seconds","Run limit (seconds)",static_cast<int>(plan.config.duration.count()/1000),1,28800,{}},
         {"capacity","Slots",static_cast<int>(plan.capacity),1,3,{}},{"max-actions","Actions per run",static_cast<int>(plan.max_actions),1,32,{}}};

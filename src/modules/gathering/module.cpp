@@ -367,6 +367,7 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
         throw std::invalid_argument("Invalid gathering module defaults");
     extensions::Manifest result;
     result.id=std::move(id); result.provider=std::move(provider); result.name="Gathering"; result.version="0.1.0";
+    result.enabled_by_default=true;
     result.description="Follow the configured field rotation, gather, return to the hive and convert. Active field requests can temporarily change the selected field.";
     result.permissions=permissions; result.settings_version=controls?7:defaults.shared_conversion || (sprinklers && sprinklers->equipment)?4:3;
     result.settings={{"cycles","Completed cycles",static_cast<int>(defaults.cycles),1,10000,{}},

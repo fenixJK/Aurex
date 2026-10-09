@@ -114,6 +114,53 @@ void gauge_sparkline(QPainter& p,QRectF plot,const QList<Sample>& samples,qint64
     }
     plot_line(p,plot,samples,window,0,100,color);
 }
+double buff_ceiling(const GaugeHistory& trace) {
+    const auto maximum=std::max(1.,trace.current.level->maximum);
+    if (maximum<=10 || !trace.peak) return maximum;
+    const auto peak=std::clamp(*trace.peak,1.,maximum);
+    const auto magnitude=std::pow(10.,std::floor(std::log10(peak)));
+    for (double step:{1.,2.,5.,10.})
+        if (step*magnitude>=peak) return std::min(maximum,std::max(10.,step*magnitude));
+    return maximum;
+}
+void activity_strip(QPainter& p,QRectF plot,const QList<Sample>& samples,qint64 window,QColor color) {
+    p.save(); p.setRenderHint(QPainter::Antialiasing,false);
+    p.setPen(Qt::NoPen); p.setBrush(color);
+    for (qsizetype i=0;i<samples.size();++i) {
+        const auto& point=samples[i];
+        if (!point.level || *point.level<=0) continue;
+        const auto next=i+1<samples.size()?samples[i+1].at:point.at;
+        const auto end=next-point.at<=30000 && i+1<samples.size() && samples[i+1].level?next:point.at;
+        const auto x=plot.left()+plot.width()*std::clamp(double(point.at)/std::max<qint64>(1,window),0.,1.);
+        const auto right=plot.left()+plot.width()*std::clamp(double(end)/std::max<qint64>(1,window),0.,1.);
+        p.drawRect(QRectF(x,plot.top(),std::min(std::max(1.,right-x),plot.right()-x),plot.height()));
+    }
+    p.restore();
+}
+struct BuffRow {
+    QList<const GaugeHistory*> traces;
+    double top{},height{},ceiling{};
+};
+QList<BuffRow> buff_rows(const QList<const GaugeHistory*>& buffs,double top) {
+    QList<BuffRow> rows;
+    for (const auto* trace:buffs) {
+        const auto& group=trace->current.chart_group;
+        auto row=std::find_if(rows.begin(),rows.end(),[&](const auto& row) {
+            return !group.isEmpty() && row.traces.front()->current.chart_group==group
+                && row.traces.front()->current.level->maximum==trace->current.level->maximum;
+        });
+        if (row==rows.end()) rows.append({{trace}});
+        else row->traces.append(trace);
+    }
+    for (auto& row:rows) {
+        row.top=top;
+        for (const auto* trace:row.traces) row.ceiling=std::max(row.ceiling,buff_ceiling(*trace));
+        row.height=row.ceiling==1?40:row.traces.front()->current.level->maximum>10?66:58;
+        row.height=std::max(row.height,14.*row.traces.size()+16);
+        top+=row.height;
+    }
+    return rows;
+}
 
 }
 QList<CounterResult> summarize(const Report& report,const Section& section) {
@@ -133,14 +180,14 @@ QList<CounterResult> summarize(const Report& report,const Section& section) {
     return result;
 }
 QImage render_report(const Report& report) {
-    constexpr int width=1000,margin=24,content=952,buffs_y=276,buff_spacing=58;
+    constexpr int width=1000,margin=24,content=952,buffs_y=276;
     const auto& snapshot=report.snapshot;
     const auto end=report.created.addMSecs(-report.window_age_ms);
     QList<const GaugeHistory*> buffs;
     for (const auto& trace:report.buffs)
         if (trace.current.level)
             buffs.append(&trace);
-    const int buff_rows=int(buffs.size());
+    const auto rows=buff_rows(buffs,buffs_y+20);
     const double plot_left=std::any_of(buffs.begin(),buffs.end(),[](const auto* trace) { return trace->current.icon.isNull(); })?144:92;
     const double plot_width=880-plot_left;
     QList<const Section*> panels;
@@ -153,8 +200,8 @@ QImage render_report(const Report& report) {
         int rows=0; for (const auto& metric:section->metrics) if (metric.progress) ++rows;
         panel_height+=(panel_height?12:0)+34+std::min(6,rows)*43;
     }
-    const int chart_bottom=buff_rows?buffs_y+20+(buff_rows-1)*buff_spacing+40:264;
-    const int buff_height=buff_rows?chart_bottom-buffs_y+36:32;
+    const int chart_bottom=rows.empty()?264:int(rows.back().top+std::max(36.,rows.back().height-18));
+    const int buff_height=rows.empty()?32:chart_bottom-buffs_y+36;
     const int activity_y=buffs_y+buff_height+14;
     const int details_y=activity_y+48;
     QList<CounterResult> counts;
@@ -212,21 +259,23 @@ QImage render_report(const Report& report) {
             text(p,{margin+i*cell,double(activity_y+12),cell-8,20},activity.name+" "+QString::number(std::lround(100.*activity.milliseconds/total))+"%",12,accent(i),true);
         }
     }
-    if (buff_rows) {
+    if (!rows.empty()) {
         p.setPen(QColor("#2a3c43")); p.drawLine(QPointF(40,buffs_y),QPointF(960,buffs_y));
+        text(p,{878,buffs_y+2,36,18},"Scale",10,QColor("#8ba3ac"),false,Qt::AlignRight|Qt::AlignVCenter);
         text(p,{906,buffs_y+2,54,18},"Uptime",10,QColor("#8ba3ac"),false,Qt::AlignRight|Qt::AlignVCenter);
     }
     const auto uptime=[&](const GaugeHistory& trace) {
         const bool incomplete=report.window_ms && trace.observed_ms<report.window_ms*9/10;
         return trace.observed_ms?QString::number(100.*trace.active_ms/trace.observed_ms,'f',0)+"%"+(incomplete?"*":""):QString("—");
     };
-    for (int i=0;i<buff_rows;++i) {
-        const auto& trace=*buffs[i];
-        const auto color=trace.current.color.isValid()?trace.current.color:accent(i);
-        const double y=buffs_y+20+i*buff_spacing;
-        const QRectF plot(plot_left,y,plot_width,40);
-        const double high=std::max(1.,trace.current.level->maximum);
+    for (qsizetype i=0;i<rows.size();++i) {
+        const auto& row=rows[i];
+        const bool binary=row.ceiling==1,grouped=row.traces.size()>1;
+        const double y=row.top,height=binary?36:row.height-18;
+        const QRectF plot(plot_left,y+(binary?12:0),plot_width,binary?12:height);
+        const double high=row.ceiling;
         for (int grid=0;grid<3;++grid) {
+            if (binary && grid==1) continue;
             const auto gy=plot.top()+grid*plot.height()/2;
             p.setPen(QPen(QColor(grid==1?"#364e58":"#435c66"),1));
             p.drawLine(QPointF(plot.left(),gy),QPointF(plot.right(),gy));
@@ -235,15 +284,30 @@ QImage render_report(const Report& report) {
             const auto x=plot.left()+plot.width()*tick/4;
             p.setPen(QPen(QColor("#3d5660"),1,Qt::DashLine)); p.drawLine(QPointF(x,plot.top()),QPointF(x,plot.bottom()));
         }
-        plot_line(p,plot,trace.samples,report.window_ms,0,high,color,&Sample::level);
-        if (trace.current.icon.isNull()) text(p,{36,y,double(plot_left-44),40},trace.current.name,11,color,true);
-        else {
-            const auto size=trace.current.icon.size().scaled(36,36,Qt::KeepAspectRatio);
-            p.drawImage(QRectF(42+(36-size.width())/2.,y+(40-size.height())/2.,size.width(),size.height()),trace.current.icon);
+        bool observed=false;
+        for (qsizetype j=0;j<row.traces.size();++j) {
+            const auto& trace=*row.traces[j];
+            const auto color=trace.current.color.isValid()?trace.current.color:accent(i+j);
+            if (binary) activity_strip(p,plot,trace.samples,report.window_ms,color);
+            else plot_line(p,plot,trace.samples,report.window_ms,0,high,color,&Sample::level);
+            observed|=trace.peak.has_value();
+            const auto center=y+height/2;
+            if (trace.current.icon.isNull()) {
+                text(p,{36,grouped?y+14*j:center-18,double(plot_left-44),grouped?14.:36.},trace.current.name,11,color,true);
+            } else {
+                const auto size=trace.current.icon.size().scaled(36,36,Qt::KeepAspectRatio);
+                p.save();
+                if (grouped) p.setClipRect(QRectF(42+36.*j/row.traces.size(),center-18,36./row.traces.size(),36));
+                p.drawImage(QRectF(42+(36-size.width())/2.,center-size.height()/2.,size.width(),size.height()),trace.current.icon);
+                p.restore();
+            }
+            text(p,{916,grouped?center-7*row.traces.size()+14*j:center-18,44,grouped?14.:36.},
+                (grouped?trace.current.name.left(1)+" ":QString{})+uptime(trace),grouped?10:12,
+                grouped?color:QColor("#a1b7bd"),true,Qt::AlignRight|Qt::AlignVCenter);
         }
-        text(p,{916,y,44,40},uptime(trace),12,QColor("#a1b7bd"),true,Qt::AlignRight|Qt::AlignVCenter);
-        text(p,{888,y-9,26,18},high==1?"On":"×"+QString::number(high,'g',3),11,color);
-        if (!trace.peak) text(p,plot,"Waiting for readings",11,QColor("#8ba3ac"),false,Qt::AlignCenter);
+        const auto scale_color=!grouped && row.traces.front()->current.color.isValid()?row.traces.front()->current.color:QColor("#a1b7bd");
+        text(p,{884,plot.top()-9,30,18},binary?"On":"×"+QString::number(high,'g',3),11,scale_color);
+        if (!observed) text(p,plot,"Waiting for readings",11,QColor("#8ba3ac"),false,Qt::AlignCenter);
     }
     time_axis(p,{plot_left,double(chart_bottom)-26,plot_width,26},report.window_ms,end);
     int side_y=details_y;

@@ -243,6 +243,8 @@ void Host::discover(const QStringList& roots) {
         }
     }
     restore();
+    if (state_writable_) for (const auto& [id,builtin] : builtins_)
+        if (!saved_.contains(q(id))) entries_.at(id).requested=builtin.manifest.enabled_by_default;
     for (auto& [id,entry] : entries_) {
         try { order(id); } catch (const std::exception& e) { entry.issue=e.what(); }
     }

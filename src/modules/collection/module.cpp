@@ -127,6 +127,7 @@ Settings migrate_item_settings(Settings values) {
 }
 extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string provider,bool requests) {
     auto manifest=features::visits::manifest(visit_plan(plan),std::move(id),std::move(provider),"Collection",permissions);
+    manifest.enabled_by_default=true;
     if (requests) manifest.consumes.insert(extensions::RequestService::stations);
     for (const auto& station : plan.stations) for (auto& setting : manifest.settings)
         if (setting.id==features::visits::selection_key(station.id)) setting.initial=station.selected_by_default;

@@ -71,6 +71,7 @@ struct Manifest {
     std::set<std::string> consumes;
     std::optional<PageLayout> page;
     std::vector<Command> commands;
+    bool enabled_by_default{};
 };
 struct SessionView {
     Status status;

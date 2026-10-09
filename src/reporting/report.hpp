@@ -13,7 +13,7 @@ namespace hive::reporting {
 struct Metric { QString label,value; std::optional<double> progress; QColor color; };
 struct Section { QString name; QList<Metric> metrics; QString id; std::vector<Counter> counters; };
 struct Level { std::optional<double> value; double maximum{100}; };
-struct Gauge { QString name; std::optional<double> percent; QString id; std::optional<double> floor; std::optional<Level> level; QImage icon; QColor color; };
+struct Gauge { QString name; std::optional<double> percent; QString id; std::optional<double> floor; std::optional<Level> level; QImage icon; QColor color; QString chart_group; };
 struct Snapshot {
     QString state,activity;
     QList<Section> sections;
