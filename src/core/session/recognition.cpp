@@ -1,5 +1,6 @@
 #include "recognition.hpp"
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <span>
 
