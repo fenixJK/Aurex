@@ -1,5 +1,6 @@
 #include "results.hpp"
 #include "game/detection/dialog.hpp"
+#include "game/detection/text.hpp"
 #include <algorithm>
 #include <cctype>
 #include <regex>
@@ -37,9 +38,9 @@ bool same_label(std::string_view observed,std::string_view expected) {
     }
     return !changed || (i==observed.size() && j==expected.size());
 }
-const TextLine* unique(const game::TextSnapshot& text,const std::string& name,const Rect& region) {
+const TextLine* unique(std::span<const TextLine> lines,const std::string& name,const Rect& region) {
     const TextLine* result=nullptr;
-    for (const auto& line:text.lines) if (usable(line,.25f) && in(line.pixels,region) && words(line.text)==name) {
+    for (const auto& line:lines) if (usable(line,.25f) && in(line.pixels,region) && words(line.text)==name) {
         if (result) return nullptr;
         result=&line;
     }
@@ -98,15 +99,17 @@ Observation<Amulet> read_amulet(const ObservationContext& c,const game::State& s
     const auto buttons=game::read_dialog(c,observed,{{"Supreme Star Amulet"},{.1,.1,.8,.85},.5f,game::PromptMatch::phrase},{"Keep Old","Replace"});
     if (!buttons.has_value(c,Time(2000))) return result;
     const auto& text=observed.value; const Rect area{text.width*.1,text.height*.1,text.width*.8,text.height*.85};
-    const auto old=unique(text,"old",area),fresh=unique(text,"new",area);
+    const auto labels=game::text_candidates(text.lines,1);
+    const auto old=unique(labels,"old",area),fresh=unique(labels,"new",area);
     if (!old || !fresh || old->pixels.x+old->pixels.width>=fresh->pixels.x || std::abs(old->pixels.y-fresh->pixels.y)>fresh->pixels.height) return result;
     const auto divider=(buttons.value.yes.x+buttons.value.no.x)*text.width/2;
     if (fresh->pixels.x<divider || old->pixels.x>divider) return result;
     const double bottom=buttons.value.no.y*text.height;
     Rect stats{divider,fresh->pixels.y+fresh->pixels.height,(buttons.value.no.x-buttons.value.yes.x)*text.width,bottom-fresh->pixels.y-fresh->pixels.height};
+    std::vector<TextLine> rows;
+    for (const auto& line:text.lines) if (in(line.pixels,stats)) rows.push_back(line);
     bool capacity=false;
-    for (const auto& line:text.lines) {
-        if (!in(line.pixels,stats)) continue;
+    for (const auto& line:game::text_candidates(rows,1)) {
         if (!usable(line)) return result;
         auto value=words(line.text);
         if (value.starts_with("+passive ")) value.erase(0,9);
@@ -122,7 +125,7 @@ Observation<Amulet> read_amulet(const ObservationContext& c,const game::State& s
     }
     if (capacity && result.value.stats.size()==5 && !result.value.passives.empty() && result.value.passives.size()<=2) {
         result.knowledge=Knowledge::present;
-        const auto title=unique(text,"supreme star amulet",area),button=unique(text,"keep old",area);
+        const auto title=unique(labels,"supreme star amulet",area),button=unique(labels,"keep old",area);
         if (title && button) {
             const double half=(buttons.value.no.x-buttons.value.yes.x)*text.width;
             double top=title->pixels.y-half*.8;

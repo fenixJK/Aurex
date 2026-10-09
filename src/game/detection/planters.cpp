@@ -164,7 +164,7 @@ PromptLandmark planter_harvest_prompt(const std::string& type) {
     const auto found=std::find_if(types.begin(),types.end(),[&](const auto& item) { return type==item.second; });
     if (found==types.end()) throw std::invalid_argument("Unknown planter type");
     const auto prompt="Harvest the "+std::string(found->first);
-    return {{prompt,prompt+" (It's still growing)"},{.2,0,.6,.3},.5f,PromptMatch::exact,true};
+    return {{prompt},{.2,0,.6,.3},.5f,PromptMatch::prefix,true};
 }
 namespace {
 Observation<std::string> read_interaction(const DetectionInput& input,const Observation<std::vector<VisiblePlanter>>& visible) {

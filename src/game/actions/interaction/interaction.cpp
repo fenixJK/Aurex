@@ -37,7 +37,10 @@ void Interaction::update(const ObservationContext& c,const game::State& state,Ta
     if (c.now<last_tick_ || c.generation!=started_.generation || scope.generation!=c.generation
         || c.window.id!=started_.window.id || c.window.process!=started_.window.process || c.window.bounds!=started_.window.bounds) { fail("Interaction context changed"); return; }
     last_tick_=c.now;
-    if (c.now-started_.now>=timeout_) { fail("Station result was not confirmed"); return; }
+    if (c.now-started_.now>=timeout_) {
+        const auto* prompt=std::get_if<game::PromptLandmark>(&prompt_);
+        fail((prompt?prompt->phrases.front():"Station")+std::string(" result was not confirmed")); return;
+    }
     if ((state.connection.has_value(c,Time(2000)) && state.connection.value==game::Connection::disconnected)
         || (state.alive.has_value(c,Time(2000)) && !state.alive.value)) { fail("Game disconnected or player respawning"); return; }
     try {

@@ -1,4 +1,6 @@
 #include "landmarks.hpp"
+#include "perception.hpp"
+#include "text.hpp"
 #include <algorithm>
 #include <cctype>
 #include <opencv2/imgproc.hpp>
@@ -25,10 +27,11 @@ std::string words(const std::string& text) {
 }
 bool matches(const std::string& text,const std::string& phrase,PromptMatch mode) {
     if (mode==PromptMatch::exact) return words(text)==words(phrase);
+    if (mode==PromptMatch::prefix) return (words(text)+" ").starts_with(words(phrase)+" ");
     return (" "+words(text)+" ").find(" "+words(phrase)+" ")!=std::string::npos;
 }
 }
-std::optional<Rect> interaction_text_region(const Frame& frame) {
+std::optional<Rect> interaction_prompt_region(const Frame& frame) {
     if (!frame.valid()) return {};
     const int top=frame.height/25,bottom=frame.height/4;
     cv::Mat mask(bottom-top,frame.width,CV_8UC1,cv::Scalar(0));
@@ -80,6 +83,23 @@ std::optional<Rect> interaction_text_region(const Frame& frame) {
     }
     return found;
 }
+std::optional<Rect> interaction_text_region(const Frame& frame,const HudFeatures* hud) {
+    if (!frame.valid()) return {};
+    if (const auto prompt=interaction_prompt_region(frame)) return prompt;
+    const auto resources=hud?hud->resources:resource_hud_regions(frame);
+    if (!resources) return {};
+    const auto& bar=(*resources)[1];
+    const Rect banner{bar.x-bar.width*.6,bar.y+bar.height,bar.width*1.2,bar.height*1.6};
+    if (banner.x<0 || banner.y<0 || banner.x+banner.width>frame.width || banner.y+banner.height>frame.height) return {};
+    unsigned blue=0;
+    for (double dy:{.15,.5,.85}) for (double dx:{.05,.25,.5,.75,.95}) {
+        const auto i=(std::size_t(banner.y+banner.height*dy)*frame.width+int(banner.x+banner.width*dx))*4;
+        const int r=frame.rgba[i],g=frame.rgba[i+1],b=frame.rgba[i+2];
+        blue+=b>=100 && b>r*1.3 && b>g*1.15;
+    }
+    if (blue<10) return {};
+    return Rect{banner.x/frame.width,banner.y/frame.height,banner.width/frame.width,banner.height/frame.height};
+}
 Frame interaction_text_image(const Frame& frame,Rect region) {
     if (!frame.valid() || !region.valid() || region.x<0 || region.y<0 || region.x+region.width>1 || region.y+region.height>1)
         throw std::invalid_argument("Invalid interaction text region");
@@ -98,7 +118,7 @@ Frame interaction_text_image(const Frame& frame,Rect region) {
 }
 void validate(const PromptLandmark& p) {
     const auto& r=p.region;
-    if ((p.match!=PromptMatch::exact && p.match!=PromptMatch::phrase) || p.phrases.empty() || p.phrases.size()>16 || !r.valid() || r.x<0 || r.y<0
+    if ((p.match!=PromptMatch::exact && p.match!=PromptMatch::phrase && p.match!=PromptMatch::prefix) || p.phrases.empty() || p.phrases.size()>16 || !r.valid() || r.x<0 || r.y<0
         || r.x+r.width>1 || r.y+r.height>1 || !std::isfinite(p.confidence) || p.confidence<0 || p.confidence>1)
         throw std::invalid_argument("Invalid prompt landmark");
     for (const auto& phrase : p.phrases)
@@ -113,7 +133,7 @@ Reading<bool> read_prompt_landmark(const Context& c,const Reading<TextSnapshot>&
         p.region.width*snapshot.width,p.region.height*snapshot.height};
     if (snapshot.lines.size()>4096) return result;
     bool uncertain=false;
-    std::vector<const TextLine*> candidates;
+    std::vector<TextLine> candidates;
     for (const auto& line : snapshot.lines) {
         const auto& r=line.pixels;
         if (!r.valid() || r.x<bounds.x || r.y<bounds.y || r.x+r.width>bounds.x+bounds.width
@@ -133,27 +153,19 @@ Reading<bool> read_prompt_landmark(const Context& c,const Reading<TextSnapshot>&
             }
             continue;
         }
-        candidates.push_back(&line);
+        candidates.push_back(line);
+    }
+    for (const auto& line:text_candidates(candidates)) {
         auto normalized=normalize(line.text);
         if (normalized.starts_with("e ")) normalized.erase(0,2);
         if (std::any_of(p.phrases.begin(),p.phrases.end(),[&](const auto& phrase) { return matches(normalized,phrase,p.match); })) {
             result.knowledge=Knowledge::present; result.value=true; return result;
         }
     }
-    if (candidates.size()<=128) for (const auto* first : candidates) for (const auto* second : candidates) {
-        const auto& a=first->pixels; const auto& b=second->pixels;
-        if (b.y<a.y+a.height*.8 || b.y>a.y+a.height*2.5 || b.height<a.height*.6 || b.height>a.height*1.6
-            || std::abs((a.x+a.width/2)-(b.x+b.width/2))>std::max(a.height,b.height)*2) continue;
-        auto joined=normalize(first->text)+" "+normalize(second->text);
-        if (joined.starts_with("e ")) joined.erase(0,2);
-        if (std::any_of(p.phrases.begin(),p.phrases.end(),[&](const auto& phrase) { return matches(joined,phrase,p.match); })) {
-            result.knowledge=Knowledge::present; result.value=true; return result;
-        }
-    }
     if (!uncertain) result.knowledge=Knowledge::absent;
     return result;
 }
-PromptLandmark hive_proximity_prompt() { return {{"Make Honey","Stop Making Honey","Collect Pollen",
-    "To Make Honey, Collect Pollen","To Make Honey, Collect Pollen From Flower Fields","From Flower Fields"},{.2,0,.6,.3},hive_prompt_confidence,PromptMatch::exact,true}; }
+PromptLandmark hive_proximity_prompt() { return {{"Make Honey","Stop Making Honey","Collect Pollen","Flower Fields"},
+    {.2,0,.6,.3},hive_prompt_confidence,PromptMatch::phrase,true}; }
 PromptLandmark hive_claim_prompt() { return {{"Claim Hive"},{.2,0,.6,.3},hive_prompt_confidence,PromptMatch::exact,true}; }
 }

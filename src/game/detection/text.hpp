@@ -1,5 +1,6 @@
 #pragma once
 #include "state.hpp"
+#include <span>
 
 namespace hive::game {
 struct CountedSuffix {
@@ -13,6 +14,7 @@ struct TextTarget {
     bool station_name{};
     std::optional<CountedSuffix> counted_suffix;
 };
+std::vector<TextLine> text_candidates(std::span<const TextLine> lines,unsigned max_rows=3);
 void validate(const TextTarget& target);
 Reading<bool> read_text_target(const Context& context,const State& state,const TextTarget& target,Time minimum={});
 Reading<Time> read_text_cooldown(const Context& context,const State& state,const TextTarget& target,Time minimum={});

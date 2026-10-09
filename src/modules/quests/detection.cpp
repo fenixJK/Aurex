@@ -1,9 +1,9 @@
 #include "detection.hpp"
 #include "game/detection/menus.hpp"
 #include "catalog.hpp"
+#include "game/detection/text.hpp"
 #include <algorithm>
 #include <cctype>
-#include <tuple>
 #include "pixels.hpp"
 
 namespace hive::features::quests {
@@ -29,7 +29,7 @@ std::string normalized(const std::string& text) {
 struct Text { std::string value; bool clipped{},uncertain{}; };
 Text text(const game::DetectionInput& input,Rect area,float minimum_confidence=.8f) {
     area={area.x*input.frame.width,area.y*input.frame.height,area.width*input.frame.width,area.height*input.frame.height};
-    std::vector<const TextLine*> selected; Text result;
+    std::vector<TextLine> selected; Text result;
     for (const auto& line : input.text) {
         if (!line.pixels.valid()) continue;
         if (!overlaps(line.pixels,area)) continue;
@@ -38,14 +38,11 @@ Text text(const game::DetectionInput& input,Rect area,float minimum_confidence=.
         if (line.confidence && (!std::isfinite(*line.confidence) || *line.confidence<minimum_confidence || *line.confidence>1)) {
             result.uncertain=true; continue;
         }
-        selected.push_back(&line);
+        selected.push_back(line);
     }
-    std::stable_sort(selected.begin(),selected.end(),[](const TextLine* a,const TextLine* b) {
-        return std::tie(a->pixels.y,a->pixels.x)<std::tie(b->pixels.y,b->pixels.x);
-    });
-    for (const auto line : selected) {
-        if (result.value.size()+line->text.size()+1>512) { result.clipped=true; break; }
-        if (!result.value.empty()) result.value+=' '; result.value+=line->text;
+    for (const auto& line : game::text_candidates(selected,1)) {
+        if (result.value.size()+line.text.size()+1>512) { result.clipped=true; break; }
+        if (!result.value.empty()) result.value+=' '; result.value+=line.text;
     }
     return result;
 }

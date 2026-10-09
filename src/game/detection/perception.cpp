@@ -12,8 +12,7 @@ Reading<HivePrompt> read_hive_prompt(const Frame& frame,const std::vector<TextLi
     const Reading<TextSnapshot> text{lines.empty()?Knowledge::unknown:Knowledge::present,{frame.width,frame.height,lines},frame.captured,frame.window,generation};
     const auto make=read_prompt_landmark(context,text,{{"Make Honey"},normalized,hive_prompt_confidence});
     const auto stop=read_prompt_landmark(context,text,{{"Stop Making Honey"},normalized,hive_prompt_confidence});
-    const auto empty=read_prompt_landmark(context,text,{{"Collect Pollen",
-        "To Make Honey, Collect Pollen","To Make Honey, Collect Pollen From Flower Fields","From Flower Fields"},normalized,hive_prompt_confidence});
+    const auto empty=read_prompt_landmark(context,text,{{"Collect Pollen","Flower Fields"},normalized,hive_prompt_confidence,PromptMatch::phrase,true});
     const bool a=make.knowledge==Knowledge::present && make.value,b=stop.knowledge==Knowledge::present && stop.value;
     const bool c=empty.knowledge==Knowledge::present && empty.value;
     if (int(a)+int(b)+int(c)==1) {

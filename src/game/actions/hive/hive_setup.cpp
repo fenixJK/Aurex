@@ -38,20 +38,27 @@ ApproachLandmark hive_reference_search(std::shared_ptr<const game::LandmarkSourc
     return {std::move(plan),std::move(reference)};
 }
 namespace {
+bool claimed_here(const std::shared_ptr<HiveSetupResult>& result,const ObservationContext& context,const Observation<bool>& proximity) {
+    const auto claim=result?result->read():std::nullopt;
+    return claim && claim->claimed_slot && Observation<bool>{Knowledge::present,true,claim->context.now,
+        claim->context.window,claim->context.generation}.has_value(context,Time(2000))
+        && !(proximity.usable(context,Time(2000),claim->context.now) && !proximity.value);
+}
 class AtHive final : public RunGuard {
     std::shared_ptr<const game::LandmarkSource> source_;
     bool ready_{},allow_claim_{};
+    std::shared_ptr<HiveSetupResult> claimed_;
 public:
-    explicit AtHive(std::shared_ptr<const game::LandmarkSource> source,bool allow_claim=false)
-        :source_(std::move(source)),allow_claim_(allow_claim) {}
+    explicit AtHive(std::shared_ptr<const game::LandmarkSource> source,bool allow_claim=false,std::shared_ptr<HiveSetupResult> claimed={})
+        :source_(std::move(source)),allow_claim_(allow_claim),claimed_(std::move(claimed)) {}
     bool needs_ocr() const noexcept override { return true; }
-    GuardDecision evaluate(const View& view,Time started) override {
+    GuardDecision evaluate(const View& view,Time) override {
         if (!ready_) {
             const auto reading=source_->read(view.context);
-            ready_=reading.has_value(view.context,Time(2000),started) && reading.value;
+            ready_=claimed_here(claimed_,view.context,reading) || (reading.has_value(view.context,Time(2000)) && reading.value);
             if (!ready_ && allow_claim_ && view.observations) {
                 const auto claim=game::read_prompt_landmark(view.context,view.observations->text,game::hive_claim_prompt());
-                ready_=claim.has_value(view.context,Time(2000),started) && claim.value;
+                ready_=claim.has_value(view.context,Time(2000)) && claim.value;
             }
         }
         return {ready_?GuardState::ready:GuardState::waiting,ready_?"Hive proximity confirmed":"Waiting for your hive interaction prompt"};
@@ -73,7 +80,7 @@ public:
     }
 };
 class PrepareHiveView final : public Program {
-    enum class Stage { claim, confirm_claim, unlock, zoom, pitch_limit, pitch, observe, turn, alternate, reference, restore, zoom_out, done };
+    enum class Stage { claim, unlock, zoom, pitch_limit, pitch, observe, turn, alternate, reference, restore, zoom_out, done };
     std::shared_ptr<const game::LandmarkSource> reference_,proximity_;
     std::shared_ptr<HiveSetupResult> result_;
     Stage stage_{Stage::claim};
@@ -92,7 +99,7 @@ public:
         if (!reference_ || !proximity_) throw std::invalid_argument("Hive preparation requires proximity and visual observations");
     }
     RunConfig config() const override { return {Time(60000),28,{},true,true}; }
-    std::unique_ptr<RunGuard> guard() const override { return std::make_unique<AtHive>(proximity_,true); }
+    std::unique_ptr<RunGuard> guard() const override { return std::make_unique<AtHive>(proximity_,true,result_); }
     Step next(const View& view) override {
         if (!started_) {
             if (result_) result_->begin_preparation(view.context);
@@ -101,7 +108,7 @@ public:
         switch (stage_) {
         case Stage::claim: {
             const auto proximity=proximity_->read(view.context);
-            if (proximity.has_value(view.context,Time(2000)) && proximity.value) {
+            if (claimed_here(result_,view.context,proximity) || (proximity.has_value(view.context,Time(2000)) && proximity.value)) {
                 reference_->read(view.context);
                 stage_=Stage::unlock; return next(view);
             }
@@ -120,33 +127,28 @@ public:
         case Stage::done:
             if (result_) result_->prepared(view.context);
             return Done{"Hive camera prepared; departure position is not yet established"};
-        case Stage::confirm_claim:
         case Stage::observe: break;
         }
         const auto& c=view.context;
-        const bool confirming_claim=stage_==Stage::confirm_claim;
-        if (confirming_claim && c.now-minimum_>=Time(5000)) throw HiveAlignmentError("Claimed hive proximity was not confirmed");
-        const auto value=(confirming_claim?proximity_:reference_)->read(c);
+        const auto value=reference_->read(c);
         if (value.usable(c,Time(2000),minimum_) && value.captured>seen_) {
             seen_=value.captured;
             if (value.knowledge==Knowledge::present && value.value) {
-                if (confirming_claim) reference_->read(c);
                 heading_=value;
-                stage_=confirming_claim?Stage::unlock:Stage::reference;
+                stage_=Stage::reference;
                 return next(view);
             }
-            if (confirming_claim) throw HiveAlignmentError("Hive proximity was lost during preparation");
             if (turns_<8) stage_=Stage::turn;
             else if (!alternate_) stage_=Stage::alternate;
             else throw HiveAlignmentError("Hive reference was not found at either camera pitch");
             return next(view);
         }
-        return Wait{Time(50),confirming_claim?"Confirming claimed hive proximity":"Checking the settled hive view"};
+        return Wait{Time(50),"Checking the settled hive view"};
     }
     void step_completed(const View& view) override {
         switch (stage_) {
         case Stage::claim:
-            stage_=Stage::confirm_claim; minimum_=view.context.now+Time(1); seen_=Time(-1); break;
+            reference_->read(view.context); stage_=Stage::unlock; break;
         case Stage::unlock: stage_=Stage::zoom; break;
         case Stage::zoom: stage_=Stage::pitch_limit; break;
         case Stage::pitch_limit: stage_=Stage::pitch; break;

@@ -1,5 +1,6 @@
 #include "item_menu.hpp"
 #include "conversation.hpp"
+#include "text.hpp"
 #include <opencv2/imgproc.hpp>
 #include <algorithm>
 #include <cctype>
@@ -190,8 +191,11 @@ public:
         for (const auto phrase:{"does not have","not enough","cannot donate","canceled the donation","cancelled the donation","error player"})
             if (message.find(phrase)!=std::string::npos) result->error="The game could not complete this item transaction";
         for (const auto& panel:panels(f)) {
+            std::vector<TextLine> panel_text;
+            for (const auto& line:input.text) if (contains(panel,line.pixels)) panel_text.push_back(line);
+            const auto rows=text_candidates(panel_text,1);
             std::string text;
-            for (const auto& line:input.text) if (contains(panel,line.pixels) && line.text.size()<512) text+=words(line.text)+" ";
+            for (const auto& line:rows) if (line.text.size()<512) text+=words(line.text)+" ";
             const bool blender=text.find("blender")!=std::string::npos;
             const bool shrine=text.find("wind shrine")!=std::string::npos && text.find("donate")!=std::string::npos;
             const bool printer=text.find("sticker printer")!=std::string::npos;
@@ -199,7 +203,7 @@ public:
                 result->kind=ItemMenuKind::sticker_printer; result->stage=ItemMenuStage::selection;
                 result->close=Point{(panel.x+panel.width*.046)/f.width,(panel.y+panel.height*.063)/f.height};
                 for (unsigned i=0;i<5;++i) result->choices.push_back({(panel.x+panel.width*(.324+.103*i))/f.width,(panel.y+panel.height*.377)/f.height});
-                for (const auto& line:input.text) if (contains(panel,line.pixels)) {
+                for (const auto& line:rows) {
                     const auto label=words(line.text);
                     if (label=="confirm") {
                         result->submit=center(f,line.pixels);
@@ -223,7 +227,7 @@ public:
             else { result->previous=point(.53,.43); result->next=point(.86,.43); result->stage=ItemMenuStage::quantity; }
             const auto& items=blender?blender_recipes():shrine_items();
             std::string item_text;
-            for (const auto& line:input.text) if (contains(panel,line.pixels)) {
+            for (const auto& line:rows) {
                 const auto value=words(line.text);
                 const auto center_y=(line.pixels.y+line.pixels.height/2-panel.y)/panel.height;
                 if (center_y>.12 && center_y<(blender?.34:.57)) {
@@ -247,7 +251,7 @@ public:
                 for (const auto& name:items) if (words(name)==words(item_text)) { result->item=name; break; }
             }
             if (result->stage==ItemMenuStage::crafting && !result->remaining) {
-                for (const auto& line:input.text) if (contains(panel,line.pixels)) if (auto remaining=timer(line.text)) result->remaining=remaining;
+                for (const auto& line:rows) if (auto remaining=timer(line.text)) result->remaining=remaining;
             }
             if (result->stage==ItemMenuStage::quantity) quantity_controls(input,panel,*result);
             break;

@@ -1,4 +1,5 @@
 #include "dialog.hpp"
+#include "text.hpp"
 #include <algorithm>
 #include <cctype>
 #include <opencv2/imgproc.hpp>
@@ -8,8 +9,8 @@ namespace {
 std::string label(const std::string& text) {
     std::string out;
     for (unsigned char c : text) {
-        if (std::isspace(c)) { if (!out.empty() && out.back()!=' ') out+=' '; }
-        else out+=static_cast<char>(std::tolower(c));
+        if (std::isalnum(c)) out+=static_cast<char>(std::tolower(c));
+        else if (!out.empty() && out.back()!=' ') out+=' ';
     }
     if (!out.empty() && out.back()==' ') out.pop_back();
     return out;
@@ -76,9 +77,10 @@ Observation<DialogButtons> read_dialog(const Context& context,const Reading<Text
     const double w=text.value.width,h=text.value.height;
     const auto& r=question.region;
     const Rect bounds{r.x*w,r.y*h,r.width*w,r.height*h};
+    const auto rows=text_candidates(text.value.lines,1);
     const TextLine *yes=nullptr,*no=nullptr;
     bool uncertain=false;
-    for (const auto& line : text.value.lines) {
+    for (const auto& line : rows) {
         if (line.text.size()>512) return result;
         const auto word=label(line.text);
         if (word!=positive && word!=negative) continue;
@@ -95,7 +97,7 @@ Observation<DialogButtons> read_dialog(const Context& context,const Reading<Text
     if (uncertain) return result;
     if (!yes && !no) {
         if (read_prompt_landmark(context,text,question).has_value(context,Time(2000))) return result;
-        for (const auto& line : text.value.lines) {
+        for (const auto& line : rows) {
             const auto& b=line.pixels;
             if (!b.valid() || b.x>=bounds.x+bounds.width || b.y>=bounds.y+bounds.height || b.x+b.width<=bounds.x || b.y+b.height<=bounds.y) continue;
             const auto fragment=label(line.text);

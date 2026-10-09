@@ -1,4 +1,5 @@
 #include "conversation.hpp"
+#include "text.hpp"
 #include <algorithm>
 #include <cctype>
 
@@ -20,8 +21,9 @@ public:
         const auto& f=input.frame;
         if (!f.valid() || input.text.size()>2048) return {};
         auto result=std::make_shared<ConversationDetection>();
+        const auto rows=text_candidates(input.text,1);
         const TextLine* footer=nullptr;
-        for (const auto& line:input.text) {
+        for (const auto& line:rows) {
             if (input.cancelled && input.cancelled()) return {};
             const auto r=line.pixels;
             if (!r.valid() || r.x<0 || r.x+r.width>f.width || r.y<f.height*.5 || r.y+r.height>f.height

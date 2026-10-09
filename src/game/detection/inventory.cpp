@@ -1,10 +1,10 @@
 #include "inventory.hpp"
+#include "text.hpp"
 #include <algorithm>
 #include <cctype>
 #include <charconv>
 #include <string_view>
 #include <set>
-#include <tuple>
 
 namespace hive::game {
 namespace {
@@ -226,16 +226,15 @@ Observation<InventoryView> read_inventory(const DetectionInput& input,const Obse
             if (input.cancelled && input.cancelled()) return {};
             if (!region(row.bounds) || !region(row.title) || !contains(l.viewport,row.bounds) || !contains(row.bounds,row.title) || !inside(row.bounds,row.grab)
                 || std::any_of(occupied.begin(),occupied.end(),[&](Rect r) { return overlaps(r,row.bounds); })) throw std::invalid_argument("Ambiguous inventory layout");
-            occupied.push_back(row.bounds); std::vector<const TextLine*> words; bool complete=true;
+            occupied.push_back(row.bounds); std::vector<TextLine> words; bool complete=true;
             for (const auto& line : input.text) {
                 const Rect r{line.pixels.x/input.frame.width,line.pixels.y/input.frame.height,line.pixels.width/input.frame.width,line.pixels.height/input.frame.height};
                 if (!r.valid() || !inside(row.title,{r.x+r.width/2,r.y+r.height/2})) continue;
                 if (!contains(row.bounds,r) || line.text.size()>160 || (line.confidence && (!std::isfinite(*line.confidence) || *line.confidence<0.65f || *line.confidence>1))) { complete=false; continue; }
-                words.push_back(&line);
+                words.push_back(line);
             }
-            std::sort(words.begin(),words.end(),[](const auto* a,const auto* b) { return std::tie(a->pixels.y,a->pixels.x)<std::tie(b->pixels.y,b->pixels.x); });
             std::string name;
-            for (const auto* word : words) { if (!name.empty()) name+=' '; name+=word->text; }
+            for (const auto& word : text_candidates(words,1)) { if (!name.empty()) name+=' '; name+=word.text; }
             if (!complete || inventory_name(name).empty()) { view.readable=false; continue; }
             view.items.push_back({name,row.bounds,row.grab,read_quantity(input,row)});
         }

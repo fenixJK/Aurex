@@ -220,7 +220,7 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
                     }
                 }
                 if (regions.size()>64) regions={{0,0,1,1}};
-                const auto prompt=hud?interaction_text_region(*frame):std::optional<Rect>{};
+                const auto prompt=hud?interaction_text_region(*frame,features.get()):std::optional<Rect>{};
                 if (prompt) regions=exclude_text_region(std::move(regions),*prompt);
                 if (regions.size()>64) regions=prompt?exclude_text_region({{0,0,1,1}},*prompt):std::vector<Rect>{{0,0,1,1}};
                 lines=recognition.read(desktop_,*frame,generation,std::move(regions),cancelled);

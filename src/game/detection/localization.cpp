@@ -12,7 +12,7 @@ public:
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         if (!input.frame.valid() || !input.generation || (input.cancelled && input.cancelled())) return {};
         const auto& frame=input.frame;
-        const bool visible=interaction_text_region(frame).has_value();
+        const bool visible=interaction_prompt_region(frame).has_value();
         auto result=std::make_shared<Landmarks>();
         result->readings.emplace("interaction.prompt",Observation<bool>{visible?Knowledge::present:Knowledge::absent,
             visible,frame.captured,frame.window,input.generation});
