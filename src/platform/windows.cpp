@@ -206,9 +206,31 @@ public:
             input.ki.dwFlags=KEYEVENTF_SCANCODE | (down?0:KEYEVENTF_KEYUP) | ((scan>>8)==0xe0?KEYEVENTF_EXTENDEDKEY:0);
         }
         if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Input was blocked by Windows");
+        if (key==Key::primary) primary_down_=down;
     }
     void pointer(Point point) override {
-        if (!SetCursorPos(static_cast<int>(point.x),static_cast<int>(point.y))) throw std::runtime_error("Pointer movement failed");
+        const auto x=static_cast<int>(point.x),y=static_cast<int>(point.y);
+        if (primary_down_) {
+            if (!SetCursorPos(x,y)) throw std::runtime_error("Pointer movement failed");
+            return;
+        }
+        POINT start{};
+        if (!GetCursorPos(&start)) throw std::runtime_error("Could not read pointer position");
+        if (start.x==x && start.y==y) return;
+        winrt::handle timer{CreateWaitableTimerExW(nullptr,nullptr,CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,TIMER_MODIFY_STATE | SYNCHRONIZE)};
+        if (!timer) throw std::runtime_error("Could not start pointer movement");
+        LARGE_INTEGER interval{}; interval.QuadPart=-20000;
+        const auto began=monotonic_now();
+        for (;;) {
+            if (!SetWaitableTimer(timer.get(),&interval,0,nullptr,nullptr,FALSE)
+                || WaitForSingleObject(timer.get(),INFINITE)!=WAIT_OBJECT_0)
+                throw std::runtime_error("Pointer movement timer failed");
+            const auto progress=std::min(double((monotonic_now()-began).count())/30.0,1.0);
+            if (!SetCursorPos(static_cast<int>(start.x+(double(x)-start.x)*progress),
+                              static_cast<int>(start.y+(double(y)-start.y)*progress)))
+                throw std::runtime_error("Pointer movement failed");
+            if (progress>=1) break;
+        }
     }
     void scroll(int lines) override {
         if (lines<-8 || lines>8) throw std::invalid_argument("Invalid scroll distance");
@@ -216,6 +238,8 @@ public:
         input.mi.mouseData=static_cast<DWORD>(lines*WHEEL_DELTA);
         if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Scrolling was blocked by Windows");
     }
+private:
+    bool primary_down_{};
 };
 }
 std::unique_ptr<Desktop> make_desktop() { return std::make_unique<WindowsDesktop>(); }

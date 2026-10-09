@@ -140,7 +140,9 @@ void Runtime::tick(Time now, const Snapshot& snapshot) {
         Time continuation_end{};
         if (pointer_tasks_) {
             const bool compatible=!active_ || active_->job.actions.at(active_->index).concurrent_pointer==pointer_tasks_;
+            const auto began=std::chrono::steady_clock::now();
             pointer_tasks_->tick(input_,window_,now,compatible);
+            now+=std::chrono::duration_cast<Time>(std::chrono::steady_clock::now()-began);
         }
         if (active_ && active_->job.expires && now >= *active_->job.expires) {
             if (!release()) { fault(status_.reason); return; }
@@ -203,7 +205,11 @@ void Runtime::tick(Time now, const Snapshot& snapshot) {
         }
         status_.job = pending.job.id; status_.action = action.label;
         pending.started=true;
-        if (action.pointer) input_.pointer({window_.bounds.x+action.pointer->x*window_.bounds.width, window_.bounds.y+action.pointer->y*window_.bounds.height});
+        if (action.pointer) {
+            const auto began=std::chrono::steady_clock::now();
+            input_.pointer({window_.bounds.x+action.pointer->x*window_.bounds.width, window_.bounds.y+action.pointer->y*window_.bounds.height});
+            now+=std::chrono::duration_cast<Time>(std::chrono::steady_clock::now()-began);
+        }
         for (auto key : action.held) if (held_.insert(key).second) input_.key(key, true);
         if (action.tap && pending.remaining==Time{}) for (unsigned i=0;i<action.tap_count;++i) {
             held_.insert(*action.tap);

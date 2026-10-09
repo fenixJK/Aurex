@@ -50,7 +50,10 @@ void PointerTasks::tick(Input& input,const Window& window,Time now,bool can_star
         if (++index_==actions_.size()) { finish(TaskOutcome::executed); return; }
     }
     const auto& action=actions_.at(index_);
+    const auto began=std::chrono::steady_clock::now();
     input.pointer({window.bounds.x+action.pointer->x*window.bounds.width,window.bounds.y+action.pointer->y*window.bounds.height});
+    now+=std::chrono::duration_cast<Time>(std::chrono::steady_clock::now()-began);
+    now_=now;
     if (!action.held.empty()) { pressed_=true; input.key(Key::primary,true); }
     if (action.scroll) input.scroll(action.scroll);
     started_=begun_=true; until_=now+action.duration;
