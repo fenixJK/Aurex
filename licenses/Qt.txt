@@ -1,4 +1,4 @@
-Aurex uses Qt 6.8.3 (Core, Gui, Widgets, Concurrent, Network and WebSockets), copyright The Qt Company Ltd. and other contributors, under GNU GPL version 3. Windows builds link Qt statically; macOS builds bundle the Qt frameworks.
+Aurex uses Qt 6.8.3 (Core, Gui, Widgets, Concurrent, Network and WebSockets), copyright The Qt Company Ltd. and other contributors, under GNU GPL version 3. Release builds link Qt statically on Windows and macOS.
 
 Qt source: https://download.qt.io/archive/qt/6.8/6.8.3/submodules/
 Qt source repository: https://code.qt.io/cgit/qt/qtbase.git/tree/?h=v6.8.3

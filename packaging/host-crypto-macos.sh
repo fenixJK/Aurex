@@ -2,6 +2,7 @@
 set -euo pipefail
 export LC_ALL=C
 root=${1:?Specify the dependency directory}
+jobs=${2:-3}
 version=3.6.3
 mkdir -p "$root"
 root=$(cd "$root" && pwd)
@@ -20,5 +21,5 @@ case $(uname -m) in
   *) exit 1 ;;
 esac
 ./Configure "$target" no-shared no-tests no-apps no-docs no-module no-legacy no-engine --prefix="$root/openssl-install" -mmacosx-version-min=14.0
-make -j3 build_libs
+make -j"$jobs" build_libs
 make install_dev

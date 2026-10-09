@@ -22,6 +22,12 @@ target_link_libraries(Aurex PRIVATE hive_status_ui hive_remote_controls hive_acc
 if(WIN32)
   qt_import_plugins(Aurex NO_DEFAULT INCLUDE Qt6::QWindowsIntegrationPlugin
     Qt6::QSchannelBackendPlugin Qt6::QJpegPlugin Qt6::QICOPlugin)
+elseif(APPLE)
+  get_target_property(qt_linkage Qt6::Core TYPE)
+  if(qt_linkage STREQUAL "STATIC_LIBRARY")
+    qt_import_plugins(Aurex NO_DEFAULT INCLUDE Qt6::QCocoaIntegrationPlugin
+      Qt6::QSecureTransportBackendPlugin Qt6::QJpegPlugin Qt6::QICOPlugin)
+  endif()
 endif()
 file(GLOB HIVE_BUFF_ICONS CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/assets/buffs/*.png")
 file(GLOB HIVE_BEE_ICONS CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/assets/bees/*.png")

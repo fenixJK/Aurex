@@ -1,14 +1,12 @@
-param([string]$BuildDir = 'build')
+param([string]$BuildDir = 'build', [Parameter(Mandatory=$true)][string]$NoticesFile)
 $ErrorActionPreference = 'Stop'
 $version = (Select-String -Path CMakeLists.txt -Pattern 'project\(Aurex VERSION ([0-9.]+)').Matches.Groups[1].Value
 $destination = "dist/Aurex-$version-Windows-x64"
 if (Test-Path $destination) { Remove-Item $destination -Recurse -Force }
 New-Item -ItemType Directory -Force $destination | Out-Null
 Copy-Item "$BuildDir/Aurex.exe" $destination
-Copy-Item licenses -Destination $destination -Recurse
 Copy-Item LICENSE -Destination $destination
-Copy-Item "$env:RUNNER_TEMP/opencv-install/etc/licenses" -Destination "$destination/licenses/OpenCV-third-party" -Recurse
-Copy-Item "$env:AUREX_QT_ROOT/share/aurex-notices" -Destination "$destination/licenses/Qt-third-party" -Recurse
+Copy-Item $NoticesFile -Destination "$destination/THIRD_PARTY_NOTICES.txt"
 $imports = & dumpbin /dependents "$destination/Aurex.exe"
 if ($LASTEXITCODE) { throw 'Could not inspect executable dependencies' }
 $dependencies = @($imports | Select-String '^\s+([^\s]+\.dll)\s*$' | ForEach-Object { $_.Matches.Groups[1].Value })

@@ -670,7 +670,7 @@ void ExtensionsUi::reconcile() {
             body->parentWidget()->setFixedHeight(std::max(body->parentWidget()->height(),body->minimumSize().height()));
         }
         page->error=text({},"muted"); page->error->hide(); layout->addWidget(page->error);
-        auto reset=new QPushButton("Defaults"); reset->setVisible(collections.empty());
+        auto reset=new QPushButton("Defaults",body); reset->setVisible(collections.empty());
         tool_buttons->addStretch(); tool_buttons->addWidget(reset); layout->addLayout(tool_buttons);
         connect(reset,&QPushButton::clicked,this,[this,id] {
             if (busy_()) return;
