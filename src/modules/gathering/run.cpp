@@ -1,7 +1,7 @@
-#include "hive/automation/shift_lock.hpp"
+#include "game/actions/field/shift_lock.hpp"
 #include <utility>
-#include "hive/modules/gathering/run.hpp"
-#include "hive/modules/gathering/strategy.hpp"
+#include "run.hpp"
+#include "strategy.hpp"
 #include <algorithm>
 
 namespace hive::features::gathering {

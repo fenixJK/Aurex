@@ -1,5 +1,5 @@
-#include "hive/modules/accounts/module.hpp"
-#include "hive/game/data/fields.hpp"
+#include "module.hpp"
+#include "game/data/fields.hpp"
 #include <algorithm>
 
 namespace hive::features::accounts {

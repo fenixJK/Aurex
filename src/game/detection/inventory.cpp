@@ -1,4 +1,4 @@
-#include "hive/game/detection/inventory.hpp"
+#include "inventory.hpp"
 #include <algorithm>
 #include <cctype>
 #include <charconv>

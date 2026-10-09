@@ -1,8 +1,8 @@
-#include "hive/modules/quests/module.hpp"
-#include "hive/modules/quests/browser.hpp"
+#include "module.hpp"
+#include "browser.hpp"
 #include <algorithm>
 #include <limits>
-#include "hive/game/data/npcs.hpp"
+#include "game/data/npcs.hpp"
 
 namespace hive::features::quests {
 namespace {

@@ -1,4 +1,4 @@
-#include "hive/game/data/fields.hpp"
+#include "fields.hpp"
 
 namespace hive::game {
 std::span<const FieldDefinition> fields() {

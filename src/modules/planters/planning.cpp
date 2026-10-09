@@ -1,6 +1,6 @@
-#include "hive/modules/planters/planning.hpp"
-#include "hive/modules/planters/simulation.hpp"
-#include "hive/modules/planters/controller.hpp"
+#include "planning.hpp"
+#include "simulation.hpp"
+#include "controller.hpp"
 #include <algorithm>
 #include <numeric>
 #include <tuple>

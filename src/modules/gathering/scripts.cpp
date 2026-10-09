@@ -1,5 +1,5 @@
-#include "hive/modules/gathering/scripts.hpp"
-#include "hive/scripting/program.hpp"
+#include "scripts.hpp"
+#include "core/scripting/program.hpp"
 #include <algorithm>
 #include <fstream>
 #include "bundled_patterns.hpp"

@@ -1,9 +1,9 @@
-#include "hive/modules/quests/actions.hpp"
-#include "hive/modules/quests/catalog.hpp"
-#include "hive/automation/feeding.hpp"
-#include "hive/automation/ant_challenge.hpp"
-#include "hive/automation/petals.hpp"
-#include "hive/game/data/fields.hpp"
+#include "actions.hpp"
+#include "catalog.hpp"
+#include "game/actions/inventory/feeding.hpp"
+#include "game/actions/activities/ant_challenge.hpp"
+#include "game/actions/field/petals.hpp"
+#include "game/data/fields.hpp"
 #include <algorithm>
 
 namespace hive::features::quests {

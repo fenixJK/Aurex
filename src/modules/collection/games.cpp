@@ -1,7 +1,7 @@
-#include "hive/modules/collection/games.hpp"
-#include "hive/modules/collection/card_memory.hpp"
-#include "hive/game/data/stations.hpp"
-#include "hive/game/detection/dialog.hpp"
+#include "games.hpp"
+#include "card_memory.hpp"
+#include "game/data/stations.hpp"
+#include "game/detection/dialog.hpp"
 
 namespace hive::features::collection {
 namespace {

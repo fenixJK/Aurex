@@ -1,4 +1,4 @@
-#include "hive/game/detection/honey.hpp"
+#include "honey.hpp"
 #include "hud_numbers.hpp"
 namespace hive::game {
 using namespace detail;

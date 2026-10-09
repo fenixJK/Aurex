@@ -1,4 +1,4 @@
-#include "hive/game/detection/hive_view.hpp"
+#include "hive_view.hpp"
 #include <algorithm>
 #include <array>
 #include <mutex>

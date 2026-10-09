@@ -1,4 +1,4 @@
-#include "hive/modules/shared/visit_cooldown_store.hpp"
+#include "visit_cooldown_store.hpp"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>

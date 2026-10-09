@@ -1,6 +1,6 @@
 #include "buff_bar.hpp"
-#include "hive/game/detection/menus.hpp"
-#include "hive/game/detection/perception.hpp"
+#include "menus.hpp"
+#include "perception.hpp"
 #include "menu_icons.hpp"
 #include <algorithm>
 #include <array>

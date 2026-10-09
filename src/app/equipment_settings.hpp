@@ -1,6 +1,6 @@
 #pragma once
-#include "hive/game/data/hive_preferences.hpp"
-#include "hive/game/detection/sprinklers.hpp"
+#include "game/data/hive_preferences.hpp"
+#include "game/detection/sprinklers.hpp"
 #include <QButtonGroup>
 #include <QComboBox>
 #include <QLabel>

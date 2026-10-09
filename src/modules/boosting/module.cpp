@@ -1,6 +1,6 @@
-#include "hive/modules/boosting/module.hpp"
-#include "hive/game/data/stations.hpp"
-#include "hive/game/data/fields.hpp"
+#include "module.hpp"
+#include "game/data/stations.hpp"
+#include "game/data/fields.hpp"
 #include <algorithm>
 
 namespace hive::features::boosting {

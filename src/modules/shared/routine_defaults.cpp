@@ -1,5 +1,5 @@
-#include "hive/modules/shared/routine.hpp"
-#include "hive/policies/defaults.hpp"
+#include "routine.hpp"
+#include "policies.hpp"
 
 namespace hive::features::routine {
 using namespace automation;

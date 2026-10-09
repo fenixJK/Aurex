@@ -1,5 +1,5 @@
-#include "hive/modules/tools/results.hpp"
-#include "hive/game/detection/dialog.hpp"
+#include "results.hpp"
+#include "game/detection/dialog.hpp"
 #include <algorithm>
 #include <cctype>
 #include <regex>

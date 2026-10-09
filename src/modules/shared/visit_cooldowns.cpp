@@ -1,4 +1,4 @@
-#include "hive/modules/shared/visit_cooldowns.hpp"
+#include "visit_cooldowns.hpp"
 #include <algorithm>
 #include <tuple>
 

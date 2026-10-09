@@ -1,5 +1,5 @@
 #pragma once
-#include "hive/module_host/commands.hpp"
+#include "core/module_host/commands.hpp"
 class QWidget;
 namespace hive::app {
 std::optional<extensions::CommandArguments> command_arguments(QWidget* parent,const extensions::Command& command);

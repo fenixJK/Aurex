@@ -1,4 +1,4 @@
-#include "hive/coordination/local_network.hpp"
+#include "local_network.hpp"
 #include <QNetworkInterface>
 #include <algorithm>
 #include <stdexcept>

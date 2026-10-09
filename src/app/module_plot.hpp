@@ -1,5 +1,5 @@
 #pragma once
-#include "hive/module_host/presentation.hpp"
+#include "core/module_host/presentation.hpp"
 #include <QWidget>
 namespace hive {
 QImage plot_image(const extensions::Plot& plot,QSize size={1000,620});

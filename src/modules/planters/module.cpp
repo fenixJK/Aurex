@@ -1,7 +1,7 @@
-#include "hive/modules/planters/module.hpp"
+#include "module.hpp"
 #include <algorithm>
 #include <future>
-#include "hive/modules/planters/presentation.hpp"
+#include "presentation.hpp"
 
 namespace hive::features::planters {
 namespace {

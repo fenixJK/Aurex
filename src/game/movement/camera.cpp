@@ -1,4 +1,4 @@
-#include "hive/game/movement/camera.hpp"
+#include "camera.hpp"
 
 namespace hive::game {
 std::optional<CameraMove> heading_move(unsigned from,unsigned to) {

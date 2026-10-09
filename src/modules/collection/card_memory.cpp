@@ -1,4 +1,4 @@
-#include "hive/modules/collection/card_memory.hpp"
+#include "card_memory.hpp"
 #include <algorithm>
 
 namespace hive::features::collection {

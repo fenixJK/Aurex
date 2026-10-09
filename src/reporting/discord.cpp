@@ -1,4 +1,4 @@
-#include "hive/reporting/discord.hpp"
+#include "discord.hpp"
 #include "message.hpp"
 #include <QBuffer>
 #include <QCoreApplication>

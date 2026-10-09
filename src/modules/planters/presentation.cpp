@@ -1,5 +1,5 @@
-#include "hive/modules/planters/presentation.hpp"
-#include "hive/modules/planters/simulation.hpp"
+#include "presentation.hpp"
+#include "simulation.hpp"
 #include <algorithm>
 #include <iomanip>
 #include <sstream>

@@ -1,5 +1,5 @@
 #pragma once
-#include "hive/reporting/remote.hpp"
+#include "reporting/remote.hpp"
 #include <QPointer>
 #include <QWidget>
 

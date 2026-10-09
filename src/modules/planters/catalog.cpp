@@ -1,4 +1,4 @@
-#include "hive/modules/planters/planner.hpp"
+#include "planner.hpp"
 
 namespace hive::features::planters {
 std::span<const Stats> catalog() {

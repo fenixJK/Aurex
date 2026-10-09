@@ -1,5 +1,5 @@
-#include "hive/game/detection/state.hpp"
-#include "hive/game/detection/landmarks.hpp"
+#include "state.hpp"
+#include "landmarks.hpp"
 #include <algorithm>
 #include <cctype>
 

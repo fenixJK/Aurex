@@ -1,4 +1,4 @@
-#include "hive/game/detection/landmarks.hpp"
+#include "landmarks.hpp"
 #include <algorithm>
 #include <cctype>
 #include <opencv2/imgproc.hpp>

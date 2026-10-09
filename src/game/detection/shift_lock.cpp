@@ -1,4 +1,4 @@
-#include "hive/game/detection/shift_lock.hpp"
+#include "shift_lock.hpp"
 #include "shift_lock_mask.hpp"
 #include <algorithm>
 namespace hive::game {

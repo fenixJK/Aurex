@@ -1,6 +1,6 @@
-#include "hive/game/detection/movement_buffs.hpp"
+#include "game/detection/movement_buffs.hpp"
 #include <algorithm>
-#include "../detection/buff_bar.hpp"
+#include "game/detection/buff_bar.hpp"
 
 namespace hive::game {
 namespace {

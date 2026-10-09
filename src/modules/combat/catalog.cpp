@@ -1,7 +1,7 @@
-#include "hive/modules/combat/plan.hpp"
-#include "../shared/movement.hpp"
-#include "hive/automation/field_routes.hpp"
-#include "hive/game/detection/daylight.hpp"
+#include "plan.hpp"
+#include "modules/shared/movement.hpp"
+#include "game/actions/travel/field_routes.hpp"
+#include "game/detection/daylight.hpp"
 
 namespace hive::features::combat {
 int commando_health(int level) {

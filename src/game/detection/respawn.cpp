@@ -1,5 +1,5 @@
-#include "hive/game/detection/respawn.hpp"
-#include "hive/game/detection/dialog.hpp"
+#include "respawn.hpp"
+#include "dialog.hpp"
 #include <algorithm>
 #include <set>
 #include <cctype>

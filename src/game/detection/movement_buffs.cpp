@@ -1,4 +1,4 @@
-#include "hive/game/detection/movement_buffs.hpp"
+#include "movement_buffs.hpp"
 #include "buff_bar.hpp"
 #include "buff_glyphs.hpp"
 #include "haste_icon.hpp"

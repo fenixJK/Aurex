@@ -1,4 +1,4 @@
-#include "hive/modules/combat/progress.hpp"
+#include "progress.hpp"
 #include <cmath>
 
 namespace hive::features::combat {

@@ -1,4 +1,4 @@
-#include "hive/game/data/stations.hpp"
+#include "stations.hpp"
 
 namespace hive::game {
 const std::vector<StationDefinition>& stations() {

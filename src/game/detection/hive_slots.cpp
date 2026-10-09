@@ -1,4 +1,4 @@
-#include "hive/game/detection/hive_slots.hpp"
+#include "hive_slots.hpp"
 #include <algorithm>
 
 namespace hive::game {

@@ -1,4 +1,4 @@
-#include "hive/game/data/cooldowns.hpp"
+#include "cooldowns.hpp"
 #include <algorithm>
 
 namespace hive::game {

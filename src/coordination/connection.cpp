@@ -1,5 +1,5 @@
-#include "hive/coordination/connection.hpp"
-#include "hive/coordination/local_network.hpp"
+#include "connection.hpp"
+#include "local_network.hpp"
 #include <QCryptographicHash>
 #include <QJsonArray>
 #include <QJsonDocument>

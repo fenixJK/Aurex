@@ -1,6 +1,6 @@
-#include "hive/game/detection/connection.hpp"
-#include "hive/game/detection/perception.hpp"
-#include "hive/game/detection/menus.hpp"
+#include "connection.hpp"
+#include "perception.hpp"
+#include "menus.hpp"
 #include <algorithm>
 #include <array>
 

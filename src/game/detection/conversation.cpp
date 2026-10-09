@@ -1,4 +1,4 @@
-#include "hive/game/detection/conversation.hpp"
+#include "conversation.hpp"
 #include <algorithm>
 #include <cctype>
 

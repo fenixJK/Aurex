@@ -1,4 +1,4 @@
-#include "hive/modules/planters/preferences.hpp"
+#include "preferences.hpp"
 #include <algorithm>
 
 namespace hive::features::planters {

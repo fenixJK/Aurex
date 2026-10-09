@@ -1,5 +1,5 @@
-#include "hive/reporting/remote.hpp"
-#include "hive/reporting/discord.hpp"
+#include "remote.hpp"
+#include "discord.hpp"
 #include "message.hpp"
 #include <QBuffer>
 #include <QFutureWatcher>

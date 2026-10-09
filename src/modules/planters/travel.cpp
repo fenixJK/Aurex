@@ -1,7 +1,7 @@
-#include "hive/modules/planters/execution.hpp"
-#include "hive/game/data/fields.hpp"
-#include "../shared/movement.hpp"
-#include "hive/automation/field_routes.hpp"
+#include "execution.hpp"
+#include "game/data/fields.hpp"
+#include "modules/shared/movement.hpp"
+#include "game/actions/travel/field_routes.hpp"
 
 namespace hive::features::planters {
 ExecutionPlan walking_plan(const workflows::RouteCatalog& routes,double speed,automation::ProgramFactory return_to_hive,

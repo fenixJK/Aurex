@@ -1,4 +1,4 @@
-#include "hive/modules/quests/catalog.hpp"
+#include "catalog.hpp"
 #include "catalog_data.hpp"
 #include <algorithm>
 #include <cctype>

@@ -1,4 +1,4 @@
-#include "hive/game/detection/nectar.hpp"
+#include "nectar.hpp"
 #include "buff_bar.hpp"
 #include <algorithm>
 

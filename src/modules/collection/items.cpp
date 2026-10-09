@@ -1,4 +1,4 @@
-#include "hive/modules/collection/items.hpp"
+#include "items.hpp"
 #include <algorithm>
 
 namespace hive::features::collection {

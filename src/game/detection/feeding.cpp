@@ -1,4 +1,4 @@
-#include "hive/game/detection/feeding.hpp"
+#include "feeding.hpp"
 #include <algorithm>
 #include <charconv>
 #include <cctype>

@@ -1,4 +1,4 @@
-#include "hive/game/detection/text.hpp"
+#include "text.hpp"
 #include <cctype>
 #include <regex>
 #include <sstream>

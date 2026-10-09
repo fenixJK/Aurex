@@ -1,6 +1,6 @@
-#include "hive/modules/tools/rolling.hpp"
-#include "hive/automation/feeding.hpp"
-#include "hive/game/detection/menus.hpp"
+#include "rolling.hpp"
+#include "game/actions/inventory/feeding.hpp"
+#include "game/detection/menus.hpp"
 #include <algorithm>
 
 namespace hive::features::tools {

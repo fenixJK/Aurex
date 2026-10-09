@@ -1,4 +1,4 @@
-#include "hive/modules/shared/visit_module.hpp"
+#include "visit_module.hpp"
 #include <algorithm>
 
 namespace hive::features::visits {

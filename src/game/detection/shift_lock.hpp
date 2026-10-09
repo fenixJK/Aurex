@@ -1,0 +1,5 @@
+#pragma once
+#include "core/runtime/model.hpp"
+namespace hive::game {
+Observation<bool> read_shift_lock(const Frame& frame,std::uint64_t generation);
+}

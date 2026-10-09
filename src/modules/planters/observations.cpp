@@ -1,4 +1,4 @@
-#include "hive/modules/planters/observations.hpp"
+#include "observations.hpp"
 #include <algorithm>
 
 namespace hive::features::planters {

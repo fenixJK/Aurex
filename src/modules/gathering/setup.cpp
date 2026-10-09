@@ -1,9 +1,9 @@
-#include "hive/modules/gathering/setup.hpp"
+#include "setup.hpp"
 #include "defaults.hpp"
-#include "hive/automation/recenter.hpp"
-#include "hive/automation/sprinklers.hpp"
-#include "hive/automation/field_routes.hpp"
-#include "hive/game/data/fields.hpp"
+#include "game/actions/travel/recenter.hpp"
+#include "game/actions/field/sprinklers.hpp"
+#include "game/actions/travel/field_routes.hpp"
+#include "game/data/fields.hpp"
 #include <algorithm>
 
 namespace hive::features::gathering {

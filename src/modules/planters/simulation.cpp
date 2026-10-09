@@ -1,4 +1,4 @@
-#include "hive/modules/planters/simulation.hpp"
+#include "simulation.hpp"
 #include <algorithm>
 
 namespace hive::features::planters {

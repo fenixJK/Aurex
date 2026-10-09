@@ -1,6 +1,6 @@
-#include "hive/modules/combat/plan.hpp"
+#include "plan.hpp"
 #include <algorithm>
-#include "hive/game/detection/dialog.hpp"
+#include "game/detection/dialog.hpp"
 
 namespace hive::features::combat {
 namespace {

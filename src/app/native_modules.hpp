@@ -1,14 +1,14 @@
 #pragma once
-#include "hive/modules/gathering/setup.hpp"
-#include "hive/modules/quests/module.hpp"
-#include "hive/modules/planters/module.hpp"
-#include "hive/modules/collection/module.hpp"
-#include "hive/modules/combat/module.hpp"
-#include "hive/modules/boosting/module.hpp"
-#include "hive/modules/accounts/module.hpp"
-#include "hive/automation/hive_setup.hpp"
-#include "hive/automation/hive_routes.hpp"
-#include "hive/game/detection/screen_reference.hpp"
+#include "modules/gathering/setup.hpp"
+#include "modules/quests/module.hpp"
+#include "modules/planters/module.hpp"
+#include "modules/collection/module.hpp"
+#include "modules/combat/module.hpp"
+#include "modules/boosting/module.hpp"
+#include "modules/accounts/module.hpp"
+#include "game/actions/hive/hive_setup.hpp"
+#include "game/actions/travel/hive_routes.hpp"
+#include "game/detection/screen_reference.hpp"
 
 namespace hive::extensions { class Host; }
 namespace hive::app {

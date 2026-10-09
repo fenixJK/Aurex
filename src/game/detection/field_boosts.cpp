@@ -1,4 +1,4 @@
-#include "hive/game/detection/field_boosts.hpp"
+#include "field_boosts.hpp"
 #include "buff_bar.hpp"
 #include "field_boost_icons.hpp"
 #include <algorithm>

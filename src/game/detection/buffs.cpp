@@ -1,4 +1,4 @@
-#include "hive/game/detection/buffs.hpp"
+#include "buffs.hpp"
 #include "buff_bar.hpp"
 #include "status_buff_icons.hpp"
 #include "buff_stack.hpp"

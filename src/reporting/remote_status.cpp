@@ -1,4 +1,4 @@
-#include "hive/reporting/remote.hpp"
+#include "remote.hpp"
 #include <algorithm>
 #include <cmath>
 #include <QPainter>

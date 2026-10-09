@@ -1,6 +1,6 @@
-#include "hive/module_host/providers.hpp"
+#include "core/module_host/providers.hpp"
 #include "builtins.hpp"
-#include "hive/module_host/host.hpp"
+#include "core/module_host/host.hpp"
 
 namespace hive::extensions {
 void register_builtin_modules(Host& host) {

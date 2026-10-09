@@ -1,5 +1,5 @@
-#include "hive/modules/tools/module.hpp"
-#include "hive/modules/tools/rolling.hpp"
+#include "module.hpp"
+#include "rolling.hpp"
 #include <algorithm>
 #include <cctype>
 

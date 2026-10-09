@@ -1,6 +1,6 @@
-#include "hive/modules/collection/items.hpp"
-#include "hive/game/detection/dialog.hpp"
-#include "hive/game/data/stations.hpp"
+#include "items.hpp"
+#include "game/detection/dialog.hpp"
+#include "game/data/stations.hpp"
 #include <algorithm>
 
 namespace hive::features::collection {

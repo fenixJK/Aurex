@@ -1,4 +1,4 @@
-#include "hive/game/detection/memory_match.hpp"
+#include "memory_match.hpp"
 #include <opencv2/imgproc.hpp>
 #include <algorithm>
 #include <cctype>

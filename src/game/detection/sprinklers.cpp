@@ -1,4 +1,4 @@
-#include "hive/game/detection/sprinklers.hpp"
+#include "sprinklers.hpp"
 #include <algorithm>
 #include <cctype>
 

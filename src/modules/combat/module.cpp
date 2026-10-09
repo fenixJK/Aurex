@@ -1,4 +1,4 @@
-#include "hive/modules/combat/module.hpp"
+#include "module.hpp"
 #include <algorithm>
 #include <cmath>
 

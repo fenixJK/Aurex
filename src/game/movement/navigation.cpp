@@ -1,4 +1,4 @@
-#include "hive/game/movement/navigation.hpp"
+#include "navigation.hpp"
 #include <algorithm>
 #include <map>
 

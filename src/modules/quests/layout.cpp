@@ -1,6 +1,6 @@
-#include "hive/game/data/fields.hpp"
-#include "hive/modules/quests/catalog.hpp"
-#include "hive/modules/quests/detection.hpp"
+#include "game/data/fields.hpp"
+#include "catalog.hpp"
+#include "detection.hpp"
 #include "pixels.hpp"
 #include <algorithm>
 #include <array>

@@ -1,4 +1,4 @@
-#include "hive/game/data/npcs.hpp"
+#include "npcs.hpp"
 
 namespace hive::game {
 std::span<const Npc> npcs() {

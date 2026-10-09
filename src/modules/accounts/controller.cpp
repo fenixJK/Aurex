@@ -1,6 +1,6 @@
-#include "hive/modules/accounts/controller.hpp"
+#include "controller.hpp"
 #include <QJsonDocument>
-#include "hive/game/data/join.hpp"
+#include "game/data/join.hpp"
 #include <QSysInfo>
 #include <QUrl>
 #include <QUuid>

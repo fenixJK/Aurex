@@ -1,5 +1,5 @@
-#include "hive/game/detection/item_menu.hpp"
-#include "hive/game/detection/conversation.hpp"
+#include "item_menu.hpp"
+#include "conversation.hpp"
 #include <opencv2/imgproc.hpp>
 #include <algorithm>
 #include <cctype>

@@ -21,39 +21,63 @@ endfunction()
 function(hive_require_shared_file root path)
   cmake_path(ABSOLUTE_PATH path BASE_DIRECTORY "${root}" NORMALIZE OUTPUT_VARIABLE absolute)
   file(RELATIVE_PATH relative "${root}" "${absolute}")
-  if(NOT relative MATCHES "^(src/scripting/(movement.cpp|runtime.hpp)$|src/module_host/(requests|request_channels|commands)\\.cpp$|src/(core|game|workflows|automation|session|platform|reporting|coordination)/|include/hive/(core|game|workflows|automation|session|platform|reporting|coordination)/|include/hive/scripting/movement\\.hpp$|include/hive/module_host/(requests|request_channels|commands)\\.hpp$)")
+  if(NOT relative MATCHES "^src/(core/(runtime|session)/|core/scripting/(movement\\.(cpp|hpp)|runtime\\.hpp)$|core/module_host/(requests|request_channels|commands|activity_policy|contributor)\\.(cpp|hpp)$|(game|platform|reporting|coordination)/)")
     message(FATAL_ERROR "Dependency boundary: shared services must not include or compile ${relative}")
   endif()
 endfunction()
 
+function(hive_project_includes root source result)
+  file(STRINGS "${source}" lines REGEX "^[ \t]*#[ \t]*include[ \t]*[<\"]")
+  get_filename_component(directory "${source}" DIRECTORY)
+  set(headers)
+  foreach(line IN LISTS lines)
+    string(REGEX REPLACE "^[ \t]*#[ \t]*include[ \t]*[<\"]([^>\"]+)[>\"].*$" "\\1" header "${line}")
+    if(EXISTS "${directory}/${header}")
+      cmake_path(ABSOLUTE_PATH header BASE_DIRECTORY "${directory}" NORMALIZE OUTPUT_VARIABLE absolute)
+    elseif(EXISTS "${root}/src/${header}")
+      cmake_path(ABSOLUTE_PATH header BASE_DIRECTORY "${root}/src" NORMALIZE OUTPUT_VARIABLE absolute)
+    elseif(header STREQUAL "bundled_movement.hpp" AND source STREQUAL "${root}/src/core/scripting/movement.cpp")
+      continue()
+    elseif(header STREQUAL "bundled_patterns.hpp" AND source STREQUAL "${root}/src/modules/gathering/scripts.cpp")
+      continue()
+    elseif(line MATCHES "include[ \t]*<")
+      continue()
+    else()
+      message(FATAL_ERROR "Unknown project header ${header} in ${source}")
+    endif()
+    list(APPEND headers "${absolute}")
+  endforeach()
+  set(${result} "${headers}" PARENT_SCOPE)
+endfunction()
+
 function(hive_check_shared_sources root)
   file(GLOB_RECURSE sources CONFIGURE_DEPENDS
-    "${root}/src/scripting/movement.cpp" "${root}/src/scripting/runtime.hpp" "${root}/include/hive/scripting/movement.hpp"
-    "${root}/src/module_host/commands.cpp" "${root}/include/hive/module_host/commands.hpp"
-    "${root}/src/module_host/requests.cpp" "${root}/src/module_host/request_channels.cpp"
-    "${root}/include/hive/module_host/requests.hpp" "${root}/include/hive/module_host/request_channels.hpp"
-    "${root}/src/coordination/*" "${root}/include/hive/coordination/*"
-    "${root}/src/core/*" "${root}/src/game/*" "${root}/src/workflows/*"
-    "${root}/src/automation/*" "${root}/src/session/*" "${root}/src/platform/*" "${root}/src/reporting/*"
-    "${root}/include/hive/core/*" "${root}/include/hive/platform/*" "${root}/include/hive/reporting/*"
-    "${root}/include/hive/session/*" "${root}/include/hive/game/*" "${root}/include/hive/workflows/*" "${root}/include/hive/automation/*")
+    "${root}/src/core/scripting/movement.cpp" "${root}/src/core/scripting/runtime.hpp" "${root}/src/core/scripting/movement.hpp"
+    "${root}/src/core/module_host/commands.*" "${root}/src/core/module_host/requests.*"
+    "${root}/src/core/module_host/request_channels.*" "${root}/src/core/module_host/activity_policy.hpp"
+    "${root}/src/core/module_host/contributor.hpp"
+    "${root}/src/core/runtime/*" "${root}/src/core/session/*" "${root}/src/game/*"
+    "${root}/src/platform/*" "${root}/src/reporting/*" "${root}/src/coordination/*")
   foreach(source IN LISTS sources)
-    if(NOT EXISTS "${source}")
-      continue()
-    endif()
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${source}")
-    file(STRINGS "${source}" includes REGEX "^[ \t]*#[ \t]*include[ \t]*[<\"]")
-    foreach(line IN LISTS includes)
-      string(REGEX REPLACE "^[ \t]*#[ \t]*include[ \t]*[<\"]([^>\"]+)[>\"].*$" "\\1" header "${line}")
-      if(header MATCHES "^hive/")
-        hive_require_shared_file("${root}" "include/${header}")
-      elseif(header STREQUAL "bundled_movement.hpp")
-        if(NOT source MATCHES "/src/scripting/movement.cpp$")
-          message(FATAL_ERROR "Movement internals are private")
-        endif()
-      elseif(line MATCHES "include[ \t]*\"")
-        get_filename_component(directory "${source}" DIRECTORY)
-        hive_require_shared_file("${root}" "${directory}/${header}")
+    hive_project_includes("${root}" "${source}" headers)
+    foreach(header IN LISTS headers)
+      hive_require_shared_file("${root}" "${header}")
+    endforeach()
+  endforeach()
+endfunction()
+
+function(hive_check_module_sources root)
+  file(GLOB_RECURSE sources CONFIGURE_DEPENDS "${root}/src/modules/*.cpp" "${root}/src/modules/*.hpp")
+  foreach(source IN LISTS sources)
+    file(RELATIVE_PATH relative "${root}/src/modules" "${source}")
+    string(REGEX REPLACE "/.*$" "" owner "${relative}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${source}")
+    hive_project_includes("${root}" "${source}" headers)
+    foreach(header IN LISTS headers)
+      file(RELATIVE_PATH relative "${root}/src" "${header}")
+      if(relative MATCHES "^app/" OR (relative MATCHES "^modules/([^/]+)/" AND NOT CMAKE_MATCH_1 STREQUAL owner AND NOT CMAKE_MATCH_1 STREQUAL "shared"))
+        message(FATAL_ERROR "Dependency boundary: module ${owner} must not include ${relative}")
       endif()
     endforeach()
   endforeach()

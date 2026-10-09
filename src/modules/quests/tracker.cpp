@@ -1,4 +1,4 @@
-#include "hive/modules/quests/tracker.hpp"
+#include "tracker.hpp"
 #include <algorithm>
 
 namespace hive::features::quests {

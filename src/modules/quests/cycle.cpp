@@ -1,7 +1,7 @@
-#include "hive/modules/quests/cycle.hpp"
-#include "hive/automation/conversation.hpp"
-#include "hive/automation/shift_lock.hpp"
-#include "hive/game/data/npcs.hpp"
+#include "cycle.hpp"
+#include "game/actions/interaction/conversation.hpp"
+#include "game/actions/field/shift_lock.hpp"
+#include "game/data/npcs.hpp"
 #include <algorithm>
 
 namespace hive::features::quests {

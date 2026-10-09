@@ -1,4 +1,4 @@
-#include "hive/platform/ocr.hpp"
+#include "ocr.hpp"
 #include <algorithm>
 #include <cstring>
 #include <cctype>

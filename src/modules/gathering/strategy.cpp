@@ -1,5 +1,5 @@
-#include "hive/modules/gathering/strategy.hpp"
-#include "hive/automation/guards.hpp"
+#include "strategy.hpp"
+#include "core/runtime/guards.hpp"
 #include <algorithm>
 
 namespace hive::features::gathering {

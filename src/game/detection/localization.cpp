@@ -1,6 +1,6 @@
-#include "hive/game/detection/localization.hpp"
-#include "hive/game/data/stations.hpp"
-#include "hive/game/data/npcs.hpp"
+#include "localization.hpp"
+#include "game/data/stations.hpp"
+#include "game/data/npcs.hpp"
 #include <algorithm>
 #include <set>
 

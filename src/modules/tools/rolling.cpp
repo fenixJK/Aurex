@@ -1,7 +1,7 @@
-#include "hive/modules/tools/rolling.hpp"
-#include "hive/game/detection/dialog.hpp"
-#include "hive/game/detection/menus.hpp"
-#include "hive/automation/feeding.hpp"
+#include "rolling.hpp"
+#include "game/detection/dialog.hpp"
+#include "game/detection/menus.hpp"
+#include "game/actions/inventory/feeding.hpp"
 
 namespace hive::features::tools {
 namespace {

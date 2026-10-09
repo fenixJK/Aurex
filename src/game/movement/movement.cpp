@@ -1,4 +1,4 @@
-#include "hive/game/movement/movement.hpp"
+#include "movement.hpp"
 #include <algorithm>
 
 namespace hive::game {

@@ -1,4 +1,4 @@
-#include "hive/coordination/connection.hpp"
+#include "connection.hpp"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRandomGenerator>

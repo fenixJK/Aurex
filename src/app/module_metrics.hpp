@@ -1,5 +1,5 @@
 #pragma once
-#include "hive/module_host/module.hpp"
+#include "core/module_host/module.hpp"
 #include <QLabel>
 #include <QProgressBar>
 #include <QVBoxLayout>

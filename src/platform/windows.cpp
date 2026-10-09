@@ -1,5 +1,5 @@
-#include "hive/platform/platform.hpp"
-#include "hive/platform/ocr.hpp"
+#include "platform.hpp"
+#include "ocr.hpp"
 #include <windows.h>
 #include <objbase.h>
 #include <shellapi.h>

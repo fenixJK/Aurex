@@ -1,0 +1,40 @@
+add_library(hive_workflows
+  interaction/dialog.cpp
+  inventory/inventory.cpp
+  field/sprinkler_placement.cpp
+  hive/conversion.cpp
+  interaction/interaction.cpp
+  travel/travel.cpp
+  travel/checkpoint.cpp
+  travel/navigation.cpp)
+target_link_libraries(hive_workflows PUBLIC hive_game)
+
+add_library(hive_automation
+  inventory/hotbar.cpp
+  recovery/respawn.cpp
+  field/sprinklers.cpp
+  travel/hive_routes.cpp
+  travel/cannon_routes.cpp
+  travel/field_routes.cpp
+  travel/planting_routes.cpp
+  hive/hive_acquisition.cpp
+  hive/hive_survey.cpp
+  hive/hive_setup.cpp
+  travel/travel_preparation.cpp
+  travel/localization.cpp
+  activities/activities.cpp
+  activities/visits.cpp
+  travel/recenter.cpp
+  field/petals.cpp
+  field/shift_lock.cpp
+  recovery/reconnect.cpp
+  travel/npc_routes.cpp
+  travel/booster_routes.cpp
+  inventory/feeding.cpp
+  activities/ant_challenge.cpp
+  interaction/conversation.cpp
+  field/movement_setup.cpp
+  travel/memory_routes.cpp
+  travel/item_routes.cpp
+  travel/boss_routes.cpp)
+target_link_libraries(hive_automation PUBLIC hive_execution hive_movement hive_module_api)

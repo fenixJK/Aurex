@@ -1,6 +1,6 @@
-#include "hive/modules/planters/execution.hpp"
-#include "../shared/movement.hpp"
-#include "hive/modules/planters/observations.hpp"
+#include "execution.hpp"
+#include "modules/shared/movement.hpp"
+#include "observations.hpp"
 #include <algorithm>
 #include <thread>
 

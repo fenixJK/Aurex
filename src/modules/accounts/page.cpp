@@ -1,5 +1,5 @@
-#include "hive/modules/accounts/page.hpp"
-#include "hive/coordination/local_network.hpp"
+#include "page.hpp"
+#include "coordination/local_network.hpp"
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>

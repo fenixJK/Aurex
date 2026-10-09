@@ -1,4 +1,4 @@
-#include "hive/reporting/report.hpp"
+#include "report.hpp"
 #include <QFont>
 #include <QPainter>
 #include <QPainterPath>

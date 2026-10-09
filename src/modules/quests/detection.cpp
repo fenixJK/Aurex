@@ -1,6 +1,6 @@
-#include "hive/modules/quests/detection.hpp"
-#include "hive/game/detection/menus.hpp"
-#include "hive/modules/quests/catalog.hpp"
+#include "detection.hpp"
+#include "game/detection/menus.hpp"
+#include "catalog.hpp"
 #include <algorithm>
 #include <cctype>
 #include <tuple>

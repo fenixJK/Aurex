@@ -1,4 +1,4 @@
-#include "hive/modules/boosting/module.hpp"
+#include "module.hpp"
 #include <algorithm>
 
 namespace hive::features::boosting {

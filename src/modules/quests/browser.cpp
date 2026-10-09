@@ -1,5 +1,5 @@
-#include "hive/modules/quests/browser.hpp"
-#include "hive/game/detection/menus.hpp"
+#include "browser.hpp"
+#include "game/detection/menus.hpp"
 #include <algorithm>
 #include <charconv>
 #include <string_view>

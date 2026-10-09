@@ -1,4 +1,4 @@
-#include "hive/game/detection/detection.hpp"
+#include "detection.hpp"
 
 namespace hive::game {
 std::optional<DetectionResult> DetectionChannel::read() const {

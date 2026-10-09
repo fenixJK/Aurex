@@ -1,5 +1,5 @@
-#include "hive/game/detection/connection.hpp"
-#include "hive/game/detection/dialog.hpp"
+#include "connection.hpp"
+#include "dialog.hpp"
 #include <cctype>
 #include <set>
 

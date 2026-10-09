@@ -1,5 +1,5 @@
 #pragma once
-#include "hive/game/detection/perception.hpp"
+#include "game/detection/perception.hpp"
 #include <QImage>
 #include <QPainter>
 #include <memory>

@@ -1,5 +1,5 @@
 #pragma once
-#include "hive/reporting/discord.hpp"
+#include "reporting/discord.hpp"
 #include <QWidget>
 
 class QSettings;

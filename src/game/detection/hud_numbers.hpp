@@ -1,5 +1,5 @@
 #pragma once
-#include "hive/game/detection/perception.hpp"
+#include "perception.hpp"
 #include <algorithm>
 #include <charconv>
 #include <cctype>

@@ -1,6 +1,6 @@
-#include "hive/game/detection/blooms.hpp"
-#include "vision/chroma.hpp"
-#include "hive/game/detection/menus.hpp"
+#include "blooms.hpp"
+#include "game/detection/vision/chroma.hpp"
+#include "menus.hpp"
 
 namespace hive::game {
 namespace {

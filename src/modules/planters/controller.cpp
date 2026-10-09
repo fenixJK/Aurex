@@ -1,4 +1,4 @@
-#include "hive/modules/planters/controller.hpp"
+#include "controller.hpp"
 #include <algorithm>
 #include <limits>
 

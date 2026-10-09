@@ -1,4 +1,4 @@
-#include "hive/game/detection/dialog.hpp"
+#include "dialog.hpp"
 #include <algorithm>
 #include <cctype>
 #include <opencv2/imgproc.hpp>

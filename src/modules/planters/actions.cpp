@@ -1,4 +1,4 @@
-#include "hive/modules/planters/actions.hpp"
+#include "actions.hpp"
 
 namespace hive::features::planters {
 namespace {

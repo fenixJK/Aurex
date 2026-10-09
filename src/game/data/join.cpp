@@ -1,4 +1,4 @@
-#include "hive/game/data/join.hpp"
+#include "join.hpp"
 #include <regex>
 
 namespace hive::game {

@@ -1,5 +1,5 @@
-#include "hive/game/detection/enemies.hpp"
-#include "hive/game/data/fields.hpp"
+#include "enemies.hpp"
+#include "game/data/fields.hpp"
 #include <algorithm>
 #include <array>
 #include <cctype>

@@ -1,6 +1,6 @@
-#include "hive/game/detection/planters.hpp"
-#include "hive/game/detection/nectar.hpp"
-#include "hive/game/detection/menus.hpp"
+#include "planters.hpp"
+#include "nectar.hpp"
+#include "menus.hpp"
 #include <algorithm>
 #include <cctype>
 #include <regex>

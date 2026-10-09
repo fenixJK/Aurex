@@ -1,36 +1,36 @@
 #include <QIcon>
 #include <QDialog>
-#include "hive/automation/movement_setup.hpp"
-#include "hive/game/detection/movement_buffs.hpp"
-#include "hive/game/detection/buffs.hpp"
+#include "game/actions/field/movement_setup.hpp"
+#include "game/detection/movement_buffs.hpp"
+#include "game/detection/buffs.hpp"
 #include "builtins.hpp"
 #include "native_modules.hpp"
 #include "target_picker.hpp"
-#include "hive/game/detection/memory_match.hpp"
-#include "hive/game/detection/daylight.hpp"
-#include "hive/game/detection/item_menu.hpp"
-#include "hive/modules/gathering/scripts.hpp"
-#include "hive/modules/shared/visit_cooldown_store.hpp"
-#include "hive/modules/planters/store.hpp"
-#include "hive/modules/planters/observations.hpp"
-#include "hive/game/detection/inventory.hpp"
-#include "hive/modules/quests/detection.hpp"
-#include "hive/session/session.hpp"
-#include "hive/automation/localization.hpp"
-#include "hive/automation/hive_setup.hpp"
-#include "hive/automation/field_routes.hpp"
-#include "hive/game/detection/hive_view.hpp"
-#include "hive/game/detection/sprinkler_reference.hpp"
-#include "hive/game/detection/menus.hpp"
-#include "hive/game/detection/nectar.hpp"
-#include "hive/policies/defaults.hpp"
+#include "game/detection/memory_match.hpp"
+#include "game/detection/daylight.hpp"
+#include "game/detection/item_menu.hpp"
+#include "modules/gathering/scripts.hpp"
+#include "modules/shared/visit_cooldown_store.hpp"
+#include "modules/planters/store.hpp"
+#include "modules/planters/observations.hpp"
+#include "game/detection/inventory.hpp"
+#include "modules/quests/detection.hpp"
+#include "core/session/session.hpp"
+#include "game/actions/travel/localization.hpp"
+#include "game/actions/hive/hive_setup.hpp"
+#include "game/actions/travel/field_routes.hpp"
+#include "game/detection/hive_view.hpp"
+#include "game/detection/sprinkler_reference.hpp"
+#include "game/detection/menus.hpp"
+#include "game/detection/nectar.hpp"
+#include "modules/shared/policies.hpp"
 #include "player_speed.hpp"
 #include "local_data.hpp"
-#include "planter_timers.hpp"
+#include "modules/planters/ui/timers.hpp"
 #include "equipment_settings.hpp"
 #include "status_page.hpp"
 #include "remote_settings.hpp"
-#include "hive/modules/accounts/page.hpp"
+#include "modules/accounts/page.hpp"
 #include "remote_modules.hpp"
 #include "report_images.hpp"
 #include <QTabWidget>
@@ -598,7 +598,7 @@ public:
             session_.stop_feature(id,reason);
         },[this](const std::string& id,QWidget* parent)->QWidget* {
             if (id!="hive.native-planters") return nullptr;
-            return hive::app::planter_timers(native_modules_.planters.account,parent);
+            return hive::features::planters::planter_timers(native_modules_.planters.account,parent);
         },launch_feature,[this](const std::string& prompt) -> std::optional<hive::WindowPoint> {
             refresh();
             if (!selected()) throw std::runtime_error("Open Roblox with the target visible first");

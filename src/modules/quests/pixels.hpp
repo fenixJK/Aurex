@@ -1,5 +1,5 @@
 #pragma once
-#include "hive/core/model.hpp"
+#include "core/runtime/model.hpp"
 #include <algorithm>
 #include <array>
 

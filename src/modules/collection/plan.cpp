@@ -1,8 +1,8 @@
-#include "hive/modules/collection/plan.hpp"
-#include "hive/modules/collection/games.hpp"
-#include "hive/game/data/stations.hpp"
-#include "hive/game/detection/daylight.hpp"
-#include "hive/workflows/navigation.hpp"
+#include "plan.hpp"
+#include "games.hpp"
+#include "game/data/stations.hpp"
+#include "game/detection/daylight.hpp"
+#include "game/actions/travel/navigation.hpp"
 #include <algorithm>
 
 namespace hive::features::collection {

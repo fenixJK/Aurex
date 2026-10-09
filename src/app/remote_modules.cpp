@@ -1,7 +1,7 @@
 #include "remote_modules.hpp"
 #include "extensions_ui.hpp"
 #include "module_plot.hpp"
-#include "hive/module_host/settings_text.hpp"
+#include "core/module_host/settings_text.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>

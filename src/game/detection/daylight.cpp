@@ -1,5 +1,5 @@
-#include "hive/game/detection/daylight.hpp"
-#include "hive/game/detection/perception.hpp"
+#include "daylight.hpp"
+#include "perception.hpp"
 #include <algorithm>
 
 namespace hive::game {

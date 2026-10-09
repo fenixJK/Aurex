@@ -1,5 +1,5 @@
-#include "hive/modules/combat/plan.hpp"
-#include "../shared/movement.hpp"
+#include "plan.hpp"
+#include "modules/shared/movement.hpp"
 
 namespace hive::features::combat {
 namespace {

@@ -1,5 +1,5 @@
-#include "hive/game/detection/menus.hpp"
-#include "hive/game/detection/perception.hpp"
+#include "menus.hpp"
+#include "perception.hpp"
 #include "menu_icons.hpp"
 #include <algorithm>
 #include <array>
@@ -10,6 +10,12 @@ namespace {
 struct Mask { MenuTab tab; int width; std::span<const std::uint64_t> rows; };
 const std::array masks{Mask{MenuTab::inventory,39,detail::inventory_icon},Mask{MenuTab::quests,42,detail::quest_icon},
     Mask{MenuTab::settings,52,detail::settings_icon}};
+bool interior(const Mask& mask,int x,int y) {
+    if (x<1 || x+1>=mask.width || y<1 || y+1>=int(mask.rows.size())) return false;
+    const auto bit=1ULL<<x;
+    return (mask.rows[y]&(bit>>1)) && (mask.rows[y]&(bit<<1))
+        && (mask.rows[y-1]&bit) && (mask.rows[y+1]&bit);
+}
 std::optional<int> icon_brightness(std::vector<int>& light) {
     std::sort(light.begin(),light.end());
     if (light[light.size()*9/10]-light[light.size()/10]>24) return {};
@@ -40,7 +46,7 @@ std::vector<MenuControl> menu_controls(const DetectionInput& input) {
     };
     auto pale=[&](int x,int y) {
         const auto c=color(x,y); const auto lo=*std::min_element(c.begin(),c.end());
-        return lo>=170 && *std::max_element(c.begin(),c.end())-lo<=35;
+        return lo>=200 || (lo>=170 && *std::max_element(c.begin(),c.end())-lo<=35);
     };
     std::vector<std::uint8_t> visited(static_cast<std::size_t>(width)*height);
     std::vector<int> stack; std::vector<Candidate> candidates;
@@ -65,14 +71,16 @@ std::vector<MenuControl> menu_controls(const DetectionInput& input) {
             if (w<20 || h<18 || w>170 || h>190 || count<w*h*.35) continue;
             for (const auto& mask : masks) {
                 const int mh=static_cast<int>(mask.rows.size());
-                if (std::abs(double(w)/h-double(mask.width)/mh)>.16) continue;
+                if (std::abs(double(w)/h-double(mask.width)/mh)>.12) continue;
                 int ink=0,ink_ok=0,holes=0,holes_ok=0; std::vector<int> light;
                 for (int yy=0;yy<mh;++yy) for (int xx=0;xx<mask.width;++xx) {
                     const int px=left+std::min(w-1,int((xx+.5)*w/mask.width)),py=top+std::min(h-1,int((yy+.5)*h/mh));
                     const bool white=pale(px,py);
                     if (mask.rows[yy]&(1ULL<<xx)) {
                         ++ink; ink_ok+=white;
-                        if (white) { const auto c=color(px,py); light.push_back(*std::min_element(c.begin(),c.end())); }
+                        if (white && interior(mask,xx,yy)) {
+                            const auto c=color(px,py); light.push_back(*std::min_element(c.begin(),c.end()));
+                        }
                     } else { ++holes; holes_ok+=!white; }
                 }
                 if (ink_ok<ink*(mask.tab==MenuTab::settings?.85:.9)

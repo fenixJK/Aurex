@@ -1,5 +1,5 @@
-#include "hive/game/detection/inventory.hpp"
-#include "hive/game/detection/menus.hpp"
+#include "inventory.hpp"
+#include "menus.hpp"
 #include <algorithm>
 #include <array>
 #include <cctype>

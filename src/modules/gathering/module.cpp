@@ -1,4 +1,4 @@
-#include "hive/modules/gathering/module.hpp"
+#include "module.hpp"
 #include "defaults.hpp"
 #include <algorithm>
 

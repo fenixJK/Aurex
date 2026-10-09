@@ -1,6 +1,6 @@
 #pragma once
-#include "hive/game/detection/detection.hpp"
-#include "hive/game/detection/movement_buffs.hpp"
+#include "detection.hpp"
+#include "movement_buffs.hpp"
 namespace hive::game::detail {
 struct BuffBar { double scale,pitch,origin,bottom; bool menu_layout{}; };
 MovementBuffCandidates movement_buffs_at(const DetectionInput&,const BuffBar&);

@@ -1,4 +1,4 @@
-#include "hive/platform/platform.hpp"
+#include "platform.hpp"
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
