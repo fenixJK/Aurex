@@ -27,8 +27,8 @@ void Navigation::insertItem(int index,const QString& title) {
 void Navigation::setModuleStart(int index) {
     if (separator_) { layout_->removeWidget(separator_); delete separator_; }
     module_start_=index;
-    separator_=new QLabel("MODULES"); separator_->setObjectName("muted");
-    separator_->setContentsMargins(8,12,0,4); layout_->insertWidget(index,separator_);
+    separator_=new QLabel; separator_->setObjectName("navigation-separator");
+    separator_->setFixedHeight(12); layout_->insertWidget(index,separator_);
     updateSeparator();
 }
 void Navigation::updateSeparator() {

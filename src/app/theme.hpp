@@ -13,10 +13,11 @@ inline void apply_theme(QApplication& app) {
         QWidget#sidebar { background:#10171b; border-right:1px solid #27343b; }
         QWidget#session-bar { background:#18232a; border-top:1px solid #304149; }
         QLabel#brand { font-size:21px; font-weight:700; color:#aee7bb; }
-        QLabel#heading { font-size:20px; font-weight:600; }
+        QLabel#heading { font-size:18px; font-weight:600; }
         QLabel#title { font-size:13px; font-weight:600; }
         QLabel#section-heading { font-size:13px; font-weight:600; color:#a8bcb1; padding-bottom:3px; border-bottom:1px solid #2b3a42; }
-        QTabBar#collection-fields::tab { margin:0 4px 0 0; padding:7px 12px; }
+        QTabBar#collection-fields::tab { margin:0 3px 0 0; padding:4px 8px; }
+        QLabel#navigation-separator { border-top:1px solid #27343b; margin:6px 8px 0 8px; }
         QCheckBox#choice-tile { background:#19252c; border:1px solid #34444d; border-radius:6px; padding:8px; }
         QCheckBox#choice-tile[compact="true"] { padding:4px 6px; }
         QCheckBox#choice-tile:hover { background:#233238; border-color:#6a9874; }
@@ -59,7 +60,7 @@ inline void apply_theme(QApplication& app) {
         QPushButton#extension-choice { text-align:left; padding:7px 10px; }
         QPushButton#extension-choice:checked { background:#263e35; border-color:#6a9874; }
         QCheckBox#compact-choice { padding:3px 0; font-size:13px; }
-        QCheckBox { background:transparent; spacing:7px; padding:4px 0; min-height:20px; }
+        QCheckBox { background:transparent; spacing:6px; padding:2px 0; min-height:20px; }
         QCheckBox:hover { color:#ffffff; }
         QCheckBox:disabled { color:#718587; }
         QListWidget { background:#121c20; border:1px solid #34444d; border-radius:5px; padding:2px; }

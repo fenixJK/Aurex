@@ -98,7 +98,10 @@ public:
         }
         return result;
     }
-    std::vector<extensions::Command> commands() const override { return {{"restart-blender","Restart crafting queue",{},false},{"restart-shrine","Restart donation queue",{},false}}; }
+    std::vector<extensions::Command> commands() const override {
+        return {{"restart-blender","Restart queue",{},false,false,"Blender"},
+            {"restart-shrine","Restart queue",{},false,false,"Wind Shrine"}};
+    }
     void invoke(const std::string& command) override {
         if (command=="restart-blender") orders_->reset(game::ItemMenuKind::blender);
         else if (command=="restart-shrine") orders_->reset(game::ItemMenuKind::wind_shrine);
@@ -138,7 +141,7 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     if (requests) manifest.consumes.insert(extensions::RequestService::stations);
     for (const auto& station : plan.stations) for (auto& setting : manifest.settings)
         if (setting.id==features::visits::selection_key(station.id)) setting.initial=station.selected_by_default;
-    extensions::PageSection pickups{"pickups","Pickups"}; pickups.tab="Collect";
+    extensions::PageSection pickups{"pickups","Pickups"}; pickups.tab="Pickups"; pickups.columns=3;
     extensions::PageSection games{"games","Memory Match"}; games.tab="Activities";
     for (const auto& station:plan.stations) {
         if (station.id=="Blender" || station.id=="Wind Shrine") continue;
@@ -177,7 +180,9 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     sections.push_back({"run","Run limit",{},{"run-seconds"}});
     for (auto& setting:manifest.settings) if (setting.id=="run-seconds") setting.hidden=true;
     sections.push_back({"overview","Progress",{},{},true,2,true});
+    for (auto& section:sections) section.inline_labels=true;
     for (auto& setting:manifest.settings) {
+        if (setting.label.ends_with(" Dispenser")) setting.label.erase(setting.label.size()-10);
         if (setting.id==features::visits::selection_key("Night Memory Match"))
             setting.help="Requires 30 bees and a Moon Amulet. Runs during observed nighttime.";
         if (setting.id==features::visits::selection_key("Mega Memory Match"))

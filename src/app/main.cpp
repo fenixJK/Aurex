@@ -269,10 +269,10 @@ class Window final : public QMainWindow {
 
 public:
     explicit Window(const QString& data):settings_(QDir(data).filePath("settings.json"),hive::app::json_settings_format()) {
-        setWindowTitle(QGuiApplication::applicationDisplayName()); setFixedSize(760,580);
+        setWindowTitle(QGuiApplication::applicationDisplayName()); setFixedSize(740,550);
         setWindowFlag(Qt::WindowMaximizeButtonHint,false); setWindowFlag(Qt::WindowFullscreenButtonHint,false);
         auto root=new QWidget; auto shell=new QHBoxLayout(root); shell->setContentsMargins(0,0,0,0); shell->setSpacing(0); setCentralWidget(root);
-        auto sidebar=new QWidget; sidebar->setObjectName("sidebar"); sidebar->setFixedWidth(132); auto side=new QVBoxLayout(sidebar); side->setContentsMargins(9,12,9,10);
+        auto sidebar=new QWidget; sidebar->setObjectName("sidebar"); sidebar->setFixedWidth(120); auto side=new QVBoxLayout(sidebar); side->setContentsMargins(8,12,8,10);
         side->addWidget(label(QGuiApplication::applicationDisplayName(),"brand"));  side->addSpacing(10);
         auto navigation=new hive::Navigation; navigation->addItems({"Settings"}); side->addWidget(navigation,1);  shell->addWidget(sidebar);
         auto workspace=new QWidget; auto workspace_layout=new QVBoxLayout(workspace); workspace_layout->setContentsMargins(0,0,0,0); workspace_layout->setSpacing(0);

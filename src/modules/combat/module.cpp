@@ -238,7 +238,7 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
             continue;
         }
         for (auto& setting:manifest.settings) if (setting.id==selection) setting.hidden=true;
-        extensions::PageSection boss{selection,enemy.id,{}, {selection,option_key("loot",enemy.id)},false,3};
+        extensions::PageSection boss{selection,enemy.id,{}, {selection,option_key("loot",enemy.id)},false,2};
         boss.collection="bosses"; boss.choice=enemy.id;
         if (enemy.species=="Mondo Chick") {
             boss.settings.insert(boss.settings.end(),{"mondo-mode","mondo-seconds",option_key("fight-minutes",enemy.id),"mondo-loot-side","mondo-loot-seconds","mondo-lead","mondo-public"});
@@ -255,6 +255,7 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     }
     if (!mobs.settings.empty()) sections.insert(sections.begin()+2,std::move(mobs));
     sections.push_back({"overview","Progress",{},{},true,2,true});
+    for (auto& section:sections) section.inline_labels=true;
     for (auto setting:option_settings(plan)) manifest.settings.push_back(std::move(setting));
     if (manifest.settings.size()>maximum_settings) throw std::invalid_argument("Too many Combat settings");
     return manifest;

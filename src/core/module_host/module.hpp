@@ -45,6 +45,8 @@ struct PageSection {
     bool row{};
     std::string tool,tab;
     std::string order_group,order_setting;
+    bool inline_labels{};
+    std::string panel;
 };
 struct PageLayout { std::vector<PageSection> sections; bool compact{}; };
 namespace RequestService {

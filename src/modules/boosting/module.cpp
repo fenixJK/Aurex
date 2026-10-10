@@ -89,7 +89,7 @@ extensions::Manifest module_manifest() {
     manifest.settings.back().help="On an unboosted selected field, use glitter 10 minutes before the selected Blue Booster is ready. Uses the same glitter slot and session limit.";
     manifest.page=extensions::PageLayout{{},true}; auto& sections=manifest.page->sections;
     sections.push_back({"follow","Boosts","Gather in boosted fields using their Gathering settings.",{"follow","interrupt-gather"},false,2}); sections.back().tab="Boosts";
-    sections.push_back({"fields","Fields",{},{"fields"},false,1}); sections.back().tab="Boosts";
+    sections.push_back({"fields","Fields",{},{"fields"},false,4}); sections.back().tab="Boosts";
     sections.push_back({"boosters","Boosters",{},{"boosters","blue-when-ready"},false,1}); sections.back().tab="Boosts";
     for (auto& setting:manifest.settings) {
         if (setting.id=="fields" || setting.id=="boosters") { setting.inline_choices=true; }
@@ -121,6 +121,7 @@ extensions::Manifest module_manifest() {
             {prefix+"when",prefix+"seconds",prefix+"limit",prefix+"bag"},false,4}); sections.back().tab="Hotbar"; sections.back().row=true;
     }
     sections.push_back({"progress","Current boosts",{},{},true,2}); sections.back().tab="Boosts"; sections.back().collapsed=true;
+    for (auto& section:sections) section.inline_labels=true;
     return manifest;
 }
 extensions::Factory module_factory(std::shared_ptr<Controller> controller,

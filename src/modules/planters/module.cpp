@@ -344,10 +344,10 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
         result.settings.push_back({"priority-"+std::to_string(i),"Priority",preferences.priorities[i],0,100,{}});
     }
     result.page=extensions::PageLayout{{{"equipment","Planters",{},{"equipment"},false,1},
-        {"fields","Fields",{},{"fields"},false,1}}};
+        {"fields","Fields",{},{"fields"},false,1}},true};
     for (std::size_t i=0;i<5;++i) { result.page->sections.push_back({"nectar-"+std::to_string(i),nectar_names()[i],{},
         {"target-"+std::to_string(i),"buffer-"+std::to_string(i),"priority-"+std::to_string(i)},false,3}); result.page->sections.back().row=true; result.page->sections.back().order_group="nectar"; result.page->sections.back().order_setting="priority-"+std::to_string(i); }
-    extensions::PageSection run{"run","Settings",{},{"capacity","max-actions","run-seconds"},false,3};
+    extensions::PageSection run{"run","Harvesting",{},{"capacity","max-actions","run-seconds"},false,3};
     if (!returns.empty()) run.settings.push_back("return-method");
     if (has_loot(plan)) run.settings.push_back("collect-loot");
     run.settings.push_back("gather-planter-fields"); run.settings.push_back("interrupt-gather");
@@ -356,8 +356,13 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
     result.page->sections.push_back({"simulation","Simulation",{},{"simulation-days"},false,1});
     result.page->sections.back().tool="Simulation";
     for(auto& section:result.page->sections) if(section.tool.empty() && !section.metrics)
-        section.tab=section.id=="equipment"?"Planters":section.id=="fields"?"Fields":"Nectar";
-    std::stable_partition(result.page->sections.begin(),result.page->sections.end(),[](const auto& section) { return section.tab=="Nectar"; });
+        section.tab=section.id=="fields"?"Fields":"Setup";
+    std::stable_partition(result.page->sections.begin(),result.page->sections.end(),[](const auto& section) { return !section.order_group.empty(); });
+    for (auto& section:result.page->sections) {
+        section.inline_labels=true;
+        if(!section.order_group.empty()) section.panel="targets";
+        if(section.id=="equipment") { section.panel="equipment"; section.columns=2; }
+    }
     for(auto& setting:result.settings) {
         if(setting.id=="run-seconds" || setting.id=="max-actions" || (plan.conversion && plan.conversion->every_return && (setting.id=="convert-after-harvest" || setting.id=="conversion-threshold"))) setting.hidden=true;
         if(setting.id=="equipment" || setting.id=="fields") setting.inline_choices=true;

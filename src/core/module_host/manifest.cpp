@@ -236,11 +236,10 @@ Manifest read_manifest(const QString& path) {
         }
         for (const auto& value : page["sections"].toArray()) {
             require(value.isObject(),"Page section must be an object");
-            const auto section=value.toObject(); keys(section,{"id","title","description","settings","metrics","columns","collapsed","collection","choice","row","tool","tab","order_group","order_setting"});
+            const auto section=value.toObject(); keys(section,{"id","title","description","settings","metrics","columns","collapsed","collection","choice","row","tool","tab","order_group","order_setting","inline_labels","panel"});
             PageSection item; item.id=text(section,"id",80); item.title=text(section,"title",80);
             if(section.contains("tool")) item.tool=text(section,"tool",80);
             if(section.contains("tab")) item.tab=text(section,"tab",80);
-            require(item.tool.empty() || item.tab.empty(),"A section cannot be both a tab and a tool");
             if (section.contains("description")) item.description=text(section,"description",500);
             if (section.contains("settings")) {
                 require(section["settings"].isArray() && section["settings"].toArray().size()<=24,"Invalid page setting references");
@@ -257,6 +256,9 @@ Manifest read_manifest(const QString& path) {
             if (section.contains("choice")) item.choice=text(section,"choice",80);
             require(!section.contains("row") || section["row"].isBool(),"Page row flag must be boolean");
             item.row=section["row"].toBool();
+            require(!section.contains("inline_labels") || section["inline_labels"].isBool(),"Page inline labels flag must be boolean");
+            item.inline_labels=section["inline_labels"].toBool();
+            if(section.contains("panel")) item.panel=text(section,"panel",80);
             if(section.contains("order_group")) item.order_group=text(section,"order_group",80);
             if(section.contains("order_setting")) item.order_setting=text(section,"order_setting",80);
             m.page->sections.push_back(std::move(item));
@@ -313,6 +315,7 @@ void validate_page(const Manifest& manifest) {
         require(section.tool.size()<=80 && section.tab.size()<=80
             && (section.collection.empty() || (section.tool.empty() && section.tab.empty())),"Invalid section destination");
         require(section.collection.empty()==section.choice.empty(),"Collection sections need a choice");
+        require(section.panel.empty() || (identifier(section.panel) && section.collection.empty() && section.tool.empty()),"Invalid section panel");
         if (!section.collection.empty()) {
             const auto owner=std::find_if(manifest.settings.begin(),manifest.settings.end(),[&](const auto& s) { return s.id==section.collection; });
             require(owner!=manifest.settings.end() && std::holds_alternative<SettingSelection>(owner->initial) && owner->ordered
@@ -321,6 +324,8 @@ void validate_page(const Manifest& manifest) {
         }
         require(section.order_group.empty()==section.order_setting.empty(),"Ordered rows need a group and priority setting");
         if(!section.order_group.empty()) {
+            for(const auto& row:sections) if(row.order_group==section.order_group && row.tab==section.tab)
+                require(row.panel==section.panel,"Ordered rows must share a panel");
             const auto field=std::find_if(manifest.settings.begin(),manifest.settings.end(),[&](const auto& s) { return s.id==section.order_setting; });
             require(identifier(section.order_group) && section.row && !section.collapsed && section.tool.empty() && section.collection.empty()
                 && field!=manifest.settings.end() && field->hidden && std::holds_alternative<int>(field->initial)

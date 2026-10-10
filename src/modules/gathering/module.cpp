@@ -398,7 +398,7 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
         }
         if (sprinklers->recenter && !controls) result.settings.push_back({"recenter","FDC",false});
     }
-    result.page=extensions::PageLayout{};
+    result.page=extensions::PageLayout{{},true};
     if (!defaults.fields.empty()) result.page->sections.push_back({"fields","Field rotation","Select fields and arrange the order to visit them.",{"fields"},false,1});
     if (sprinklers && !sprinklers->equipment) result.page->sections.push_back({"sprinklers","Sprinklers",{},
         {"sprinkler-type","sprinkler-slot"},false,2,true});
@@ -432,20 +432,21 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
             const auto heading=field.rotation?game::turned_heading(0,*field.rotation):0;
             result.settings.push_back({prefix+"shift-lock","Shift Lock",field.shift_lock.value_or(defaults.shift_lock)});
             result.settings.push_back({prefix+"facing","Camera turn",facings.at(heading),0,0,facings});
-            extensions::PageSection basic{id,"Pattern",{},{prefix+"pattern",prefix+"pattern-width",prefix+"pattern-scale",prefix+"pattern-repetitions",prefix+"invert-fb",prefix+"invert-lr"},false,3};
+            extensions::PageSection basic{id,"Pattern",{},{prefix+"pattern",prefix+"pattern-width",prefix+"pattern-scale",prefix+"pattern-repetitions",prefix+"invert-fb",prefix+"invert-lr"},false,2};
             basic.collection="fields"; basic.choice=field.preference.field;
             result.page->sections.push_back(std::move(basic));
-            extensions::PageSection limits{id+"-limits","Limits",{},{prefix+"gather-minutes",prefix+"backpack-percent"},false,3};
+            extensions::PageSection limits{id+"-limits","When to return",{},{prefix+"gather-minutes",prefix+"backpack-percent"},false,3};
             limits.collection="fields"; limits.choice=field.preference.field;
             if (defaults.route_recovery) limits.settings.push_back(prefix+"return-method");
             result.page->sections.push_back(std::move(limits));
             extensions::PageSection layout{id+"-layout","Position",{},
-                {prefix+"facing",prefix+"start-forward",prefix+"start-side",prefix+"shift-lock"},false,3};
+                {prefix+"facing",prefix+"start-forward",prefix+"start-side",prefix+"shift-lock"},false,2};
             layout.collection="fields"; layout.choice=field.preference.field;
             if (sprinklers && sprinklers->recenter) layout.settings.push_back(prefix+"recenter");
             result.page->sections.push_back(std::move(layout));
         }
     }
+    for (auto& section:result.page->sections) section.inline_labels=true;
     for(auto& setting:result.settings) {
         if(setting.id.ends_with("gather-minutes")) setting.suffix=" min";
         if(setting.id.ends_with("backpack-percent")) setting.suffix="%";

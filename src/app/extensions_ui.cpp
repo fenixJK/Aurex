@@ -114,7 +114,7 @@ public:
     void select(const std::string& choice) {
         for(int i=0;i<fields_->count();++i) if(fields_->tabText(i)==q(choice)) {fields_->setCurrentIndex(i);break;}
     }
-    void addSection(const std::string& choice,const std::string& title,QWidget* section) {
+    void addSection(const std::string& choice,QWidget* section) {
         auto layout=static_cast<QVBoxLayout*>(editors_.at(choice)->layout());
         layout->addWidget(section);
     }
@@ -133,7 +133,7 @@ class InlineSelection final : public QWidget, public SelectionValue {
     SettingSelection order_;
     bool ordered_;
 public:
-    InlineSelection(const extensions::Setting& field,const SettingSelection& selected,bool compact):ordered_(field.ordered) {
+    InlineSelection(const extensions::Setting& field,const SettingSelection& selected,bool compact,unsigned columns=0):ordered_(field.ordered) {
         const auto& choices=field.choices; const bool ordered=field.ordered;
         auto layout=new QVBoxLayout(this); layout->setContentsMargins(0,0,0,0); layout->setSpacing(4);
         auto content=new QWidget; auto grid=new QGridLayout(content); grid->setContentsMargins(0,0,0,0);
@@ -142,9 +142,9 @@ public:
             QAbstractButton* check;
             if (const auto icon=field.icons.find(choice);icon!=field.icons.end()) {
                 auto tile=new QToolButton; tile->setCheckable(true); tile->setObjectName("image-choice");
-                const QSize size{44,34}; QImageReader image(q(icon->second));
+                const QSize size{38,28}; QImageReader image(q(icon->second));
                 image.setScaledSize(image.size().scaled(size*2,Qt::KeepAspectRatio));
-                tile->setIcon(QPixmap::fromImage(image.read())); tile->setIconSize(size); tile->setFixedSize(56,44);
+                tile->setIcon(QPixmap::fromImage(image.read())); tile->setIconSize(size); tile->setFixedSize(50,38);
                 tile->setToolTip(q(choice)); tile->setAccessibleName(q(choice));
                 tile->setFocusPolicy(Qt::StrongFocus); check=tile;
             } else {
@@ -157,11 +157,11 @@ public:
             });
         };
         if (field.groups.empty()) {
-            const int columns=!field.icons.empty()?9:choices.size()>24 && std::all_of(choices.begin(),choices.end(),[](const auto& name) { return name.size()<=12; })?4:
+            const int count=columns?int(columns):!field.icons.empty()?9:choices.size()>24 && std::all_of(choices.begin(),choices.end(),[](const auto& name) { return name.size()<=12; })?4:
                 choices.size()>=6 && std::all_of(choices.begin(),choices.end(),[](const auto& name) { return name.size()<=20; })?3:2;
-            for (std::size_t i=0;i<choices.size();++i) add(choices[i],grid,int(i),columns);
-            if (field.icons.empty()) for (int column=0;column<columns;++column) grid->setColumnStretch(column,1);
-            else grid->setColumnStretch(columns,1);
+            for (std::size_t i=0;i<choices.size();++i) add(choices[i],grid,int(i),count);
+            if (field.icons.empty()) for (int column=0;column<count;++column) grid->setColumnStretch(column,1);
+            else grid->setColumnStretch(count,1);
         } else {
             for (std::size_t i=0;i<field.groups.size();++i) {
                 const auto& group=field.groups[i]; auto panel=new QWidget;
@@ -342,7 +342,7 @@ ExtensionsUi::ExtensionsUi(Navigation* navigation,QStackedWidget* pages,QString 
     auto layout=new QVBoxLayout(contents); layout->setContentsMargins(12,10,12,10); layout->setSpacing(8);
     auto heading=new QHBoxLayout; heading->addWidget(text("Modules","heading"),1);
     layout->addLayout(heading);
-    layout->addWidget(text("Enable the features you want to run. Use their sidebar tabs for settings; Start macro runs them together.","muted"));
+    layout->addWidget(text("Enabled modules appear in the sidebar and run together.","muted"));
     message_=text({},"muted"); layout->addWidget(message_);
     auto order_label=text("Run order · drag to change","muted"); layout->addWidget(order_label);
     order_tabs_=new QTabBar; order_tabs_->setMovable(true); order_tabs_->setExpanding(false); order_tabs_->setDrawBase(false);
@@ -546,6 +546,8 @@ void ExtensionsUi::build_page(const std::string& id) {
     page->feedback=text({},"muted"); page->feedback->hide(); layout->addWidget(page->feedback);
     if(page_factory_) if(auto* content=page_factory_(id,body)) { page->content=content;layout->addWidget(content); }
     const bool dense=entry.manifest.page && entry.manifest.page->compact;
+    QLabel measure; measure.setObjectName("muted"); measure.ensurePolished();
+    const auto font_metrics=measure.fontMetrics();
     auto sections=entry.manifest.page?entry.manifest.page->sections:std::vector<extensions::PageSection>{};
     if (!entry.manifest.page) {
         sections.push_back({"overview","",{},{},true,3});
@@ -584,9 +586,9 @@ void ExtensionsUi::build_page(const std::string& id) {
         };
     }
     std::map<std::string,QVBoxLayout*> tools;
-    std::set<std::pair<std::string,QVBoxLayout*>> tool_links;
+    std::set<std::pair<std::string,QBoxLayout*>> tool_links;
     auto tool_buttons=new QHBoxLayout;
-    const auto tool_panel=[&](const std::string& name,bool live=false,QVBoxLayout* destination=nullptr) -> QVBoxLayout* {
+    const auto tool_panel=[&](const std::string& name,bool live=false,QBoxLayout* destination=nullptr) -> QVBoxLayout* {
         QVBoxLayout* body{}; QDialog* dialog{};
         if(tools.contains(name)) { body=tools.at(name); dialog=static_cast<QDialog*>(body->parentWidget()); }
         else {
@@ -619,15 +621,32 @@ void ExtensionsUi::build_page(const std::string& id) {
         page_tabs->addTab(tab,q(section.tab));
     }
     std::map<std::string,OrderedRows*> ordered_groups;
+    std::map<std::string,std::vector<int>> ordered_widths;
+    std::map<std::string,QHBoxLayout*> panel_rows;
+    std::map<std::string,QVBoxLayout*> panels;
+    const auto destination=[&](const extensions::PageSection& section) {
+        auto parent=section.tab.empty()?layout:tabs.at(section.tab);
+        if(section.panel.empty()) return parent;
+        if(!panel_rows.contains(section.tab)) {
+            auto row=new QHBoxLayout; row->setSpacing(16); parent->addLayout(row); panel_rows[section.tab]=row;
+        }
+        const auto key=section.tab+"/"+section.panel;
+        if(!panels.contains(key)) {
+            auto panel=new QWidget; panel->setObjectName("module-panel-"+q(section.panel));
+            auto body=new QVBoxLayout(panel); body->setContentsMargins(0,0,0,0); body->setSpacing(5);
+            panel_rows.at(section.tab)->addWidget(panel,1,Qt::AlignTop); panels[key]=body;
+        }
+        return panels.at(key);
+    };
     std::set<std::string> row_headings;
     std::map<std::string,int> row_widths;
     for (const auto& section:sections) if (section.row && section.order_group.empty())
-        row_widths[section.tab]=std::max(row_widths[section.tab],pages_->fontMetrics().horizontalAdvance(q(section.title)));
+        row_widths[section.tab]=std::max(row_widths[section.tab],font_metrics.horizontalAdvance(q(section.title)));
     for (const auto& section : sections) {
         if(!section.collection.empty() && section.choice!=collections.at(section.collection)->current()) continue;
         if (!section.tab.empty() && layout->indexOf(page_tabs)<0) layout->addWidget(page_tabs,1);
         if (!section.tool.empty() && section.settings.empty() && section.description.empty() && !section.metrics) {
-            tool_panel(section.tool,false,section.tab.empty()?nullptr:tabs.at(section.tab)); continue;
+            tool_panel(section.tool,false,section.tab.empty()?nullptr:tab_actions.at(section.tab)); continue;
         }
         const bool compact=section.settings.size()==1 && !section.collapsed && section.collection.empty()
             && std::holds_alternative<bool>(saved_values.at(section.settings.front()));
@@ -639,22 +658,30 @@ void ExtensionsUi::build_page(const std::string& id) {
             const auto key=section.tab+"/"+section.order_group;
             if(!ordered_groups.contains(key)) {
                 ordered=new OrderedRows; ordered_groups[key]=ordered; page->ordered_rows.push_back(ordered);
-                auto destination=section.tab.empty()?layout:tabs.at(section.tab);
-                auto headings=new QGridLayout; headings->setHorizontalSpacing(8);
-                headings->addWidget(text(q(section.tab.empty()?section.order_group:section.tab),"muted"),0,0);
-                headings->setColumnStretch(0,1);
+                auto target=destination(section);
+                auto header=new QWidget; auto headings=new QGridLayout(header);
+                headings->setContentsMargins(0,0,0,0); headings->setHorizontalSpacing(8);
+                auto& widths=ordered_widths[key]; widths.push_back(0);
+                for(const auto& row:sections) if(row.order_group==section.order_group && row.tab==section.tab)
+                    widths[0]=std::max(widths[0],font_metrics.horizontalAdvance(q(row.title))+32);
+                auto label=q(section.order_group); label[0]=label[0].toUpper();
+                headings->addWidget(text(label,"muted"),0,0);
                 for(std::size_t i=0;i<section.settings.size();++i) {
                     const auto& field=*std::find_if(entry.manifest.settings.begin(),entry.manifest.settings.end(),[&](const auto& f) { return f.id==section.settings[i]; });
-                    headings->addWidget(text(q(field.label),"muted"),0,int(i)+1); headings->setColumnStretch(int(i)+1,1);
+                    widths.push_back(std::max(80,font_metrics.horizontalAdvance(q(field.label))));
+                    headings->addWidget(text(q(field.label),"muted"),0,int(i)+1);
                 }
-                destination->addLayout(headings); destination->addWidget(ordered);
+                int width=8*(int(widths.size())-1);
+                for(std::size_t i=0;i<widths.size();++i) { headings->setColumnMinimumWidth(int(i),widths[i]); width+=widths[i]; }
+                header->setFixedWidth(width); ordered->setFixedWidth(width);
+                target->addWidget(header); target->addWidget(ordered);
             } else ordered=ordered_groups.at(key);
             const auto& field=*std::find_if(entry.manifest.settings.begin(),entry.manifest.settings.end(),[&](const auto& f) { return f.id==section.order_setting; });
             priority=new QSpinBox(group); priority->setObjectName(q(field.id)); priority->setRange(field.minimum,field.maximum); priority->setValue(std::get<int>(saved_values.at(field.id))); priority->hide();
             page->controls[field.id]=priority;
         }
-        auto section_layout=new QVBoxLayout(group); section_layout->setContentsMargins(0,0,0,0); section_layout->setSpacing(8);
-        if (section.collection.empty() && section.collapsed) {
+        auto section_layout=new QVBoxLayout(group); section_layout->setContentsMargins(0,0,0,0); section_layout->setSpacing(5);
+        if (section.collapsed) {
             auto toggle=new QToolButton;
             toggle->setObjectName("module-toggle-"+q(section.id)); toggle->setText(q(section.title));
             toggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon); toggle->setArrowType(Qt::RightArrow);
@@ -664,14 +691,26 @@ void ExtensionsUi::build_page(const std::string& id) {
                 body->setVisible(open); toggle->setArrowType(open?Qt::DownArrow:Qt::RightArrow);
             });
             section_layout=new QVBoxLayout(body); section_layout->setContentsMargins(0,0,0,0); section_layout->setSpacing(8);
-        } else if (!compact && !section.title.empty() && section.title!=section.tab && !section.row && section.collection.empty() && !(section.settings.size()==1 && collections.contains(section.settings.front()))) section_layout->addWidget(text(q(section.title),"title"));
+        } else if (!compact && !section.title.empty() && section.title!=section.tab && !section.row && !(section.settings.size()==1 && collections.contains(section.settings.front()))) section_layout->addWidget(text(q(section.title),"section-heading"));
         if (!section.description.empty() && !(section.settings.size()==1 && collections.contains(section.settings.front()))) section_layout->addWidget(text(q(section.description),"muted"));
         if (!section.settings.empty()) {
-            auto settings=new QWidget; if(!compact && !selection_only && !section.row && section.collection.empty() && (section.settings.size()!=1 || !collections.contains(section.settings.front()))) settings->setObjectName("card"); auto settings_layout=new QVBoxLayout(settings);
-            settings_layout->setContentsMargins(compact || selection_only || section.row || !section.collection.empty()?0:10,compact || selection_only || section.row || !section.collection.empty()?0:8,compact || selection_only || section.row || !section.collection.empty()?0:10,compact || selection_only || section.row || !section.collection.empty()?0:8); settings_layout->setSpacing(8);
-            auto form=new QGridLayout; form->setVerticalSpacing(dense?2:6); form->setHorizontalSpacing(8);
+            auto settings=new QWidget; auto settings_layout=new QVBoxLayout(settings);
+            settings_layout->setContentsMargins(0,0,0,0); settings_layout->setSpacing(6);
+            auto form=new QGridLayout; form->setVerticalSpacing(dense?4:6); form->setHorizontalSpacing(8);
+            const bool inline_labels=section.inline_labels && !section.row && !selection_only;
+            const auto columns=selection_only?1:section.columns;
+            std::vector<int> label_widths(columns);
+            for(std::size_t i=0;i<section.settings.size();++i) {
+                const auto& field=*std::find_if(entry.manifest.settings.begin(),entry.manifest.settings.end(),[&](const auto& f) { return f.id==section.settings[i]; });
+                if(std::holds_alternative<int>(field.initial) || std::holds_alternative<std::string>(field.initial))
+                    label_widths[i%columns]=std::max(label_widths[i%columns],font_metrics.horizontalAdvance(q(field.label)));
+            }
             const int first_row=section.row && !ordered && row_headings.insert(section.tab).second?1:0;
-            for (unsigned column=0;column<(section.row?section.settings.size()+1:section.columns);++column) form->setColumnStretch(column,1);
+            if (ordered) {
+                const auto& widths=ordered_widths.at(section.tab+"/"+section.order_group);
+                for(std::size_t i=0;i<widths.size();++i) form->setColumnMinimumWidth(int(i),widths[i]);
+            } else for (unsigned column=0;column<(section.row?section.settings.size()+1:columns);++column)
+                form->setColumnStretch(column,1);
             if (section.row && !ordered) {form->setColumnStretch(0,0);form->setColumnMinimumWidth(0,row_widths.at(section.tab));}
             unsigned position=0;
             if(section.row) {
@@ -695,35 +734,55 @@ void ExtensionsUi::build_page(const std::string& id) {
                 }
                 else if (const auto* v=std::get_if<std::string>(&value)) { auto c=new QComboBox; for (const auto& choice : field.choices) c->addItem(q(choice)); c->setCurrentText(q(*v)); control=c; }
                 else if(collections.contains(field.id)) control=collections.at(field.id);
-                else if(field.inline_choices) control=new InlineSelection(field,std::get<SettingSelection>(value),dense);
+                else if(field.inline_choices) control=new InlineSelection(field,std::get<SettingSelection>(value),dense,selection_only && section.columns>1?section.columns:0);
                 else control=new SelectionControl(field.choices,std::get<SettingSelection>(value),field.ordered);
                 control->setObjectName(q(field.id)); control->setAccessibleName(q(field.label)); control->setToolTip(q(field.help));
-                if (!std::holds_alternative<bool>(value)) control->setMinimumWidth(section.row?70:110);
+                const bool scalar=!std::holds_alternative<bool>(value) && !std::holds_alternative<SettingSelection>(value);
+                if(scalar) {
+                    control->ensurePolished();
+                    control->setSizePolicy(QSizePolicy::Maximum,QSizePolicy::Fixed);
+                    if(auto* choice=qobject_cast<QComboBox*>(control)) {
+                        int width=0; for(const auto& option:field.choices) width=std::max(width,choice->fontMetrics().horizontalAdvance(q(option)));
+                        choice->setFixedWidth(std::max(80,width+32));
+                    } else control->setFixedWidth(std::max(64,control->sizeHint().width()));
+                }
                 page->controls[field.id]=control;
-                const int column=section.row?position+1:position%section.columns;
+                const int column=section.row?position+1:position%columns;
                 if (section.row && std::holds_alternative<bool>(value)) {form->setColumnStretch(column,0);form->setColumnMinimumWidth(column,36);}
-                const int row=section.row?0:(position/section.columns)*2;
+                const int row=section.row?0:(position/columns)*(inline_labels?1:2);
                 if (first_row) form->addWidget(text(q(field.label),"muted"),0,column);
-                if(!section.row && !std::holds_alternative<bool>(value) && !collections.contains(field.id) && !field.inline_choices)
-                    form->addWidget(text(q(field.label),"muted"),row,column);
-                if(!collections.contains(field.id) && !field.inline_choices) control->setFixedHeight(dense?24:30);
-                form->addWidget(control,section.row?first_row:row+1,column,Qt::AlignVCenter); ++position;
+                const bool labeled=!section.row && !std::holds_alternative<bool>(value) && !collections.contains(field.id) && !field.inline_choices;
+                if(labeled && !inline_labels) {
+                    auto label=text(q(field.label),"muted"); label->setBuddy(control);
+                    form->addWidget(label,row,column,Qt::AlignVCenter);
+                }
+                if(!collections.contains(field.id) && !field.inline_choices) control->setFixedHeight(26);
+                if(inline_labels) {
+                    auto cell=new QHBoxLayout; cell->setContentsMargins(0,0,0,0); cell->setSpacing(7);
+                    if(labeled) {
+                        auto label=text(q(field.label),"muted"); label->setBuddy(control); label->setWordWrap(false); label->setFixedWidth(label_widths[column]);
+                        cell->addWidget(label);
+                    }
+                    cell->addWidget(control); if(!field.inline_choices && !collections.contains(field.id)) cell->addStretch();
+                    form->addLayout(cell,row,column);
+                } else form->addWidget(control,section.row?first_row:row+1,column,Qt::AlignVCenter);
+                ++position;
             }
             settings_layout->addLayout(form); section_layout->addWidget(settings);
         }
         if (section.metrics) { page->metrics=new ModuleMetrics; section_layout->addWidget(page->metrics); }
         if(ordered) ordered->add(group,priority);
-        else if(!section.collection.empty()) collections.at(section.collection)->addSection(section.choice,section.title,group);
-        else if(!section.tool.empty()) tool_panel(section.tool,false,section.tab.empty()?nullptr:tabs.at(section.tab))->addWidget(group);
-        else if(!section.tab.empty()) tabs.at(section.tab)->addWidget(group);
-        else layout->addWidget(group);
+        else if(!section.collection.empty()) collections.at(section.collection)->addSection(section.choice,group);
+        else if(!section.tool.empty()) tool_panel(section.tool,false,section.tab.empty()?nullptr:tab_actions.at(section.tab))->addWidget(group);
+        else destination(section)->addWidget(group);
     }
     auto commands=entry.commands();
+    std::map<std::string,int> command_positions;
     for (const auto& command:commands) if (command.visible && !command.plot) {
         auto button=new QPushButton(q(command.label));
         button->setObjectName(command.launches?"primary":"module-command");
         button->setProperty("live-command",command.access!=extensions::CommandAccess::stopped);
-        if (!command.tab.empty() && tabs.contains(command.tab)) { tab_actions.at(command.tab)->addWidget(button); tab_actions.at(command.tab)->addStretch(); }
+        if (!command.tab.empty() && tabs.contains(command.tab)) tab_actions.at(command.tab)->insertWidget(command_positions[command.tab]++,button);
         else tool_buttons->addWidget(button);
         connect(button,&QPushButton::clicked,this,[this,id,command] { const bool success=perform([&] {
             const auto arguments=app::command_arguments(extension_pages_.at(id)->widget,command);
@@ -733,7 +792,7 @@ void ExtensionsUi::build_page(const std::string& id) {
             feedback->setText(success?QString{}:message_->text()); feedback->setVisible(!success);
         });
     }
-    for(auto& [name,body]:tabs) body->addStretch();
+    for(auto& [name,body]:tabs) { body->addStretch(); if(tab_actions.at(name)->count()) tab_actions.at(name)->addStretch(); }
     std::erase_if(commands,[](const auto& command) { return !command.plot || !command.visible; });
     if (!commands.empty()) {
         auto tools_layout=tool_panel(commands.front().tool.empty()?"Tools":commands.front().tool);
@@ -769,7 +828,9 @@ void ExtensionsUi::build_page(const std::string& id) {
     }
     page->error=text({},"muted"); page->error->hide(); layout->addWidget(page->error);
     auto reset=new QPushButton("Defaults",body); reset->setVisible(collections.empty());
-    tool_buttons->addStretch(); tool_buttons->addWidget(reset); layout->addLayout(tool_buttons);
+    title->addWidget(reset);
+    if(tool_buttons->count()) { tool_buttons->addStretch(); layout->addLayout(tool_buttons); }
+    else delete tool_buttons;
     connect(reset,&QPushButton::clicked,this,[this,id] {
         if (busy_()) return;
         perform([this,id] {

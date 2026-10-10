@@ -66,7 +66,7 @@ class OrderedRows final : public QWidget {
     }
 public:
     explicit OrderedRows(QWidget* parent=nullptr):QWidget(parent),layout_(new QVBoxLayout(this)) {
-        setAcceptDrops(true); setObjectName("ordered-setting-rows"); layout_->setContentsMargins(0,0,0,0); layout_->setSpacing(6);
+        setAcceptDrops(true); setObjectName("ordered-setting-rows"); layout_->setContentsMargins(0,0,0,0); layout_->setSpacing(3);
     }
     QToolButton* handle(QWidget* row) { return new Handle(this,row); }
     void add(QWidget* row,QSpinBox* priority) { rows_.push_back({row,priority}); layout_->addWidget(row); sort(); }

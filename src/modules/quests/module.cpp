@@ -230,8 +230,9 @@ extensions::Manifest module_manifest(std::string id,std::string provider,bool br
         result.settings.back().help="Put Gumdrops in this slot. Used only while gathering for an unfinished Goo objective.";
         result.page=extensions::PageLayout{{{"givers","Quest givers","",{"givers"},false,1},
             {"options","Options",{},{"interrupt-gather","goo-slot"},false,2},
-            {"objectives","Quest progress",{},{},true,2}}};
+            {"objectives","Quest progress",{},{},true,2}},true};
     } else result.page=extensions::PageLayout{{{"objectives","Quest progress",{},{},true,2}}};
+    for (auto& section:result.page->sections) section.inline_labels=true;
     return result;
 }
 extensions::Factory module_factory(std::shared_ptr<const Source> source,std::vector<Field> fields,Time freshness,int priority,std::shared_ptr<const BrowserSource> browser,Time retention,std::optional<CyclePlan> cycle) {

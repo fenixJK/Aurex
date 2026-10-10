@@ -126,15 +126,14 @@ extensions::Manifest module_manifest() {
     std::vector<std::string> stat_names; for (const auto& stat:amulet_stats()) stat_names.push_back(stat.name);
     m.settings.push_back({"ssa-required-stats","Stats to keep",SettingSelection{},0,0,stat_names});
     m.settings.back().inline_choices=true;
+    m.settings.back().help="Choose up to five stats. Set advanced minimums only when you need specific values.";
     m.page=extensions::PageLayout{{},true}; auto& sections=m.page->sections;
     auto section=[&](std::string id,std::string title,std::vector<std::string> settings,std::string tab,unsigned columns=2,std::string description={}) {
         sections.push_back({std::move(id),std::move(title),std::move(description),std::move(settings),false,columns}); sections.back().tab=std::move(tab);
     };
     section("jelly-help","Bee Genetics",{},"Bee Genetics",1,"Choose bees and optional mutations. Start from a Royal Jelly result, or select a bee with Automatic Neonberries enabled.");
     section("bees","Bees to keep",{"bees"},"Bee Genetics",1);
-    section("stops","Stop on",{"gifted","mythic","jelly-mutations"},"Bee Genetics",3);
-    section("jelly-neon","Radioactive",{"jelly-neon","jelly-neon-limit"},"Bee Genetics");
-    section("jelly-run","Limits",{"jelly-limit"},"Bee Genetics");
+    section("stops","Rolling",{"gifted","mythic","jelly-mutations","jelly-limit","jelly-neon","jelly-neon-limit"},"Bee Genetics");
     section("mutation-help","Mutation filters",{},"Bee Genetics",1,"Shared by mutation rolling and Bitterberries. No selection accepts any mutation; minimum 0 accepts any value and unit.");
     sections.back().tool="Mutation filters";
     for (const auto& type:mutation_types()) {
@@ -150,8 +149,8 @@ extensions::Manifest module_manifest() {
     section("bitter-run","Bitterberries",{"bitter-batch","bitter-limit"},"Bitterberries",2,"Keep the current bee and reroll its mutation. Face your hive, choose mutations, then select a bee. Esc stops.");
     section("neon","Radioactive",{"bitter-neon","neon-limit"},"Bitterberries",2,"Uses one Neonberry before feeding and refreshes it after 11 minutes, up to your limit.");
     section("bitter-filter-link","Mutation filters",{},"Bitterberries",1); sections.back().tool="Mutation filters";
-    section("ssa-passives","SSA Roller",{"ssa-main","ssa-double"},"SSA Roller",2,"Start at the SSA generator or an open result. Matches stay open. Escape stops.");
-    section("ssa-sides","Second passive · none selected accepts any",{"ssa-sides"},"SSA Roller",1);
+    section("ssa-passives","SSA Roller",{"ssa-main","ssa-limit","ssa-double"},"SSA Roller",2,"Start at the SSA generator or an open result. Matches stay open. Escape stops.");
+    section("ssa-sides","Second passive",{"ssa-sides"},"SSA Roller",1);
     std::vector<std::string> keys;
     for (const auto& stat:amulet_stats()) {
         const auto key=key_for(stat.name,"ssa-"); keys.push_back(key);
@@ -159,13 +158,13 @@ extensions::Manifest module_manifest() {
         m.settings.back().suffix=stat.multiplier?"×":"%"; m.settings.back().decimals=stat.multiplier?2:0;
         m.settings.back().help="0 uses the selection above. A positive minimum requires this stat even if its checkbox is off.";
     }
-    section("ssa-required","Stats to keep",{"ssa-required-stats"},"SSA Roller",1,"Choose up to five stats. Set minimums below only if you need specific values.");
-    section("ssa-stats","Advanced · stat minimums",keys,"SSA Roller",3); sections.back().collapsed=true;
-    section("ssa-run","Limits",{"ssa-limit"},"SSA Roller",2);
+    section("ssa-required","Stats to keep",{"ssa-required-stats"},"SSA Roller",1);
+    section("ssa-stats","Stat minimums",keys,"SSA Roller",2); sections.back().tool="Stat minimums";
     section("basic-bee","Gifted Basic Bee",{"egg-limit","egg-start-jelly","egg-keep-gifted","egg-keep-mythic"},"Basic Bee",2,
         "Uses Basic Eggs on the selected bee. Select Starting bee is Basic to use Royal Jelly first. Non-gifted Basic results also use one Royal Jelly before the next egg. Stops on Gifted Basic or your chosen rare results. Keep in-game Auto-Jelly off.");
     sections.push_back({"progress","Last result",{},{},true,2});
     sections.back().collapsed=true;
+    for (auto& section:sections) section.inline_labels=true;
     return m;
 }
 extensions::Factory module_factory(std::shared_ptr<const game::InventorySource> inventory) {

@@ -50,7 +50,8 @@ public:
         for(const auto& item:game::sprinkler_equipment()) equipment_->addItem(QString::fromStdString(item.name));
         sprinkler->addWidget(equipment_);
         auto slot_row=new QHBoxLayout; slot_row->addWidget(new QLabel("Sprinkler slot"));
-        slot_=new QSpinBox; slot_->setObjectName("core-sprinkler-slot"); slot_->setRange(1,7); slot_->setKeyboardTracking(false); slot_row->addWidget(slot_); sprinkler->addLayout(slot_row);
+        slot_=new QSpinBox; slot_->setObjectName("core-sprinkler-slot"); slot_->setRange(1,7); slot_->setKeyboardTracking(false);
+        slot_->setSizePolicy(QSizePolicy::Maximum,QSizePolicy::Fixed); slot_row->addWidget(slot_); slot_row->addStretch(); sprinkler->addLayout(slot_row);
         sprinkler->addStretch();
         auto balloon=make_card("Hive balloon");
         mode_=new QButtonGroup(this); auto modes=new QHBoxLayout; modes->setSpacing(4);
@@ -61,7 +62,7 @@ public:
         interval_->addItem("15 minutes",15); interval_->addItem("30 minutes",30);
         for(int i=1;i<=12;++i) interval_->addItem(QString::number(i)+(i==1?" hour":" hours"),i*60);
         balloon->addWidget(interval_);
-        auto help=new QLabel("Convert when due on the next return to your hive."); help->setWordWrap(true); help->setObjectName("muted"); balloon->addWidget(help); balloon->addStretch();
+        interval_->setToolTip("Convert when due on the next return to your hive."); balloon->addStretch();
         restore();
         connect(equipment_,&QComboBox::currentIndexChanged,this,[this] { changed(); });
         connect(slot_,&QSpinBox::valueChanged,this,[this] { changed(); });
