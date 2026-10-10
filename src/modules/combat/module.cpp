@@ -1,6 +1,8 @@
 #include "module.hpp"
+#include "server_visit.hpp"
 #include <algorithm>
 #include <cmath>
+#include "game/data/fields.hpp"
 
 namespace hive::features::combat {
 namespace {
@@ -28,6 +30,20 @@ std::vector<extensions::Setting> option_settings(const Plan& plan) {
             if (enemy.species=="Stump Snail") limit.label="Session length";
             result.push_back(std::move(limit));
         }
+        if (enemy.species=="King Beetle" || enemy.species=="Tunnel Bear")
+            result.push_back({option_key("baby-love",enemy.id),"Wait for Baby Love",options.baby_love});
+        if (!enemy.hunt_fields.empty()) {
+            const auto* saved=std::get_if<HuntOptions>(&options.boss);
+            SettingSelection fields,selected;
+            for (const auto& id:enemy.hunt_fields) {
+                const auto field=game::field_at(id+".entry");const auto name=field?field->name:id;
+                fields.push_back(name);
+                if (!saved || std::find(saved->fields.begin(),saved->fields.end(),id)!=saved->fields.end()) selected.push_back(name);
+            }
+            result.push_back({"vicious-fields","Search fields",selected,0,0,fields,true});
+            result.push_back({"vicious-daily","Daily bonus only",saved && saved->daily_only});
+            result.back().help="After a confirmed kill, wait 22 hours. Missed searches can still retry.";
+        }
         if (enemy.species=="Mondo Chick") {
             const auto* saved=std::get_if<MondoOptions>(&options.boss);
             const auto value=saved?*saved:MondoOptions{};
@@ -35,10 +51,15 @@ std::vector<extensions::Setting> option_settings(const Plan& plan) {
             result.push_back({"mondo-seconds","Buff time",value.seconds,5,900,{}}); result.back().suffix=" sec";
             result.push_back({"mondo-loot-side","Loot side",std::string(value.direction==LootDirection::left?"Left":value.direction==LootDirection::right?"Right":"Random"),0,0,{"Random","Left","Right"}});
             result.push_back({"mondo-loot-seconds","Loot time",value.loot_seconds,1,120,{}}); result.back().suffix=" sec";
+            result.push_back({"mondo-lead","Leave early",value.lead_seconds,0,300,{}}); result.back().suffix=" sec";
+            result.push_back({"mondo-public","Fight in public server",false});
+            result.back().help="Leave the configured private server for Mondo, then return after the visit. One trip per hourly spawn.";
         } else if (enemy.species=="Commando Chick") {
             const auto* saved=std::get_if<CommandoOptions>(&options.boss);
             const auto value=saved?*saved:CommandoOptions{};
             result.push_back({"commando-level","Level",value.level,3,25,{}});
+            result.push_back({"commando-health","Starting HP",value.health,0,commando_health(25),{}});
+            result.back().help="0 uses full health for the selected level. Live readings update the estimate during the fight.";
             result.push_back({"commando-session","Session",std::string(value.until_defeated?"Until defeated":"Timed"),0,0,{"Timed","Until defeated"}});
         } else if (enemy.species=="King Beetle") {
             const auto* saved=std::get_if<BeetleOptions>(&options.boss);
@@ -59,15 +80,17 @@ class CombatModule final : public extensions::Module {
     extensions::Manifest visits_;
     visits::AvailableSettings available_;
     std::vector<extensions::Setting> options_;
-    struct Target { std::string id,species; bool boss; int maximum_health; std::shared_ptr<FightProgress> progress; };
+    struct Target { std::string id,species; bool boss; int maximum_health; std::shared_ptr<FightProgress> progress; bool hunt{}; };
     std::vector<Target> targets_;
     Builder build_;
-    std::unique_ptr<extensions::Module> delegate_;
+    std::shared_ptr<extensions::Module> delegate_;
+    std::shared_ptr<MondoTrip> trip_;
+    std::function<Time()> clock_;
 public:
-    CombatModule(const extensions::Manifest& manifest,const Plan& plan,const Plan& available,Builder build)
-        :visits_(manifest),available_(visit_plan(plan),visit_plan(available)),options_(option_settings(plan)),build_(std::move(build)) {
+    CombatModule(const extensions::Manifest& manifest,const Plan& plan,const Plan& available,Builder build,std::shared_ptr<MondoTrip> trip)
+        :visits_(manifest),available_(visit_plan(plan),visit_plan(available)),options_(option_settings(plan)),build_(std::move(build)),trip_(std::move(trip)),clock_(plan.wall_clock) {
         if (manifest.settings.size()>maximum_settings) throw std::invalid_argument("Too many Combat settings");
-        for (const auto& enemy:plan.enemies) targets_.push_back({enemy.id,enemy.species,enemy.boss,enemy.maximum_health,enemy.progress});
+        for (const auto& enemy:plan.enemies) targets_.push_back({enemy.id,enemy.species,enemy.boss,enemy.maximum_health,enemy.progress,!enemy.hunt_fields.empty()});
         for (const auto& expected:options_) {
             const auto found=std::find_if(manifest.settings.begin(),manifest.settings.end(),[&](const auto& s) { return s.id==expected.id; });
             if (found==manifest.settings.end() || found->initial.index()!=expected.initial.index()
@@ -79,6 +102,7 @@ public:
             std::erase_if(visits_.settings,[&](const auto& s) { return s.id==expected.id; });
         }
         visits_=available_.manifest(std::move(visits_));
+        visits_.requests.clear();
         delegate_=build_(plan.options,visits_);
     }
     void start(const Settings& values) override {
@@ -108,21 +132,42 @@ public:
             auto& choice=options.enemies[id];
             choice={std::get<bool>(values.at(option_key("loot",id))),
                 target.boss?Time(std::get<int>(values.at(option_key("fight-minutes",id)))*60000):Time{}};
+            if (target.species=="King Beetle" || target.species=="Tunnel Bear") choice.baby_love=std::get<bool>(values.at(option_key("baby-love",id)));
+            if (target.hunt) {
+                HuntOptions hunt; hunt.daily_only=std::get<bool>(values.at("vicious-daily"));
+                for (const auto& name:std::get<SettingSelection>(values.at("vicious-fields")))
+                    for (const auto& field:game::fields()) if (field.name==name) hunt.fields.push_back(field.id);
+                if (hunt.fields.empty()) throw std::invalid_argument("Choose at least one Vicious Bee search field");
+                choice.boss=std::move(hunt);
+            }
             if (target.species=="Mondo Chick") {
                 const auto& side=std::get<std::string>(values.at("mondo-loot-side"));
                 choice.boss=MondoOptions{std::get<std::string>(values.at("mondo-mode"))=="Buff"?MondoMode::buff:MondoMode::kill,
                     std::get<int>(values.at("mondo-seconds")),side=="Left"?LootDirection::left:side=="Right"?LootDirection::right:LootDirection::random,
-                    std::get<int>(values.at("mondo-loot-seconds"))};
-            } else if (target.species=="Commando Chick") choice.boss=CommandoOptions{std::get<int>(values.at("commando-level")),std::get<std::string>(values.at("commando-session"))=="Until defeated"};
+                    std::get<int>(values.at("mondo-loot-seconds")),std::get<int>(values.at("mondo-lead"))};
+            } else if (target.species=="Commando Chick") choice.boss=CommandoOptions{std::get<int>(values.at("commando-level")),std::get<std::string>(values.at("commando-session"))=="Until defeated",std::get<int>(values.at("commando-health"))};
             else if (target.species=="King Beetle") choice.boss=BeetleOptions{std::get<std::string>(values.at("beetle-amulet"))=="Keep old"};
             else if (target.species=="Stump Snail") choice.boss=SnailOptions{std::get<int>(values.at("snail-health"))*100000,
                 std::get<std::string>(values.at("snail-session"))=="Until defeated",std::get<std::string>(values.at("snail-amulet"))=="Keep old"};
         }
         auto next=build_(std::move(options),visits_);
+        const auto bosses=values.contains("bosses")?std::get<SettingSelection>(values.at("bosses")):SettingSelection{};
+        trip_->configure(values.contains("mondo-public") && std::get<bool>(values.at("mondo-public"))
+            && std::find(bosses.begin(),bosses.end(),"Mondo Chick")!=bosses.end(),
+            values.contains("mondo-lead")?std::get<int>(values.at("mondo-lead")):0,std::get<bool>(values.at("interrupt-gather")));
         next->start(available_.values(std::move(settings)));
         delegate_=std::move(next);
     }
-    void update(const extensions::SessionView& view) override { delegate_->update(view); }
+    void update(const extensions::SessionView& view) override {
+        delegate_->update(view);
+        bool due=false;
+        if (trip_->selected() && !trip_->active()) {
+            const auto timers=delegate_->timers();
+            const auto mondo=std::find_if(timers.begin(),timers.end(),[](const auto& timer) { return timer.id=="Mondo Chick"; });
+            due=mondo!=timers.end() && (!mondo->remaining || *mondo->remaining<=Time{});
+        }
+        trip_->update(view,clock_(),due);
+    }
     std::vector<extensions::Metric> metrics() const override {
         auto result=delegate_->metrics();
         std::erase_if(result,[](const auto& metric) { return metric.label!="Status" && metric.label!="Confirmed" && metric.label!="Selected" && metric.label!="Current action"; });
@@ -141,14 +186,14 @@ public:
     std::vector<extensions::ModuleTimer> timers() const override { return delegate_->timers(); }
     std::optional<std::vector<extensions::Metric>> report_metrics() const override { return delegate_->report_metrics(); }
     std::vector<Counter> report_counters() const override { return delegate_->report_counters(); }
-    void stop() noexcept override { delegate_->stop(); }
+    void stop() noexcept override { trip_->configure(false,0,false); delegate_->stop(); }
     game::Requests requests() const override { return delegate_->requests(); }
-    game::RequestBatch request_channels() const override { return delegate_->request_channels(); }
+    game::RequestBatch request_channels() const override { return trip_->requests(); }
     std::optional<extensions::RoutineParticipation> routine() const override { return delegate_->routine(); }
-    std::unique_ptr<automation::Program> routine_program() const override { return delegate_->routine_program(); }
+    std::unique_ptr<automation::Program> routine_program() const override { return program(); }
     bool executable() const noexcept override { return delegate_->executable(); }
-    bool pending_work(const extensions::SessionView& view) const override { return delegate_->pending_work(view); }
-    std::unique_ptr<automation::Program> program() const override { return delegate_->program(); }
+    bool pending_work(const extensions::SessionView& view) const override { return trip_->active() || delegate_->pending_work(view); }
+    std::unique_ptr<automation::Program> program() const override { return trip_->active()?trip_->program([delegate=delegate_] { return delegate->program(); }):delegate_->program(); }
 };
 }
 Settings migrate_settings(int version,const Settings& values,const Plan& plan) {
@@ -171,6 +216,7 @@ Settings migrate_settings(int version,const Settings& values,const Plan& plan) {
 extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string provider,bool requests) {
     auto manifest=features::visits::manifest(visit_plan(plan),std::move(id),std::move(provider),"Combat",permissions);
     manifest.enabled_by_default=true;
+    manifest.requests.insert(extensions::RequestService::servers);
     if (requests) manifest.consumes.insert(extensions::RequestService::enemies);
     for (const auto& enemy : plan.enemies) for (auto& setting : manifest.settings)
         if (setting.id==features::visits::selection_key(enemy.id)) setting.initial=enemy.selected_by_default;
@@ -195,13 +241,15 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
         extensions::PageSection boss{selection,enemy.id,{}, {selection,option_key("loot",enemy.id)},false,3};
         boss.collection="bosses"; boss.choice=enemy.id;
         if (enemy.species=="Mondo Chick") {
-            boss.settings.insert(boss.settings.end(),{"mondo-mode","mondo-seconds",option_key("fight-minutes",enemy.id),"mondo-loot-side","mondo-loot-seconds"});
+            boss.settings.insert(boss.settings.end(),{"mondo-mode","mondo-seconds",option_key("fight-minutes",enemy.id),"mondo-loot-side","mondo-loot-seconds","mondo-lead","mondo-public"});
         } else if (enemy.species=="Stump Snail") {
             boss.settings.insert(boss.settings.end(),{"snail-session",option_key("fight-minutes",enemy.id),"snail-health","snail-amulet"});
         } else {
             boss.settings.push_back(option_key("fight-minutes",enemy.id));
-            if (enemy.species=="Commando Chick") boss.settings.insert(boss.settings.end(),{"commando-level","commando-session"});
+            if (enemy.species=="Commando Chick") boss.settings.insert(boss.settings.end(),{"commando-level","commando-health","commando-session"});
             if (enemy.species=="King Beetle") boss.settings.push_back("beetle-amulet");
+            if (enemy.species=="King Beetle" || enemy.species=="Tunnel Bear") boss.settings.push_back(option_key("baby-love",enemy.id));
+            if (!enemy.hunt_fields.empty()) boss.settings.insert(boss.settings.end(),{"vicious-daily","vicious-fields"});
         }
         sections.push_back(std::move(boss));
     }
@@ -241,14 +289,17 @@ extensions::Factory module_factory(Plan plan,automation::NavigationServices navi
     }
     const auto display=std::make_shared<const Plan>(configuration?std::move(*configuration):plan);
     const auto defaults=std::make_shared<const Plan>(std::move(plan));
-    Builder build=[defaults,navigation=std::move(navigation),availability=std::move(availability),demand=std::move(demand),saved=std::move(saved)](Options options,const extensions::Manifest& manifest) {
+    return [display,defaults,navigation=std::move(navigation),availability=std::move(availability),demand=std::move(demand),saved=std::move(saved)](const extensions::Manifest& manifest) {
+      auto trip=std::make_shared<MondoTrip>(manifest.id);
+      Builder build=[defaults,navigation,availability=server_availability(availability,trip),demand,saved](Options options,const extensions::Manifest& manifest) {
         auto configured=*defaults;
         const auto available=[&](const auto& id) { return std::any_of(configured.enemies.begin(),configured.enemies.end(),[&](const auto& enemy) { return enemy.id==id; }); };
         std::erase_if(options.enemies,[&](const auto& item) { return !available(item.first); });
         std::erase_if(options.boss_order,[&](const auto& id) { return !available(id); });
         configured.options=std::move(options);
         return features::visits::factory(visit_plan(std::move(configured)),navigation,availability,permissions,demand,saved)(manifest);
+      };
+      return std::make_unique<CombatModule>(manifest,*display,*defaults,std::move(build),std::move(trip));
     };
-    return [display,defaults,build=std::move(build)](const extensions::Manifest& manifest) { return std::make_unique<CombatModule>(manifest,*display,*defaults,build); };
 }
 }

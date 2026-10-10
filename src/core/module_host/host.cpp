@@ -168,7 +168,7 @@ void Host::register_module(Manifest manifest,std::string unavailable,SettingsMig
         if (setting.ordered && !std::holds_alternative<SettingSelection>(setting.initial))
             throw std::invalid_argument("Only selections can be ordered");
         if (!valid_id(setting.id) || setting.label.empty() || setting.label.size()>80
-            || setting.minimum>setting.maximum || setting.minimum<-1000000 || setting.maximum>1000000 || setting.choices.size()>maximum_setting_choices
+            || setting.minimum>setting.maximum || setting.choices.size()>maximum_setting_choices
             || setting.decimals>3 || (setting.decimals && !std::holds_alternative<int>(setting.initial)))
             throw std::invalid_argument("Invalid compiled module setting");
         std::set<std::string> choices;

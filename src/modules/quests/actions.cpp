@@ -22,14 +22,15 @@ void configure_actions(CyclePlan& plan,const game::RouteNetwork& routes,
         }
 
     const auto pass=collect_station?collect_station("Free Ant Pass Dispenser"):automation::ProgramFactory{};
-    if (pass) plan.actions.emplace("Ant",features::quests::QuestAction{
-        [prepare=plan.prepare,return_to_hive=plan.return_to_hive,speed=plan.speed,movement,collection_cooldowns](const features::quests::Objective&) {
+    const auto purchase=collect_station?collect_station("Ant Pass Dispenser"):automation::ProgramFactory{};
+    if (pass && routes.contains("challenge.ant")) plan.actions.emplace("Ant",features::quests::QuestAction{
+        [prepare=plan.prepare,return_to_hive=plan.return_to_hive,speed=plan.speed,movement,collection_cooldowns,purchase](const features::quests::Objective&) {
             return automation::ant_challenge(prepare,return_to_hive,speed,movement,[collection_cooldowns](const ObservationContext& context) {
                 if (!collection_cooldowns) return;
                 collection_cooldowns->load();
                 const auto delay=collection_cooldowns->remaining("Free Ant Pass Dispenser",std::chrono::hours(2));
                 collection_cooldowns->remember("Ant Challenge",context.now,context.now+std::max(Time(60000),delay),false,context);
-            });
+            },purchase);
         },[collection_cooldowns] {
             if (!collection_cooldowns) return true;
             collection_cooldowns->load();

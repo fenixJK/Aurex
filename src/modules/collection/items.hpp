@@ -2,6 +2,7 @@
 #include "core/runtime/program.hpp"
 #include "game/detection/item_menu.hpp"
 #include "orders.hpp"
+#include "ant_pass.hpp"
 #include "core/scripting/movement.hpp"
 
 namespace hive::features::collection {
@@ -12,6 +13,7 @@ struct ItemOptions {
     Time shrine_interval{std::chrono::hours(1)};
     movement::Source movement;
     std::string printer_egg{"Basic Egg"};
+    std::shared_ptr<AntPassBudget> ant_passes;
 };
 std::unique_ptr<automation::Program> print_sticker(std::shared_ptr<const game::DetectionSource> source,std::string egg);
 std::unique_ptr<automation::Program> collect_glue(std::shared_ptr<const game::InventorySource> inventory,double speed,movement::Source movement);

@@ -14,7 +14,7 @@ struct BoostItems {
     Time roll_interval{3000},extend_after{780000};
 };
 struct Preferences {
-    bool follow{true},interrupt{true};
+    bool follow{true},interrupt{true},force_blue{},pre_glitter{};
     std::vector<std::string> fields,boosters;
     std::array<ItemRule,7> items;
     BoostItems boost;
@@ -35,6 +35,7 @@ class Controller final : public automation::HotbarSource {
     std::optional<Time> last_dice_,last_glitter_;
     unsigned dice_used_{},glitter_used_{};
     Time observed_{},updated_{},next_item_{};
+    std::optional<Time> blue_remaining_;
     bool enabled_{},running_{},readable_{};
     std::map<std::string,Time> attempted_;
     bool fresh(Time now) const;
@@ -43,7 +44,7 @@ class Controller final : public automation::HotbarSource {
 public:
     void configure(Preferences preferences);
     void stop();
-    void update(const extensions::SessionView& view,const std::optional<game::DetectionResult>& reading);
+    void update(const extensions::SessionView& view,const std::optional<game::DetectionResult>& reading,std::optional<Time> blue_remaining={});
     unsigned take(const automation::HotbarContext& context) override;
     bool needs_backpack() const override;
     game::Requests requests(Time now,std::uint64_t generation) const;

@@ -43,6 +43,7 @@ struct Visit {
     std::function<bool(const ObservationContext&)> scheduled;
     std::function<std::optional<Time>()> retry_after_completion;
     Time loot_duration{};
+    ProgramFactory approach;
 };
 struct VisitPlan {
     std::vector<Visit> visits;

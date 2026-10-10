@@ -27,7 +27,7 @@ std::vector<Rect> Runner::text_regions() const {
         else if constexpr (std::is_same_v<T,UseStation>) regions.push_back(game::station_target(step.name).region);
         else if constexpr (std::is_same_v<T,Pattern>) { if (step.until) regions.push_back(step.until->region); }
         else if constexpr (std::is_same_v<T,AnswerDialog>) { if (step.plan.read_question) regions.push_back(step.plan.question.region); }
-        else if constexpr (std::is_same_v<T,Convert>) regions.push_back(game::hive_proximity_prompt().region);
+        else if constexpr (std::is_same_v<T,Convert>) { if (!conversion_ || conversion_->needs_prompt()) regions.push_back(game::hive_proximity_prompt().region); }
         else if constexpr (std::is_same_v<T,PlaceSprinkler>) { if (step.plan.completion==workflows::SprinklerCompletion::attempted) regions.push_back({.45,.4,.55,.6}); }
     },*step_);
     return regions;
@@ -165,9 +165,9 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         }
         child_->update(c,s); const auto result=child_->progress(); progress_.message=result.message;
         progress_.route_execution=result.route_execution;
-        if (result.state==State::completed) {
-            progress_.route_position=result.route_position;
-            progress_.estimated_heading=result.estimated_heading;
+        if (result.state==State::completed || (operation->return_result && (result.state==State::failed || result.state==State::deferred))) {
+            progress_.route_position=result.state==State::completed?result.route_position:std::nullopt;
+            progress_.estimated_heading=result.state==State::completed?result.estimated_heading:std::nullopt;
             complete_step(c,s);
         } else if (result.state==State::deferred) finish(State::deferred,result.message);
         else if (result.state==State::failed && result.interruption) interrupt(*result.interruption,c,s,result.message);

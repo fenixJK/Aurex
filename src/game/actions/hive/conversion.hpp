@@ -19,11 +19,14 @@ public:
     void resume(const game::Context& context);
     ConversionStage stage() const { return stage_; }
     const std::string& reason() const { return reason_; }
+    bool needs_prompt() const;
 private:
     ConversionConfig config_;
     ConversionStage stage_{ConversionStage::idle};
     game::Context started_;
     Time last_tick_{},last_evidence_{},last_attempt_{},minimum_capture_{};
+    Time backpack_capture_{Time(-1)},last_progress_{};
+    std::optional<double> last_backpack_;
     std::string pending_,reason_;
     int attempts_{};
     bool control_{},confirmed_hive_{};

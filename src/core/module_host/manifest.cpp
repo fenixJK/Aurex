@@ -175,7 +175,8 @@ Manifest read_manifest(const QString& path) {
             require(s["default"].isBool() && !s.contains("min") && !s.contains("max") && !s.contains("choices"),"Invalid boolean setting"); field.initial=s["default"].toBool();
         } else if (type=="integer") {
             require(!s.contains("choices"),"Integer setting cannot define choices");
-            field.minimum=integer(s["min"],-1000000,1000000); field.maximum=integer(s["max"],field.minimum,1000000);
+            field.minimum=integer(s["min"],std::numeric_limits<int>::min(),std::numeric_limits<int>::max());
+            field.maximum=integer(s["max"],field.minimum,std::numeric_limits<int>::max());
             field.initial=integer(s["default"],field.minimum,field.maximum);
         } else if (type=="choice" || type=="selection") {
             require(s["choices"].isArray() && !s["choices"].toArray().isEmpty() && s["choices"].toArray().size()<=maximum_setting_choices && !s.contains("min") && !s.contains("max"),"Invalid choices");
@@ -277,7 +278,7 @@ void validate_page(const Manifest& manifest) {
         require(std::holds_alternative<int>(field.initial) && field.minimum>=0 && field.step>0 && field.checked_step>0,
             "Numeric steps require a nonnegative integer setting and positive intervals");
         for (const int step:{field.step,field.step_toggle.empty()?field.step:field.checked_step})
-            require(step<=1000000 && (field.minimum+step-1)/step<=field.maximum/step,"Numeric step has no value within the setting range");
+            require(step<=1000000 && (static_cast<long long>(field.minimum)+step-1)/step<=field.maximum/step,"Numeric step has no value within the setting range");
         require(!field.step_toggle.empty() || field.checked_step==1,"Checked step requires a checkbox");
         if (!field.step_toggle.empty()) {
             const auto source=std::find_if(manifest.settings.begin(),manifest.settings.end(),[&](const auto& setting) { return setting.id==field.step_toggle; });

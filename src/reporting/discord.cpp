@@ -58,6 +58,8 @@ QString validate(const DiscordSettings& settings,bool webhook_required) {
         return "The report channel ID must contain 16–22 digits.";
     if (!settings.mention.isEmpty() && !QRegularExpression("^[0-9]{16,22}$").match(settings.mention).hasMatch())
         return "The alert user ID must contain 16–22 digits.";
+    if (settings.appearance.theme<ReportTheme::forest || settings.appearance.theme>ReportTheme::graphite
+        || settings.appearance.chart_height<75 || settings.appearance.chart_height>150) return "Choose a supported report layout.";
     if (settings.report_minutes<1 || settings.report_minutes>720) return "Choose a report interval up to 12 hours.";
     return {};
 }
@@ -111,7 +113,7 @@ void Discord::cancel() {
 bool Discord::configure(const DiscordSettings& value) {
     if (const auto issue=validate(value,!bot_);!issue.isEmpty()) { status(issue); return false; }
     if (settings_==value && !blocked_) return true;
-    auto delivery=settings_;delivery.buff_ids=value.buff_ids;delivery.report_minutes=value.report_minutes;
+    auto delivery=settings_;delivery.buff_ids=value.buff_ids;delivery.report_minutes=value.report_minutes;delivery.appearance=value.appearance;
     if (delivery==value && !blocked_) {
         const bool reschedule=settings_.report_minutes!=value.report_minutes;
         settings_=value;if(reschedule) schedule_reports();return true;
@@ -250,6 +252,7 @@ Report Discord::preview_report() {
     auto snapshot=snapshot_?snapshot_():Snapshot{}; const auto now=clock_.elapsed();
     if ((settings_.enabled || history_requested_) && active(state_) && now>=next_sample_) { history_.sample(now,snapshot); next_sample_=now+sample_interval_ms; }
     auto report=history_.report(std::move(snapshot),elapsed,qint64(settings_.report_minutes)*60000,now);
+    report.appearance=settings_.appearance;
     report.buffs.removeIf([this](const auto& trace) {
         return !settings_.buff_ids.contains(trace.current.id.isEmpty()?trace.current.name:trace.current.id);
     });

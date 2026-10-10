@@ -87,7 +87,8 @@ public:
         const auto reading=source_->read(c);
         if (!reading.has_value(c,Time(2000),minimum_)) {
             if (stage_==Stage::locate && view.observations
-                && view.observations->text.has_value(c,Time(2000),minimum_)) {
+                && ((view.observations->game_hud.has_value(c,Time(2000),minimum_) && view.observations->game_hud.value)
+                    || view.observations->text.has_value(c,Time(2000),minimum_))) {
                 stage_=Stage::select; issued_=true;
                 return TapMenuKey{Key::game_menu,"Open game menu"};
             }

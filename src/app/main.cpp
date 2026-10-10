@@ -343,6 +343,30 @@ public:
         auto server_link=new QLineEdit(settings_.value("recovery/serverLink").toString());
         server_link->setPlaceholderText("Leave empty to join a public server");
         server_link->setMaxLength(2048); recovery_settings->addWidget(server_link);
+        auto reconnect_row=new QHBoxLayout;
+        reconnect_row->addWidget(new QLabel("Scheduled reconnect"));
+        auto reconnect_hours=new QComboBox; reconnect_hours->setObjectName("reconnect-hours"); reconnect_hours->addItem("Off",0);
+        for (int hours:{1,2,3,4,6,8,12,24}) reconnect_hours->addItem(hours==1?"Every hour":QString("Every %1 hours").arg(hours),hours);
+        reconnect_hours->setCurrentIndex(std::max(0,reconnect_hours->findData(settings_.value("recovery/hours",0).toInt())));
+        auto reconnect_minute=new QSpinBox; reconnect_minute->setObjectName("reconnect-minute"); reconnect_minute->setRange(0,59); reconnect_minute->setPrefix(":");
+        reconnect_minute->setKeyboardTracking(false); reconnect_minute->setValue(settings_.value("recovery/minute",0).toInt());
+        reconnect_minute->setToolTip("Minute after the hour. Multi-hour schedules align to midnight UTC. Reconnect waits for the current activity to yield.");
+        reconnect_minute->setEnabled(reconnect_hours->currentData().toInt()>0);
+        reconnect_row->addWidget(reconnect_hours); reconnect_row->addWidget(reconnect_minute); reconnect_row->addStretch(); recovery_settings->addLayout(reconnect_row);
+        session_.configure_rejoin_schedule(reconnect_hours->currentData().toInt(),reconnect_minute->value());
+        const auto save_reconnect=[this,reconnect_hours,reconnect_minute] {
+            try {
+                session_.configure_rejoin_schedule(reconnect_hours->currentData().toInt(),reconnect_minute->value());
+                settings_.setValue("recovery/hours",reconnect_hours->currentData()); settings_.setValue("recovery/minute",reconnect_minute->value());
+            } catch (const std::exception&) {
+                const QSignalBlocker hours_block(reconnect_hours),minute_block(reconnect_minute);
+                reconnect_hours->setCurrentIndex(std::max(0,reconnect_hours->findData(settings_.value("recovery/hours",0).toInt())));
+                reconnect_minute->setValue(settings_.value("recovery/minute",0).toInt());
+            }
+            reconnect_minute->setEnabled(reconnect_hours->currentData().toInt()>0);
+        };
+        connect(reconnect_hours,&QComboBox::currentIndexChanged,this,save_reconnect);
+        connect(reconnect_minute,&QSpinBox::valueChanged,this,save_reconnect);
         auto recovery_error=label({},"muted"); recovery_error->hide(); recovery_settings->addWidget(recovery_error);
         try { session_.configure_rejoin(hive::game::JoinTarget(server_link->text().trimmed().toStdString())); }
         catch (const std::exception& error) { recovery_error->setText(q(error.what())); recovery_error->show(); }
@@ -537,6 +561,7 @@ public:
         for (auto& detector:detectors) detector.on_demand=true;
         auto channels=session_.configure_detectors(std::move(detectors));
         reporting_upkeep_=channels.at("buff-upkeep");
+        native_modules_.buffs=reporting_upkeep_;
         reporting_honey_=channels.at("honey");
         native_modules_.field_boosts=channels.at("field-boosts");
         session_.configure_hotbar(native_modules_.boosting);
@@ -725,7 +750,7 @@ public:
             } catch (const std::exception& e) { start_timer_.stop(); initial_join_.reset(); routine_.reset(); pending_feature_.reset(); launch_error_=q(e.what()); log(launch_error_,true); }
         });
         auto timer=new QTimer(this); timer->setInterval(150);
-        connect(timer,&QTimer::timeout,this,[this,stop,run_routine,start_macro,enabled_features,player_speed,equipment,existing_hive] {
+        connect(timer,&QTimer::timeout,this,[this,stop,run_routine,start_macro,enabled_features,player_speed,equipment,existing_hive,reconnect_hours,reconnect_minute] {
             const auto snapshot=session_.snapshot();
             follow_window(snapshot);
             if (snapshot.feature && hive::automation::can_handoff(*snapshot.feature)) {
@@ -739,7 +764,7 @@ public:
                     last_outcome_=outcome;
                 }
             }
-            hive::extensions::SessionView view{snapshot.status,snapshot.now,snapshot.generation,snapshot.feature,snapshot.pause_requests,{},snapshot.session_id};
+            hive::extensions::SessionView view{snapshot.status,snapshot.now,snapshot.generation,snapshot.feature,snapshot.pause_requests,{},snapshot.session_id,snapshot.server};
             bool routine_failed=false;
             if (routine_ && !start_timer_.isActive()) {
                 view=routine_->tick(); extensions_->render();
@@ -786,7 +811,8 @@ public:
                 if (!nectar || nectar->context.generation!=snapshot.generation || snapshot.now-nectar->context.now>hive::Time(3000)) reporting_nectar_->read();
             }
             const auto current_activity=view.feature?q(view.feature->activity_label):QString{};
-            const auto reason=view.feature && view.feature->state==hive::automation::State::failed?q(view.feature->message):q(status.reason);
+            const auto reason=status.state!=hive::RunState::running && !status.reason.empty()?q(status.reason):
+                view.feature && view.feature->state==hive::automation::State::failed?q(view.feature->message):q(status.reason);
             const auto failure=current_activity.isEmpty()?reason:current_activity+"\n"+reason;
             discord_->set_history_requested(remote_ && remote_->settings().enabled);
             discord_->update(status.state,view.session_id,failure,activity);
@@ -842,6 +868,8 @@ public:
             state_->setText(state_text); action_->setText(action_text); action_->setToolTip(action_text);
             equipment->setEnabled(!active && !start_timer_.isActive());
             existing_hive->setEnabled(!active && !start_timer_.isActive());
+            reconnect_hours->setEnabled(!active && !start_timer_.isActive());
+            reconnect_minute->setEnabled(reconnect_hours->isEnabled() && reconnect_hours->currentData().toInt()>0);
             player_speed->set_available(!active && !start_timer_.isActive());
             run_routine->setEnabled(!features.empty() && !active && !start_timer_.isActive());
             start_macro->setEnabled(run_routine->isEnabled());

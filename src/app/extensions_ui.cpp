@@ -302,7 +302,7 @@ struct ExtensionsUi::Page {
         for (const auto& field:manifest.settings) if ((field.step!=1 || !field.step_toggle.empty()) && controls.contains(field.id)) {
             const int step=!field.step_toggle.empty() && checked(field.step_toggle)?field.checked_step:field.step;
             auto* control=controls.at(field.id); const QSignalBlocker block(control);
-            const int minimum=(field.minimum+step-1)/step*step,maximum=field.maximum/step*step;
+            const int minimum=int((static_cast<long long>(field.minimum)+step-1)/step*step),maximum=field.maximum/step*step;
             const int value=std::clamp(read_number(control,field)/step*step,minimum,maximum);
             if (auto* number=qobject_cast<QDoubleSpinBox*>(control)) {
                 const auto divisor=std::pow(10.,field.decimals);

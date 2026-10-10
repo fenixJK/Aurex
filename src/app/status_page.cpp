@@ -71,6 +71,7 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
     auto buff_count=new QLabel; buff_count->setObjectName("muted");
     auto buff_row=new QHBoxLayout; buff_row->addWidget(buffs); buff_row->addWidget(buff_count); buff_row->addStretch();
     fields->addRow(buff_row);
+    auto appearance=new QPushButton("Report layout…"); appearance->setObjectName("report-appearance"); fields->addRow(appearance);
     form->addLayout(fields);
     auto mention=new QCheckBox("Ping me on error");mention->setObjectName("discord-ping");
     auto notifications=new QGridLayout;
@@ -99,6 +100,11 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
     initial.report_minutes=settings.value("discord/reportMinutes",reporting::DiscordSettings::default_report_minutes).toInt();
     if (settings.contains("discord/buffs")) buff_ids_=settings.value("discord/buffs").toStringList();
     else for (const auto& buff:discord_->available_buffs()) buff_ids_.append(buff.id.isEmpty()?buff.name:buff.id);
+    appearance_.theme=reporting::ReportTheme(std::clamp(settings.value("discord/theme",0).toInt(),0,2));
+    appearance_.chart_height=std::clamp(settings.value("discord/chartHeight",100).toInt(),75,150);
+    appearance_.activity=settings.value("discord/showActivity",true).toBool(); appearance_.nectar=settings.value("discord/showNectar",true).toBool();
+    appearance_.modules=settings.value("discord/showModules",true).toBool(); appearance_.totals=settings.value("discord/showTotals",true).toBool();
+    initial.appearance=appearance_;
     initial.buff_ids=buff_ids_; settings.setValue("discord/buffs",buff_ids_);
     buff_count->setText(QString("%1 selected").arg(buff_ids_.size()));
     if (interval->findData(initial.report_minutes)<0) initial.report_minutes=reporting::DiscordSettings::default_report_minutes;
@@ -117,7 +123,7 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
         value.report_channel=report_channel_->text().trimmed();
         value.errors=errors->isChecked(); value.error_screenshots=error_screenshots->isChecked(); value.screenshots=screenshots->isChecked(); value.report_minutes=interval->currentData().toInt();
         value.live_honey=live_honey->isChecked();
-        value.buff_ids=buff_ids_;
+        value.buff_ids=buff_ids_; value.appearance=appearance_;
         if (!value.enabled && !reporting::validate(value,!discord_->uses_bot()).isEmpty()) {
             const auto previous=discord_->settings(); value.webhook=previous.webhook; value.mention=previous.mention;value.report_channel=previous.report_channel;
         }
@@ -131,6 +137,9 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
         settings.setValue("discord/liveHoney",value.live_honey);
         settings.setValue("discord/reportMinutes",value.report_minutes);
         settings.setValue("discord/buffs",value.buff_ids);
+        settings.setValue("discord/theme",int(appearance_.theme)); settings.setValue("discord/chartHeight",appearance_.chart_height);
+        settings.setValue("discord/showActivity",appearance_.activity); settings.setValue("discord/showNectar",appearance_.nectar);
+        settings.setValue("discord/showModules",appearance_.modules); settings.setValue("discord/showTotals",appearance_.totals);
         return true;
     };
     connect(enabled,&QCheckBox::toggled,this,[save] { save(); });
@@ -141,6 +150,26 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
     connect(discord_user_,&QLineEdit::editingFinished,this,[save] { save(); });
     connect(mention,&QCheckBox::toggled,this,[save] { save(); });
     connect(interval,&QComboBox::currentIndexChanged,this,[save] { save(); });
+    connect(appearance,&QPushButton::clicked,this,[this,save] {
+        auto dialog=new QDialog(this); dialog->setAttribute(Qt::WA_DeleteOnClose); dialog->setObjectName("report-appearance-dialog");
+        dialog->setWindowTitle("Report layout"); dialog->setWindowModality(Qt::WindowModal);
+        auto layout=new QVBoxLayout(dialog); auto fields=new QFormLayout; layout->addLayout(fields);
+        auto theme=new QComboBox; theme->addItems({"Forest","Midnight","Graphite"}); theme->setCurrentIndex(int(appearance_.theme)); fields->addRow("Theme",theme);
+        auto height=new QComboBox; height->addItem("Compact",75); height->addItem("Normal",100); height->addItem("Tall",150);
+        height->setCurrentIndex(std::max(0,height->findData(appearance_.chart_height))); fields->addRow("Buff charts",height);
+        auto activity=new QCheckBox("Activity breakdown"); activity->setChecked(appearance_.activity); layout->addWidget(activity);
+        auto nectar=new QCheckBox("Nectar"); nectar->setChecked(appearance_.nectar); layout->addWidget(nectar);
+        auto modules=new QCheckBox("Module panels"); modules->setChecked(appearance_.modules); layout->addWidget(modules);
+        auto totals=new QCheckBox("Totals"); totals->setChecked(appearance_.totals); layout->addWidget(totals);
+        const auto changed=[this,save,theme,height,activity,nectar,modules,totals] {
+            appearance_={reporting::ReportTheme(theme->currentIndex()),height->currentData().toInt(),activity->isChecked(),nectar->isChecked(),modules->isChecked(),totals->isChecked()};
+            if (!save()) appearance_=discord_->settings().appearance;
+        };
+        connect(theme,&QComboBox::currentIndexChanged,dialog,changed); connect(height,&QComboBox::currentIndexChanged,dialog,changed);
+        for (auto check:{activity,nectar,modules,totals}) connect(check,&QCheckBox::toggled,dialog,changed);
+        auto done=new QPushButton("Done"); layout->addWidget(done); connect(done,&QPushButton::clicked,dialog,&QDialog::accept);
+        dialog->setFixedSize(300,layout->sizeHint().height()+20); dialog->show();
+    });
     connect(buffs,&QPushButton::clicked,this,[this,save,buff_count] {
         auto dialog=new QDialog(this); dialog->setObjectName("report-buffs"); dialog->setAttribute(Qt::WA_DeleteOnClose);
         dialog->setWindowTitle("Report buffs"); dialog->setWindowModality(Qt::WindowModal);

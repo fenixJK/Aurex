@@ -138,6 +138,7 @@ SessionSnapshot Session::snapshot() {
     SessionSnapshot result{runtime_.status(),monotonic_now(),tasks_.generation(),{},pause_requests_,session_id_,active_window_};
     if (feature_) { result.feature=feature_->progress(); result.feature->module_id=feature_id_; }
     result.recovery=*recovery_counts_;
+    result.server={rejoin_target_?rejoin_target_->uri():std::string{},joined_server_};
     return result;
 }
 void Session::pause_between_features() {
@@ -158,6 +159,7 @@ void Session::start_managed(Window window) {
         window=observed.window;
     runtime_.start(window,now,CompletionMode::managed); window_id_=window.id; tasks_.reset(now); managed_=true; continue_features_=true;
     active_window_=window; session_id_=tasks_.generation(); recovery_counts_=std::make_shared<RecoveryCounts>();
+    rejoin_schedule_.arm(wall_time());
     if (observer_.has_detectors()) observer_.watch({window,tasks_.generation(),now},false);
 }
 void Session::clear_feature(bool stop_observer) {

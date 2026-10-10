@@ -81,6 +81,7 @@ struct SessionView {
     std::uint64_t pause_requests{};
     game::RequestInbox requests;
     std::uint64_t session_id{};
+    game::ServerSession server;
 };
 void validate_settings(const Manifest& manifest,const Settings& settings);
 class Module {

@@ -1,4 +1,5 @@
 add_library(hive_collection
+  ant_pass.cpp
   plan.cpp
   games.cpp
   card_memory.cpp

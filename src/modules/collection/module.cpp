@@ -8,7 +8,8 @@ std::string item_key(bool blender,const std::string& item) {
     return std::string(blender?"blender-":"shrine-")+visits::selection_key(item).substr(7);
 }
 std::vector<extensions::Setting> item_settings(const Plan& plan) {
-    std::vector<extensions::Setting> result;
+    std::vector<extensions::Setting> result{{"ant-purchases","Pass purchase limit",0,0,100}};
+    result.back().help="For Ant quests when no pass is available. Each costs 10 tickets. 0 disables purchases; limit is per macro session.";
     if (std::any_of(plan.stations.begin(),plan.stations.end(),[](const auto& station) { return station.id=="Sticker Printer"; })) {
         result.push_back({"printer-egg","Egg",plan.items.printer_egg,0,0,{"Basic Egg","Silver Egg","Gold Egg","Diamond Egg","Mythic Egg"}});
         result.back().help="Uses one selected egg per print. It never substitutes another egg.";
@@ -40,6 +41,7 @@ class CollectionModule final : public extensions::Module {
     Builder build_;
     std::shared_ptr<ItemOrders> orders_;
     std::unique_ptr<extensions::Module> delegate_;
+    unsigned ant_limit_{};
 public:
     CollectionModule(const extensions::Manifest& manifest,const Plan& plan,const Plan& available,Builder build,const extensions::Factory& initial)
         :visits_(manifest),available_(visit_plan(plan),visit_plan(available)),options_(item_settings(plan)),defaults_(plan.items),build_(std::move(build)),orders_(plan.items.orders) {
@@ -79,9 +81,13 @@ public:
         }
         if (values.contains("shrine-hours")) options.shrine_interval=std::chrono::hours(std::get<int>(values.at("shrine-hours")));
         if (values.contains("printer-egg")) options.printer_egg=std::get<std::string>(values.at("printer-egg"));
+        ant_limit_=unsigned(std::get<int>(values.at("ant-purchases")));
         auto next=build_(std::move(options),visits_); next->start(available_.values(std::move(settings))); delegate_=std::move(next);
     }
-    void update(const extensions::SessionView& view) override { delegate_->update(view); }
+    void update(const extensions::SessionView& view) override {
+        if (defaults_.ant_passes) defaults_.ant_passes->configure(ant_limit_,view.session_id);
+        delegate_->update(view);
+    }
     std::vector<extensions::Metric> metrics() const override {
         auto result=delegate_->metrics(); const auto state=orders_->read();
         for (const bool blender:{true,false}) {
@@ -101,7 +107,7 @@ public:
     std::vector<extensions::ModuleTimer> timers() const override { return delegate_->timers(); }
     std::optional<std::vector<extensions::Metric>> report_metrics() const override { return delegate_->report_metrics(); }
     std::vector<Counter> report_counters() const override { return delegate_->report_counters(); }
-    void stop() noexcept override { delegate_->stop(); }
+    void stop() noexcept override { if (defaults_.ant_passes) defaults_.ant_passes->disable(); delegate_->stop(); }
     game::RequestBatch request_channels() const override { return delegate_->request_channels(); }
     std::optional<extensions::RoutineParticipation> routine() const override { return delegate_->routine(); }
     std::unique_ptr<automation::Program> routine_program() const override { return delegate_->routine_program(); }
@@ -144,6 +150,8 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     sections.push_back({"schedule","Options",{},{"interrupt-gather"},false,1});
     if (!pickups.settings.empty()) sections.push_back(std::move(pickups));
     if (!games.settings.empty()) sections.push_back(std::move(games));
+    extensions::PageSection ant{"ant-purchases","Ant quests",{},{"ant-purchases"},false,1};
+    ant.tab="Activities"; sections.push_back(std::move(ant));
     if (std::any_of(plan.stations.begin(),plan.stations.end(),[](const auto& station) { return station.id=="Sticker Printer"; })) {
         extensions::PageSection printer{"printer","Sticker Printer",{},{features::visits::selection_key("Sticker Printer"),"printer-egg"},false,2};
         printer.tab="Activities"; sections.push_back(std::move(printer));

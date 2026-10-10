@@ -49,8 +49,8 @@ std::optional<automation::Launch> Routine::next(Host& host,const SessionView& vi
         const auto& e=entries_[*active_];
         if (view.feature->state==automation::State::completed) ++completed_work_;
         const bool failed=view.feature->state==automation::State::failed;
-        after_work_[*active_]=failed || (e.participation.demand_only && view.feature->state==automation::State::deferred)?completed_work_+1:0;
-        due_[*active_]=view.now+e.participation.recheck;
+        after_work_[*active_]=e.participation.demand_only && view.feature->state==automation::State::deferred?completed_work_+1:0;
+        due_[*active_]=view.now+(failed?std::max(e.participation.recheck,Time(30000)):e.participation.recheck);
         deferred_until_[*active_]=failed || view.feature->state==automation::State::deferred?due_[*active_]:Time{};
         policy_->completed(e.participation.fallback && !e.participation.priority?std::nullopt:std::optional(e.id));
         active_.reset();

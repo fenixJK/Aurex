@@ -1,6 +1,7 @@
 #pragma once
 #include "platform/platform.hpp"
 #include "client_rejoin.hpp"
+#include "rejoin_schedule.hpp"
 #include "core/runtime/runtime.hpp"
 #include "core/runtime/tasks.hpp"
 #include "core/runtime/runner.hpp"
@@ -22,6 +23,7 @@ struct SessionSnapshot {
     std::uint64_t session_id{};
     Window window;
     RecoveryCounts recovery;
+    game::ServerSession server;
 };
 class Session : public TaskPort {
 public:
@@ -31,6 +33,7 @@ public:
     void start_managed(Window window);
     void configure_navigation(automation::NavigationServices navigation);
     void configure_rejoin(std::optional<game::JoinTarget> target);
+    void configure_rejoin_schedule(int hours,int minute=0);
     void configure_server_requests(std::shared_ptr<const game::RequestSource> requests);
     ClientRejoin connect_client(Time now,Window replace={});
     void configure_connection_recovery(automation::ProgramFactory reconnect,automation::ProgramFactory replacement);
@@ -89,8 +92,10 @@ private:
     std::optional<ClientRejoin> client_rejoin_;
     std::shared_ptr<const game::RequestSource> server_requests_;
     std::optional<game::ServerGoal> requested_server_;
-    std::string joined_server_;
+    std::string joined_server_,joining_server_;
     Time next_server_read_{};
+    RejoinSchedule rejoin_schedule_;
+    static Time wall_time() { return std::chrono::duration_cast<Time>(std::chrono::system_clock::now().time_since_epoch()); }
     bool read_server_request(Time now);
     std::optional<game::JoinTarget> rejoin_target(Time now) const;
     bool requested_rejoin(Time now);

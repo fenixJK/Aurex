@@ -43,6 +43,7 @@ struct CollectionServices {
     std::shared_ptr<features::collection::ItemOrders> item_orders;
     std::shared_ptr<const game::InventorySource> inventory;
     std::optional<features::collection::Plan> configuration;
+    std::shared_ptr<features::collection::AntPassBudget> ant_passes{std::make_shared<features::collection::AntPassBudget>()};
 };
 struct CombatServices {
     features::combat::Plan plan;
@@ -62,7 +63,7 @@ struct NativeModules {
     CollectionServices collection;
     CombatServices combat;
     std::shared_ptr<features::boosting::Controller> boosting{std::make_shared<features::boosting::Controller>()};
-    std::shared_ptr<const game::DetectionSource> field_boosts;
+    std::shared_ptr<const game::DetectionSource> field_boosts,buffs;
     std::vector<features::gathering::PatternPreset> patterns{features::gathering::default_pattern_controls().presets};
     std::shared_ptr<const game::DetectionSource> blooms;
     std::shared_ptr<const game::ScreenReferenceSource> screen_reference;

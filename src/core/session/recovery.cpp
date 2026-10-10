@@ -1,6 +1,13 @@
 #include "session.hpp"
+#include <utility>
 
 namespace hive {
+void Session::configure_rejoin_schedule(int hours,int minute) {
+    std::lock_guard lock(mutex_);
+    const auto state=runtime_.status().state;
+    if (state==RunState::running || state==RunState::paused) throw std::logic_error("Stop before changing the reconnect schedule");
+    rejoin_schedule_.configure(hours,minute,wall_time());
+}
 void Session::configure_server_requests(std::shared_ptr<const game::RequestSource> requests) {
     std::lock_guard lock(mutex_); server_requests_=std::move(requests); requested_server_.reset(); next_server_read_={};
 }
@@ -17,8 +24,10 @@ bool Session::requested_rejoin(Time now) {
     if (!rejoin_target_ || !connection_replacement_ || !desktop_.client_lifecycle_available()
         || !feature_grant_.capabilities.contains(Capability::pointer)) return false;
     const bool refreshed=read_server_request(now);
-    const bool pending=requested_server_ && requested_server_->expires>now && requested_server_->key!=joined_server_;
-    if (pending && refreshed && requested_server_->interrupt && feature_ && !feature_->waiting_for_game_view()) feature_->request_yield();
+    const bool scheduled=continue_features_ && rejoin_schedule_.due(wall_time());
+    const bool server_change=requested_server_ && requested_server_->expires>now && requested_server_->key!=joined_server_;
+    const bool pending=server_change || scheduled;
+    if (pending && (scheduled || (refreshed && requested_server_->interrupt)) && feature_ && !feature_->waiting_for_game_view()) feature_->request_yield();
     return pending;
 }
 
@@ -47,7 +56,8 @@ bool Session::begin_client_rejoin(Time now,bool requested) {
     if (!feature_->prepare_client_rejoin(now)) return false;
     observer_.stop(); runtime_.stop("Preparing Roblox rejoin");
     if (runtime_.status().state==RunState::faulted) throw std::runtime_error("Could not release input before relaunching Roblox");
-    if (requested_server_ && requested_server_->expires>now) joined_server_=requested_server_->key;
+    joining_server_=requested_server_ && requested_server_->expires>now?requested_server_->key:std::string{};
+    rejoin_schedule_.arm(wall_time());
     const RejoinLimits limits;
     client_rejoin_.emplace(*target,active_window_,desktop_.client_processes(),now,limits);
     runtime_.start(active_window_,now,CompletionMode::managed);
@@ -92,6 +102,7 @@ void Session::adopt_window(const Window& window,Time now) {
     runtime_.start(window,now,CompletionMode::managed);
     feature_->replace_window({window,tasks_.generation(),now},*feature_scope_);
     active_window_=window; window_id_=active_window_.id;
+    if (client_rejoin_) joined_server_=std::exchange(joining_server_,{});
     window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset();
     if (feature_->progress().state!=automation::State::running) { runtime_.stop(feature_->progress().message); return; }
     observer_.watch({active_window_,tasks_.generation(),now},feature_->observes_game(),bool(connection_reconnect_));

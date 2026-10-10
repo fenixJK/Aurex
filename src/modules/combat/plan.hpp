@@ -50,18 +50,23 @@ struct MondoOptions {
     int seconds{120};
     LootDirection direction{LootDirection::random};
     int loot_seconds{45};
+    int lead_seconds{};
 };
 struct SnailOptions {
     int health{30000000};
     bool until_defeated{},keep_old{true};
 };
-struct CommandoOptions { int level{3}; bool until_defeated{}; };
+struct CommandoOptions { int level{3}; bool until_defeated{}; int health{}; };
 struct BeetleOptions { bool keep_old{true}; };
+struct HuntOptions { SettingSelection fields; bool daily_only{}; };
 int commando_health(int level);
+std::unique_ptr<automation::Program> wait_for_buff(std::string location,std::string buff,std::shared_ptr<const game::DetectionSource> source,double speed,std::vector<workflows::CheckpointPlan> entry={});
+std::unique_ptr<automation::Program> wait_for_spawn(std::string location,Time deadline,std::function<Time()> clock,double speed);
 struct EnemyOptions {
     bool collect_loot{true};
     Time fight_limit{};
-    std::variant<std::monostate,MondoOptions,SnailOptions,CommandoOptions,BeetleOptions> boss;
+    std::variant<std::monostate,MondoOptions,SnailOptions,CommandoOptions,BeetleOptions,HuntOptions> boss;
+    bool baby_love{};
 };
 struct Options {
     int respawn_reduction{};
@@ -76,6 +81,8 @@ struct Plan {
     Options options;
     movement::Source movement;
     automation::ProgramFactory recovery;
+    std::shared_ptr<const game::DetectionSource> buffs;
+    std::function<Time()> wall_clock=[] { return std::chrono::duration_cast<Time>(std::chrono::system_clock::now().time_since_epoch()); };
 };
 Plan catalog_plan();
 Plan walking_plan(const workflows::RouteCatalog& routes,double speed,std::shared_ptr<const game::DetectionSource> observations,

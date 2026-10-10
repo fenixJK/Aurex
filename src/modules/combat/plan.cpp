@@ -58,18 +58,36 @@ automation::VisitPlan visit_plan(Plan plan) {
     std::map<std::string,std::function<void(automation::Visit&,const movement::Recipes&)>> refreshers;
     for (auto& enemy : plan.enemies) {
         bool mirror_loot=false;
+        automation::ProgramFactory approach;
+        std::optional<Time> defeat_cooldown;
         if (enemy.cooldown<Time::zero() || enemy.cooldown>std::chrono::days(7))
             throw std::invalid_argument("Invalid enemy cooldown");
         if (enemy.respawn_reduction) enemy.cooldown=Time((enemy.cooldown.count()*(100-plan.options.respawn_reduction)+99)/100);
         if (const auto options=plan.options.enemies.find(enemy.id); options!=plan.options.enemies.end()) {
             if (!options->second.collect_loot) enemy.loot.clear();
+            if (options->second.baby_love) {
+                if (enemy.species!="King Beetle" && enemy.species!="Tunnel Bear") throw std::invalid_argument("Baby Love preparation is only available for King Beetle and Tunnel Bear");
+                if (!plan.buffs) throw std::invalid_argument("Baby Love preparation needs buff readings");
+                approach=[location=enemy.destination+".waiting",name=enemy.species,source=plan.buffs,speed=plan.config.speed,movement=plan.movement] {
+                    auto entry=movement::snapshot(movement)->path("bosses",{{"enemy",name},{"slot",1},{"stage",std::string("entry")}},speed);
+                    return wait_for_buff(location,"Baby Love",source,speed,std::move(entry));
+                };
+            }
             if (options->second.fight_limit>Time{}) enemy.fight.duration=options->second.fight_limit;
             if (const auto* mondo=std::get_if<MondoOptions>(&options->second.boss)) {
-                if (enemy.species!="Mondo Chick" || mondo->seconds<5 || mondo->seconds>900
+                if (enemy.species!="Mondo Chick" || mondo->seconds<5 || mondo->seconds>900 || mondo->lead_seconds<0 || mondo->lead_seconds>300
                     || mondo->loot_seconds<1 || mondo->loot_seconds>120
                     || (mondo->mode!=MondoMode::kill && mondo->mode!=MondoMode::buff)
                     || (mondo->direction!=LootDirection::left && mondo->direction!=LootDirection::right && mondo->direction!=LootDirection::random))
                     throw std::invalid_argument("Invalid Mondo preferences");
+                if (mondo->lead_seconds) {
+                    const auto clock=plan.wall_clock; const auto lead=Time(mondo->lead_seconds*1000);
+                    enemy.scheduled=[clock,lead](const ObservationContext&) { const auto phase=clock()%std::chrono::hours(1); return phase<std::chrono::minutes(15) || phase>=std::chrono::hours(1)-lead; };
+                    approach=[clock,speed=plan.config.speed] {
+                        const auto now=clock(),phase=now%std::chrono::hours(1);
+                        return wait_for_spawn("mountaintop.entry",phase>=std::chrono::minutes(15)?now+std::chrono::hours(1)-phase:now,clock,speed);
+                    };
+                }
                 if (mondo->mode==MondoMode::buff) {
                     enemy.session_limit=Time(mondo->seconds*1000); enemy.loot.clear();
                     enemy.fight.duration=std::max(enemy.fight.duration,enemy.session_limit+Time(15000));
@@ -86,10 +104,22 @@ automation::VisitPlan visit_plan(Plan plan) {
                 }
             } else if (const auto* commando=std::get_if<CommandoOptions>(&options->second.boss)) {
                 if (enemy.species!="Commando Chick") throw std::invalid_argument("Commando preferences need Commando Chick");
+                if (commando->health<0 || commando->health>commando_health(25)) throw std::invalid_argument("Invalid Commando starting health");
                 enemy.maximum_health=commando_health(commando->level);
+                enemy.initial_health=commando->health?std::min(commando->health,enemy.maximum_health):enemy.maximum_health;
                 enemy.session_limit=commando->until_defeated?Time(std::chrono::hours(6)):enemy.fight.duration;
                 enemy.revisit=[continuous=commando->until_defeated] { return continuous?Time(1):Time(std::chrono::minutes(30)); };
                 enemy.fight.duration=enemy.session_limit+Time(15000);
+            } else if (const auto* hunt=std::get_if<HuntOptions>(&options->second.boss)) {
+                if (enemy.hunt_fields.empty()) throw std::invalid_argument("Hunt preferences need a hunting target");
+                std::vector<std::string> selected; std::set<std::string> seen;
+                for (const auto& field:hunt->fields) {
+                    if (!seen.insert(field).second) throw std::invalid_argument("Duplicate hunt field");
+                    if (std::find(enemy.hunt_fields.begin(),enemy.hunt_fields.end(),field)!=enemy.hunt_fields.end()) selected.push_back(field);
+                }
+                if (selected.empty()) throw std::invalid_argument("Select a reachable Vicious search field");
+                enemy.hunt_fields=std::move(selected);
+                if (hunt->daily_only) defeat_cooldown=std::chrono::hours(22);
             } else if (const auto* beetle=std::get_if<BeetleOptions>(&options->second.boss)) {
                 if (enemy.species!="King Beetle") throw std::invalid_argument("Beetle preferences need King Beetle");
                 enemy.keep_old=beetle->keep_old;
@@ -121,8 +151,9 @@ automation::VisitPlan visit_plan(Plan plan) {
             if (!enemy.hunt_fields.empty()) return hunt(enemy,speed,prepare,home,movement);
             return encounter(enemy,speed,entered);
         }}:std::function<std::unique_ptr<automation::Program>(Time)>{};
-        visits.visits.push_back({std::move(enemy.id),std::move(enemy.destination),std::move(enemy.fight),std::move(enemy.loot),enemy.cooldown,enemy.inspect_when_unknown,std::move(enemy.departure),std::move(enemy.approach_scope),std::move(enemy.approach_location),std::move(enemy.group)});
+        visits.visits.push_back({std::move(enemy.id),std::move(enemy.destination),std::move(enemy.fight),std::move(enemy.loot),defeat_cooldown.value_or(enemy.cooldown),enemy.inspect_when_unknown,std::move(enemy.departure),std::move(enemy.approach_scope),std::move(enemy.approach_location),std::move(enemy.group)});
         visits.visits.back().action_program=observed;
+        visits.visits.back().approach=std::move(approach);
         visits.visits.back().working_status="Fighting";
         visits.visits.back().scheduled=std::move(enemy.scheduled);
         visits.visits.back().loot_duration=enemy.loot_duration;

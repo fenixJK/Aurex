@@ -50,6 +50,9 @@ RequestContracts game_request_contracts() {
                 || !request_identifier(std::get<std::string>(station->second))) throw std::invalid_argument("Invalid station request data");
         }}};
 }
+std::string server_request_key(const std::string& owner,const std::string& id,const std::string& epoch,const std::string& target) {
+    return owner+"/"+id+"/"+epoch+"/"+target;
+}
 std::optional<ServerGoal> server_goal(const RequestInbox& inbox,Time now,std::uint64_t generation) {
     const auto found=inbox.find("servers"); if (found==inbox.end()) return {};
     const RequestMessage* best=nullptr;
@@ -58,7 +61,7 @@ std::optional<ServerGoal> server_goal(const RequestInbox& inbox,Time now,std::ui
             && std::tie(request.owner,request.id)<std::tie(best->owner,best->id)))) best=&request;
     if (!best) return {};
     auto target=JoinTarget::from_uri(std::get<std::string>(best->data.at("target")));
-    auto key=best->owner+"/"+best->id+"/"+std::get<std::string>(best->data.at("epoch"))+"/"+target.uri();
+    auto key=server_request_key(best->owner,best->id,std::get<std::string>(best->data.at("epoch")),target.uri());
     return ServerGoal{std::move(target),std::move(key),best->expires,!best->data.contains("interrupt") || std::get<bool>(best->data.at("interrupt"))};
 }
 RequestBatch channel_batch(const Requests& requests) {

@@ -23,8 +23,8 @@ void Controller::configure(Preferences preferences) {
 void Controller::stop() {
     std::lock_guard lock(mutex_); enabled_=false; running_=false;
 }
-void Controller::update(const extensions::SessionView& view,const std::optional<game::DetectionResult>& reading) {
-    std::lock_guard lock(mutex_);
+void Controller::update(const extensions::SessionView& view,const std::optional<game::DetectionResult>& reading,std::optional<Time> blue_remaining) {
+    std::lock_guard lock(mutex_); blue_remaining_=blue_remaining;
     if (view.session_id && view.session_id!=session_) {
         session_=view.session_id; used_at_={}; uses_={}; visits_={}; visit_=0; next_item_={}; attempted_.clear();
         dice_used_=glitter_used_=0; ages_.clear(); boosted_.clear(); active_.clear(); completed_.clear(); readable_=false;
@@ -79,6 +79,11 @@ unsigned Controller::take_boost(const automation::HotbarContext& context) {
     }
     const bool allowed=boost.dice_slot?context.field==boost.field:
         std::find(preferences_.fields.begin(),preferences_.fields.end(),context.field)!=preferences_.fields.end();
+    if (preferences_.pre_glitter && boost.glitter_slot && glitter_used_<boost.glitter_limit && allowed
+        && !boosted_.contains(context.field) && blue_remaining_ && *blue_remaining_>=std::chrono::minutes(10)
+        && *blue_remaining_<=std::chrono::minutes(11) && (!last_glitter_ || now-*last_glitter_>=std::chrono::seconds(905))) {
+        last_glitter_=now; ++glitter_used_; return boost.glitter_slot;
+    }
     if (boost.glitter_slot && glitter_used_<boost.glitter_limit && allowed && boosted_.contains(context.field)
         && (!last_glitter_ || now-*last_glitter_>=std::chrono::seconds(905))) {
         auto& age=ages_.at(context.field);
@@ -127,6 +132,12 @@ std::optional<std::string> Controller::next_booster(Time now,const std::vector<B
     for (const auto& booster:boosters) if (requested.contains(booster.name) && booster.visit && booster.remaining && booster.remaining()==Time{}) {
         const auto attempted=attempted_.find(booster.name);
         if (attempted==attempted_.end() || now-attempted->second>=std::chrono::minutes(5)) return booster.name;
+    }
+    if (preferences_.force_blue && std::find(preferences_.boosters.begin(),preferences_.boosters.end(),"Blue Field Booster")!=preferences_.boosters.end()) {
+        const auto blue=std::find_if(boosters.begin(),boosters.end(),[](const auto& booster) { return booster.name=="Blue Field Booster"; });
+        const auto tried=attempted_.find("Blue Field Booster");
+        if (blue!=boosters.end() && blue->visit && blue->remaining && blue->remaining()==Time{}
+            && (tried==attempted_.end() || now-tried->second>=std::chrono::minutes(5))) return blue->name;
     }
     if (!fresh(now) || (!active_.empty() && boosted_.contains(active_))) return {};
     for (const auto& name:preferences_.boosters) {

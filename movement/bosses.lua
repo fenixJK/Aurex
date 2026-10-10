@@ -6,6 +6,8 @@ return function(p)
         local path=fields({slot=p.slot,field="blueflower"})
         path[#path+1]=walk({{35,"right","forward"},{28,"forward"}})
         path[#path+1]=turn("rotate_right",2)
+        if p.stage=="waiting" then return path end
+        if p.stage=="entry" then path={} end
         local ledge=h.motion(); ledge:walk(5,{"right"}); ledge:hold({"jump"},200); ledge:walk(3,{"right"}); ledge:walk(5,{"right","forward"})
         path[#path+1]=ledge:finish(); return path
     end
@@ -18,6 +20,8 @@ return function(p)
         path[#path+1]=walk({{37,"forward"},{10,"forward","left"},{5,"backward"},{15,"right"},{10,"backward"}})
         local drop=h.motion(); drop:hold({},1500); path[#path+1]=drop:finish()
         path[#path+1]=turn("rotate_right",2)
+        if p.stage=="waiting" then return path end
+        if p.stage=="entry" then path={} end
         path[#path+1]=walk({{42,"backward"},{3.85,"left"}})
         return path
     end

@@ -156,6 +156,7 @@ class VisitProgram final : public Program {
                 for (auto i=group_begin_;i<group_end_;++i) evidence_[i]={};
                 departed_=view.context.now;
                 travelled_=true; phase_=Phase::arriving; stage(VisitStage::travelling);
+                if (plan_.visits[index_].approach) return emit(RunProgram{plan_.visits[index_].approach});
                 return emit(Navigate{plan_.visits[index_].destination});
             }
             ++index_;

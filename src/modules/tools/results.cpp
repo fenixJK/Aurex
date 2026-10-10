@@ -150,7 +150,7 @@ Observation<JellyResult> read_jelly(const ObservationContext& c,const game::Stat
     for (const auto& line:text.lines) if (usable(line) && in(line.pixels,area)) {
         const auto label=words(line.text);
         if (label=="use another royal jelly") { if (button) return result; button=&line; }
-        if (label.starts_with("transformed") || label.find(" transformed into")!=std::string::npos) { if (heading) return result; heading=&line; }
+        if (label.starts_with("transformed") || label.find(" transformed into")!=std::string::npos || label.starts_with("you hatched")) { if (heading) return result; heading=&line; }
     }
     if (!heading && !button) { result.knowledge=Knowledge::absent; return result; }
     if (!heading || (button && button->pixels.y<=heading->pixels.y)) return result;
@@ -162,10 +162,10 @@ Observation<JellyResult> read_jelly(const ObservationContext& c,const game::Stat
         bool gifted=label.starts_with("gifted "); if (gifted) label.erase(0,7);
         if (label.ends_with(" bee")) label.resize(label.size()-4);
         const auto name=std::find_if(bees().begin(),bees().end(),[&](const auto& bee) { return words(bee)==label; });
-        if (name!=bees().end()) {
+        if (name!=bees().end() || label=="basic") {
             if (!result.value.bee.name.empty()) return result;
-            result.value.bee.name=*name; result.value.bee.gifted=gifted;
-            result.value.bee.mythic=name>=bees().end()-6;
+            result.value.bee.name=name==bees().end()?"Basic":*name; result.value.bee.gifted=gifted;
+            result.value.bee.mythic=name!=bees().end() && name>=bees().end()-6;
         }
 
     }

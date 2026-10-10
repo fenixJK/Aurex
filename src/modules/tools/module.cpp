@@ -36,10 +36,16 @@ public:
             jelly.target_prompt="Click the bee to reroll. It will receive Neonberries and Royal Jelly. Escape cancels.";
         return {std::move(jelly),
             {"bitter","Select bee and feed",{},false,true,"Bitterberries","Click the bee you want to mutate. Escape cancels without feeding."},
-            {"ssa","Roll SSA",{},false,true,"SSA Roller"}};
+            {"ssa","Roll SSA",{},false,true,"SSA Roller"},
+            {"hatch-basic","Select bee and hatch",{},false,true,"Basic Bee","Select the bee to replace with Basic Eggs. Each non-gifted Basic Bee uses one Royal Jelly before the next egg. Escape cancels."}};
     }
     std::unique_ptr<automation::Program> command_program(const std::string& command) const override { return command_program(command,{}); }
     std::unique_ptr<automation::Program> command_program(const std::string& command,const extensions::CommandInput& input) const override {
+        if (command=="hatch-basic") {
+            if (!input.target || !inventory_) throw std::invalid_argument("Select a bee with inventory available");
+            return hatch_basic({*input.target,inventory_,unsigned(std::get<int>(settings_.at("egg-limit"))),
+                std::get<bool>(settings_.at("egg-keep-gifted")),std::get<bool>(settings_.at("egg-keep-mythic")),std::get<bool>(settings_.at("egg-start-jelly"))},progress_);
+        }
         if (command=="ssa") {
             SsaPlan plan;
             plan.filter.main=std::get<std::string>(settings_.at("ssa-main"));
@@ -89,7 +95,8 @@ extensions::Manifest module_manifest() {
     m.settings_version=3;
     m.description="Start individual bee and amulet tools here. Tools are not part of the farming rotation.";
     m.permissions={automation::Permission::interact};
-    m.settings={{"bees","Bees to keep",SettingSelection{},0,0,bees()},
+    m.settings={{"egg-limit","Egg limit",100,1,1000000},{"egg-start-jelly","Starting bee is Basic",false},{"egg-keep-gifted","Keep any gifted",true},{"egg-keep-mythic","Keep any mythic",true},
+        {"bees","Bees to keep",SettingSelection{},0,0,bees()},
         {"gifted","Any gifted",true},{"mythic","Any mythic",true},
         {"jelly-mutations","Mutation rolling",false},
         {"jelly-neon","Automatic Neonberries",false},{"jelly-neon-limit","Neonberry limit",1,1,1000},
@@ -155,6 +162,8 @@ extensions::Manifest module_manifest() {
     section("ssa-required","Stats to keep",{"ssa-required-stats"},"SSA Roller",1,"Choose up to five stats. Set minimums below only if you need specific values.");
     section("ssa-stats","Advanced · stat minimums",keys,"SSA Roller",3); sections.back().collapsed=true;
     section("ssa-run","Limits",{"ssa-limit"},"SSA Roller",2);
+    section("basic-bee","Gifted Basic Bee",{"egg-limit","egg-start-jelly","egg-keep-gifted","egg-keep-mythic"},"Basic Bee",2,
+        "Uses Basic Eggs on the selected bee. Select Starting bee is Basic to use Royal Jelly first. Non-gifted Basic results also use one Royal Jelly before the next egg. Stops on Gifted Basic or your chosen rare results. Keep in-game Auto-Jelly off.");
     sections.push_back({"progress","Last result",{},{},true,2});
     sections.back().collapsed=true;
     return m;

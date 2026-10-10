@@ -24,6 +24,7 @@ struct JellyPlan {
     std::optional<WindowPoint> target;
     std::shared_ptr<const game::InventorySource> inventory;
 };
+struct HatchPlan { WindowPoint target; std::shared_ptr<const game::InventorySource> inventory; unsigned eggs{100}; bool keep_gifted{true},keep_mythic{true},start_with_jelly{}; };
 struct BitterPlan {
     WindowPoint target;
     std::shared_ptr<const game::InventorySource> inventory;
@@ -31,6 +32,7 @@ struct BitterPlan {
     unsigned batch{30},limit{1000},neon_limit{1};
     bool neon{};
 };
+std::unique_ptr<automation::Program> hatch_basic(HatchPlan plan,std::shared_ptr<RollProgress> progress);
 std::unique_ptr<automation::Program> roll_ssa(SsaPlan plan,std::shared_ptr<RollProgress> progress);
 std::unique_ptr<automation::Program> roll_jelly(JellyPlan plan,std::shared_ptr<RollProgress> progress);
 std::unique_ptr<automation::Program> roll_mutations(BitterPlan plan,std::shared_ptr<RollProgress> progress);

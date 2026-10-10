@@ -24,6 +24,7 @@ struct DiscordSettings {
     int report_minutes{default_report_minutes};
     QString webhook,mention,report_channel;
     QStringList buff_ids;
+    ReportAppearance appearance;
     bool operator==(const DiscordSettings&) const = default;
 };
 QString validate(const DiscordSettings& settings,bool webhook_required=true);

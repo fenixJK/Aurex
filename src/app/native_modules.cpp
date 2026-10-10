@@ -101,6 +101,7 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
     modules.collection.plan=features::collection::routed_plan(*routes,*speed,return_to_hive,modules.collection.memory,modules.collection.daylight,modules.collection.item_menus);
     modules.collection.plan.inventory=modules.collection.inventory;
     modules.collection.plan.items.orders=modules.collection.item_orders;
+    modules.collection.plan.items.ant_passes=modules.collection.ant_passes;
     modules.collection.plan.items.movement=modules.movement;
     features::collection::configure_items(modules.collection.plan);
     modules.collection.plan.setup=service.plan.hive_setup;
@@ -110,6 +111,7 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
         modules.quests.inventory,modules.quests.hive_view,hive.reference,modules.blooms,modules.movement,modules.collection.cooldowns,
         [plan=modules.collection.plan,network=std::make_shared<game::RouteNetwork>(routes->network()),
             source=modules.collection.availability,saved=modules.collection.cooldowns](const std::string& id) {
+            if (id=="Ant Pass Dispenser") return network->contains("station.ant-pass-paid")?features::collection::ant_pass_purchase(plan.items.ant_passes,plan.setup,plan.recovery,plan.inventory,plan.config.speed):automation::ProgramFactory{};
             return features::visits::station_request(features::collection::visit_plan(plan),id,network,source,saved);
         },modules.quests.browser);
     modules.combat.plan={}; modules.combat.availability.reset();
@@ -117,6 +119,7 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
         modules.combat.plan=features::combat::walking_plan(*routes,*speed,enemies,return_to_hive,returns,modules.collection.daylight);
         modules.combat.plan.setup=service.plan.hive_setup;
         modules.combat.plan.recovery=return_to_hive;
+        modules.combat.plan.buffs=modules.buffs;
         if (!modules.combat.plan.enemies.empty()) modules.combat.availability=features::combat::availability_for(modules.combat.plan,game::enemy_source(enemies));
     }
     modules.navigation.routes=std::move(routes); modules.gathering=std::move(service);

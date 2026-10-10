@@ -90,7 +90,7 @@ struct InspectInventoryItem {
 struct Navigate { std::string destination; std::optional<InspectInventoryItem> inventory_search; };
 class Program;
 using ProgramFactory=std::function<std::unique_ptr<Program>()>;
-struct RunProgram { ProgramFactory create; };
+struct RunProgram { ProgramFactory create; bool return_result{}; };
 struct FollowPath { workflows::CheckpointPlan movement; };
 struct ApproachLandmark { workflows::CheckpointPlan movement; std::shared_ptr<const game::LandmarkSource> source; };
 struct ApproachPrompt { workflows::CheckpointPlan movement; game::PromptLandmark prompt; };

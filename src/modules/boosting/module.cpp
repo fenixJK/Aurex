@@ -25,6 +25,7 @@ public:
         extensions::validate_settings(manifest_,settings);
         Preferences preferences;
         preferences.follow=std::get<bool>(settings.at("follow")); preferences.interrupt=std::get<bool>(settings.at("interrupt-gather"));
+        preferences.force_blue=std::get<bool>(settings.at("blue-when-ready")); preferences.pre_glitter=std::get<bool>(settings.at("pre-glitter"));
         preferences.fields=std::get<SettingSelection>(settings.at("fields")); preferences.boosters=std::get<SettingSelection>(settings.at("boosters"));
         std::erase_if(preferences.fields,[&](const auto& field) { return std::find(fields_.begin(),fields_.end(),field)==fields_.end(); });
         for (unsigned i=0;i<7;++i) {
@@ -49,7 +50,10 @@ public:
         if (const auto requests=view.requests.find(extensions::RequestService::stations); requests!=view.requests.end())
             for (const auto& request:requests->second) if (request.generation==view.generation && request.expires>view.now)
                 requested_.insert(std::get<std::string>(request.data.at("station")));
-        controller_->update(view,view.status.state==RunState::running && controller_->needs_reading()?source_->read():std::nullopt);
+        std::optional<Time> blue_remaining;
+        if (preferences_.pre_glitter && std::find(preferences_.boosters.begin(),preferences_.boosters.end(),"Blue Field Booster")!=preferences_.boosters.end())
+            for (const auto& booster:boosters_) if (booster.name=="Blue Field Booster" && booster.remaining) blue_remaining=booster.remaining();
+        controller_->update(view,view.status.state==RunState::running && controller_->needs_reading()?source_->read():std::nullopt,blue_remaining);
     }
     void stop() noexcept override { if (connected_) controller_->stop(); connected_=false; }
     std::vector<extensions::Metric> metrics() const override { return controller_->metrics(); }
@@ -79,10 +83,14 @@ extensions::Manifest module_manifest() {
     for (const auto& field:game::fields()) fields.push_back(field.name);
     manifest.settings={{"follow","Follow boosts",true},{"interrupt-gather","Gather interrupt",true},
         {"fields","Fields",SettingSelection(fields),0,0,fields,true},{"boosters","Boosters",SettingSelection{},0,0,stations,true}};
+    manifest.settings.push_back({"blue-when-ready","Blue Booster when ready",false});
+    manifest.settings.back().help="Use the selected Blue Booster even while another boost is active. Gather interrupt still controls whether gathering can be interrupted.";
+    manifest.settings.push_back({"pre-glitter","Pre-glitter",false});
+    manifest.settings.back().help="On an unboosted selected field, use glitter 10 minutes before the selected Blue Booster is ready. Uses the same glitter slot and session limit.";
     manifest.page=extensions::PageLayout{{},true}; auto& sections=manifest.page->sections;
     sections.push_back({"follow","Boosts","Gather in boosted fields using their Gathering settings.",{"follow","interrupt-gather"},false,2}); sections.back().tab="Boosts";
     sections.push_back({"fields","Fields",{},{"fields"},false,1}); sections.back().tab="Boosts";
-    sections.push_back({"boosters","Boosters",{},{"boosters"},false,1}); sections.back().tab="Boosts";
+    sections.push_back({"boosters","Boosters",{},{"boosters","blue-when-ready"},false,1}); sections.back().tab="Boosts";
     for (auto& setting:manifest.settings) {
         if (setting.id=="fields" || setting.id=="boosters") { setting.inline_choices=true; }
         if (setting.id=="fields") setting.enabled_by="follow";
@@ -99,7 +107,7 @@ extensions::Manifest module_manifest() {
     manifest.settings.push_back({"glitter-limit","Use limit",1,1,1000}); manifest.settings.back().help="Maximum glitter presses per macro session.";
     manifest.settings.push_back({"glitter-after","Extend after",13,10,14}); manifest.settings.back().suffix=" min";
     sections.push_back({"dice","Dice",{},{"boost-field","dice-slot","dice-limit","dice-interval"},false,2}); sections.back().tab="Dice & glitter";
-    sections.push_back({"glitter","Glitter",{},{"glitter-slot","glitter-limit","glitter-after"},false,2}); sections.back().tab="Dice & glitter";
+    sections.push_back({"glitter","Glitter",{},{"glitter-slot","glitter-limit","glitter-after","pre-glitter"},false,2}); sections.back().tab="Dice & glitter";
     sections.push_back({"hotbar-help","Hotbar","Use items from the game hotbar. Limits count presses per session; 0 is unlimited.",{},false,1}); sections.back().tab="Hotbar";
     for (unsigned slot=1;slot<=7;++slot) {
         const auto prefix="slot-"+std::to_string(slot)+"-";

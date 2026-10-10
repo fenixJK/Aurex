@@ -36,6 +36,13 @@ struct HoneyReport {
     QList<Sample> rates;
     qint64 observed_ms{},baseline_delay{};
 };
+enum class ReportTheme { forest,midnight,graphite };
+struct ReportAppearance {
+    ReportTheme theme{ReportTheme::forest};
+    int chart_height{100};
+    bool activity{true},nectar{true},modules{true},totals{true};
+    bool operator==(const ReportAppearance&) const = default;
+};
 struct Report {
     Snapshot snapshot;
     QDateTime created{QDateTime::currentDateTime()};
@@ -47,6 +54,7 @@ struct Report {
     QList<GaugeHistory> nectar,buffs;
     QMap<QString,QList<CounterResult>> counts;
     qint64 window_age_ms{};
+    ReportAppearance appearance;
 };
 QString redact(QString text);
 QString duration(qint64 milliseconds);

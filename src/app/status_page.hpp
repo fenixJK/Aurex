@@ -24,6 +24,7 @@ private:
     QPointer<reporting::Discord> discord_;
     QPlainTextEdit* log_;
     QStringList buff_ids_;
+    reporting::ReportAppearance appearance_;
     ActivityStatus activity_;
     QString log_path_;
     QLineEdit* discord_user_{};

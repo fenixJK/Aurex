@@ -13,6 +13,7 @@ JoinTarget::JoinTarget(const std::string& link) {
     else throw std::invalid_argument("Enter a Roblox private-server link, or leave it blank for a public server");
 }
 JoinTarget JoinTarget::from_uri(const std::string& uri) {
+    if (uri==JoinTarget{}.uri()) return JoinTarget{};
     static const std::regex allowed(R"(^roblox://(?:placeId=1537690962&linkCode=[A-Za-z0-9_-]{32}|navigation/share_links\?code=[A-Za-z0-9_-]{32}&type=Server|userId=[1-9][0-9]{0,15})$)");
     if (uri.size()>128 || !std::regex_match(uri,allowed)) throw std::invalid_argument("Invalid shared server target");
     JoinTarget result; result.uri_=uri; return result;

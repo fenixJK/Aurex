@@ -85,6 +85,51 @@ public:
         return waiting(view,"Waiting for the SSA result");
     }
 };
+class Hatcher final : public Rolling {
+    HatchPlan plan_;
+    std::shared_ptr<const game::InventorySource> inventory_;
+    enum class Stage { drag,confirm,result } stage_{Stage::drag};
+    bool jelly_{};
+    std::optional<Bee> previous_;
+public:
+    Hatcher(HatchPlan plan,std::shared_ptr<RollProgress> progress):Rolling(std::move(progress)),plan_(std::move(plan)) {
+        if (!plan_.target.valid() || !plan_.inventory || !plan_.eggs || plan_.eggs>1000000)
+            throw std::invalid_argument("Select a bee and set a Basic Egg limit");
+        inventory_=inventory_target(plan_.inventory,plan_.target);
+        jelly_=plan_.start_with_jelly;
+    }
+    Step next(const View& view) override {
+        if (!plan_.target.belongs_to(view.context.window)) return finish("Game window changed; select the bee again");
+        if (stage_==Stage::drag) {
+            if (report_.attempts>=plan_.eggs) return finish("Basic Egg limit reached");
+            stage_=Stage::confirm;
+            return DragInventoryItem{{{jelly_?"Royal Jelly":"Basic Egg"},"hive.bee"},inventory_};
+        }
+        if (!fresh(view)) return waiting(view,"Reading bee result");
+        if (stage_==Stage::confirm) {
+            const auto dialog=game::read_dialog(view.context,view.observations->text,
+                {{jelly_?"royal jelly":"basic egg"},{.15,.15,.7,.7},.25f,game::PromptMatch::phrase});
+            if (!dialog.has_value(view.context,Time(2000),minimum_)) return waiting(view,"Waiting for egg confirmation");
+            if (!jelly_) ++report_.attempts;
+            stage_=Stage::result;
+            return click(view,dialog.value.yes,jelly_?"Replace Basic Bee with Royal Jelly":"Hatch Basic Egg");
+        }
+        const auto result=read_jelly(view.context,*view.observations);
+        if (result.knowledge==Knowledge::absent) previous_.reset();
+        if (!result.has_value(view.context,Time(2000),minimum_)) return waiting(view,"Waiting for hatched bee");
+        const auto& bee=result.value.bee;
+        if (previous_ && bee.name==previous_->name && bee.gifted==previous_->gifted) return waiting(view,"Waiting for the new bee");
+        report_.result=(bee.gifted?"Gifted ":"")+bee.name+" Bee"; publish();
+        if ((bee.name=="Basic" && bee.gifted) || (bee.gifted && plan_.keep_gifted) || (bee.mythic && plan_.keep_mythic))
+            return finish("Match found; bee left unchanged",true);
+        previous_=bee; jelly_=bee.name=="Basic"; stage_=Stage::drag;
+        return next(view);
+    }
+    void step_completed(const View& view) override {
+        if (stage_==Stage::confirm) { minimum_=view.context.now; frame_=minimum_; deadline_=minimum_+Time(8000); }
+        Rolling::step_completed(view);
+    }
+};
 class Jelly final : public Rolling {
     JellyPlan plan_;
     std::shared_ptr<const game::InventorySource> inventory_;
@@ -163,6 +208,7 @@ public:
     }
 };
 }
+std::unique_ptr<automation::Program> hatch_basic(HatchPlan plan,std::shared_ptr<RollProgress> progress) { return std::make_unique<Hatcher>(std::move(plan),std::move(progress)); }
 std::unique_ptr<automation::Program> roll_ssa(SsaPlan plan,std::shared_ptr<RollProgress> progress) { return std::make_unique<Ssa>(std::move(plan),std::move(progress)); }
 std::unique_ptr<automation::Program> roll_jelly(JellyPlan plan,std::shared_ptr<RollProgress> progress) { return std::make_unique<Jelly>(std::move(plan),std::move(progress)); }
 }

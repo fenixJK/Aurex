@@ -113,6 +113,8 @@ std::vector<PromptAnchor> interaction_anchors() {
     std::vector<PromptAnchor> result{{"hive.proximity",hive_proximity_prompt()},
         {"transport.red-cannon",PromptLandmark{{"Fire the Red Cannon","Fire Red Cannon","Red Cannon"},{.2,0,.6,.3},.5f,PromptMatch::exact,true}}};
     result.push_back({"challenge.ant",PromptLandmark{{"Spend 1 Ant Pass to enter the Ant Field."}}});
+    result.push_back({"station.ant-pass-paid",PromptLandmark{{"Spend 10 Tickets to Buy 1 Ant Pass","Purchase 1 Ant Pass for 10 Tickets",
+        "Buy an Ant Pass for 10 Tickets","Spend 10 Tickets for an Ant Pass"},{.2,0,.6,.3},.5f,PromptMatch::phrase,true}});
     for (const auto& npc : npcs()) result.push_back({npc.location(),npc.prompt()});
     for (const auto& station : stations()) {
         result.push_back({station.location,station_target(station.name),station_target(station.name,true)});

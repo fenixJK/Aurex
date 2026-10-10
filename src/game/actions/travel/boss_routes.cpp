@@ -10,6 +10,13 @@ std::shared_ptr<const workflows::RouteCatalog> boss_routes(double speed,std::sha
             Time timeout{1500}; for (const auto& part:path) timeout+=part.timeout;
             routes.push_back({{"hive-"+std::to_string(slot)+"-"+id,"hive.proximity","boss."+id,detail::estimate(path)+Time(1500),
                 {"hive.slot."+std::to_string(slot)},game::RouteArrival::estimated,{"hive.camera.prepared"},timeout},std::move(path)});
+            if (id=="king-beetle" || id=="tunnel-bear") {
+                auto waiting=recipes->path("bosses",{{"enemy",name},{"slot",int(slot)},{"stage",std::string("waiting")}},speed);
+                Time limit{1500}; for (const auto& part:waiting) limit+=part.timeout;
+                routes.push_back({{"hive-"+std::to_string(slot)+"-"+id+"-waiting","hive.proximity","boss."+id+".waiting",detail::estimate(waiting)+Time(1500),
+                    {"hive.slot."+std::to_string(slot)},game::RouteArrival::estimated,{"hive.camera.prepared"},limit},std::move(waiting)});
+
+            }
         }
     auto locations=detail::locations(routes);
     return std::make_shared<workflows::RouteCatalog>(std::move(locations),std::move(routes));
