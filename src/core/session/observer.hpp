@@ -1,6 +1,5 @@
 #pragma once
 #include "game/detection/perception.hpp"
-#include "game/detection/honey.hpp"
 #include "game/detection/detection.hpp"
 #include "game/movement/movement.hpp"
 #include <atomic>
@@ -19,7 +18,7 @@ public:
     std::map<std::string,std::shared_ptr<const DetectionSource>> configure(std::vector<DetectorConfig> detectors);
     void configure_speed(std::shared_ptr<const MovementSpeedSource> source);
     bool has_detectors() const;
-    void watch(const ObservationContext& context,bool hud=true);
+    void watch(const ObservationContext& context,bool hud=true,bool connection=false);
     void request_text(std::vector<Rect> regions);
     void stop();
     ObservedState latest(bool request_speed=true);
@@ -31,7 +30,6 @@ private:
     std::optional<ObservationContext> target_;
     ObservedState latest_;
     Reading<double> speed_observation_;
-    HoneyFilter honey_;
     std::shared_ptr<const MovementSpeedSource> speed_source_;
     std::atomic<std::uint64_t> revision_{};
     std::atomic<std::uint64_t> text_revision_{};
@@ -40,9 +38,9 @@ private:
     std::shared_ptr<const Frame> frame_;
     std::shared_ptr<const HudFeatures> frame_hud_;
     std::uint64_t frame_sequence_{};
-    bool hud_{true};
-    std::vector<Rect> text_regions_;
-    Time hud_next_{},ocr_next_{};
+    bool hud_{true},connection_{};
+    std::vector<Rect> text_regions_,connection_regions_;
+    Time ocr_next_{};
     std::string capture_error_;
     void clear_detections();
     bool exiting_{};

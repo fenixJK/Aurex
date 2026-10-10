@@ -51,7 +51,7 @@ class AtHive final : public RunGuard {
 public:
     explicit AtHive(std::shared_ptr<const game::LandmarkSource> source,bool allow_claim=false,std::shared_ptr<HiveSetupResult> claimed={})
         :source_(std::move(source)),allow_claim_(allow_claim),claimed_(std::move(claimed)) {}
-    bool needs_ocr() const noexcept override { return true; }
+    std::vector<Rect> text_regions() const override { return !ready_ && allow_claim_?std::vector<Rect>{game::hive_claim_prompt().region}:std::vector<Rect>{}; }
     GuardDecision evaluate(const View& view,Time) override {
         if (!ready_) {
             const auto reading=source_->read(view.context);

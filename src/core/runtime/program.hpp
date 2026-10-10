@@ -51,7 +51,7 @@ struct GuardDecision { GuardState state{GuardState::ready}; std::string message;
 class RunGuard {
 public:
     virtual ~RunGuard()=default;
-    virtual bool needs_ocr() const noexcept=0;
+    virtual std::vector<Rect> text_regions() const { return {}; }
     virtual GuardDecision evaluate(const View& view,Time started)=0;
 };
 struct Walk { game::WalkLeg leg; bool tool{}; };

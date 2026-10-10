@@ -17,6 +17,7 @@ public:
             game::station_target(name,true);
         }
     }
+    std::vector<Rect> text_regions(const std::string& id) const override { return {game::station_target(stations_.at(id)).region}; }
     Observation<bool> read(const std::string& id,const View& view) const override {
         const auto it=stations_.find(id);
         if (it==stations_.end() || !view.observations) return {};
@@ -225,6 +226,15 @@ public:
         }
     }
     RunConfig config() const override { return plan_.config; }
+    std::vector<Rect> text_regions() const override {
+        if (index_>=plan_.visits.size() || (phase_!=Phase::arriving && phase_!=Phase::action && phase_!=Phase::settling)) return {};
+        auto regions=arrived_?availability_->text_regions(plan_.visits[index_].id):std::vector<Rect>{};
+        for (std::size_t i=group_begin_;i<group_end_;++i) if (evidence_[i].scoped) {
+            if (const auto* pattern=std::get_if<Pattern>(&plan_.visits[i].action); pattern && pattern->until)
+                regions.push_back(pattern->until->region);
+        }
+        return regions;
+    }
     ActivityStatus activity_status() const override {
         if (index_>=plan_.visits.size()) return {};
         const auto& visit=plan_.visits[index_];

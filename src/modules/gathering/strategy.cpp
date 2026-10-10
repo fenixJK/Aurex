@@ -19,7 +19,6 @@ class PatternGuard final : public RunGuard {
 public:
     PatternGuard(RunConfig limits,std::shared_ptr<Control> control)
         :observations_(observation_guard(limits)),control_(std::move(control)),duration_(limits.duration) {}
-    bool needs_ocr() const noexcept override { return true; }
     GuardDecision evaluate(const View& view,Time started) override {
         const auto reading=observations_->evaluate(view,started);
         if (reading.state==GuardState::failed || reading.state==GuardState::waiting) return reading;

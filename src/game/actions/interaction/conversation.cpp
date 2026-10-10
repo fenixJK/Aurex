@@ -15,6 +15,7 @@ public:
         game::validate(prompt_); if (!source_) throw std::invalid_argument("Conversation needs observations");
     }
     RunConfig config() const override { return {Time(180000),28,{},true,true}; }
+    std::vector<Rect> text_regions() const override { return {prompt_.region}; }
     Step next(const View& view) override {
         const auto& c=view.context;
         if (!started_) { started_=true; minimum_=c.now; deadline_=c.now+Time(10000); }

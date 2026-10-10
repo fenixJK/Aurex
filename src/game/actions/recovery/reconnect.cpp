@@ -13,6 +13,7 @@ public:
         if (!source_) throw std::invalid_argument("Reconnect needs game-view observations");
     }
     RunConfig config() const override { return {Time(120000),28,{},true,true}; }
+    std::vector<Rect> text_regions() const override { return joining_?std::vector<Rect>{}:std::vector<Rect>{{.2,.2,.6,.65}}; }
     std::string activity_label() const override { return "Rejoining Bee Swarm"; }
     bool expects_respawn() const noexcept override { return true; }
     bool expects_reconnect() const noexcept override { return true; }

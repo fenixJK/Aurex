@@ -1,10 +1,7 @@
 #pragma once
 #include "perception.hpp"
+#include "detection.hpp"
 namespace hive::game {
-class HoneyFilter {
-    Reading<std::uint64_t> candidate_,confirmed_;
-public:
-    Reading<std::uint64_t> observe(const ObservationContext& context,Reading<std::uint64_t> reading);
-    void reset() { candidate_={}; confirmed_={}; }
-};
+struct HoneyDetection final : Detection { Reading<std::uint64_t> amount; };
+std::shared_ptr<const Detector> honey_detector();
 }

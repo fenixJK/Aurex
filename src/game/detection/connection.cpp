@@ -1,9 +1,35 @@
 #include "connection.hpp"
 #include "dialog.hpp"
 #include <cctype>
+#include <algorithm>
+#include <cmath>
 #include <set>
+#include <opencv2/imgproc.hpp>
 
 namespace hive::game {
+std::vector<Rect> connection_text_regions(const Frame& frame,bool in_game) {
+    if (!frame.valid()) return {};
+    if (!in_game) return {{0,0,1,1}};
+    const int step=std::max(1,frame.width/240),w=frame.width/step,h=frame.height/step;
+    cv::Mat neutral(h,w,CV_8UC1,cv::Scalar(0));
+    for (int y=h/6;y<h*9/10;++y) for (int x=w/10;x<w*9/10;++x) {
+        const auto i=(std::size_t(y*step)*frame.width+x*step)*4;
+        const auto lo=std::min({frame.rgba[i],frame.rgba[i+1],frame.rgba[i+2]});
+        const auto hi=std::max({frame.rgba[i],frame.rgba[i+1],frame.rgba[i+2]});
+        neutral.at<unsigned char>(y,x)=lo>=15 && hi-lo<=20?255:0;
+    }
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(neutral,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
+    for (const auto& contour:contours) {
+        const auto box=cv::boundingRect(contour);
+        if (box.width>=w*.2 && box.width<w*.79 && box.height>=h*.12 && box.height<h*.7
+            && box.width>box.height && std::abs(box.x+box.width*.5-w*.5)<w*.12
+            && box.y<h*.6 && box.y+box.height>h*.4 && cv::contourArea(contour)>=box.area()*.8)
+            return {{.1,.15,.8,.75}};
+    }
+    return {};
+}
+
 Reading<Connection> read_connection(const Frame& frame,const std::vector<TextLine>& lines,std::uint64_t generation) {
     Reading<Connection> result{Knowledge::unknown,{},frame.captured,frame.window,generation};
     if(!frame.valid()) return result;

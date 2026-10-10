@@ -73,7 +73,7 @@ Observation<DialogButtons> read_dialog(const Context& context,const Reading<Text
         throw std::invalid_argument("Invalid dialog button labels");
     Observation<DialogButtons> result{Knowledge::unknown,{},text.captured,text.window,text.generation};
     if (!text.has_value(context,Time(2000)) || text.value.width<=0 || text.value.height<=0
-        || text.value.lines.empty() || text.value.lines.size()>4096) return result;
+        || text.value.lines.size()>4096) return result;
     const double w=text.value.width,h=text.value.height;
     const auto& r=question.region;
     const Rect bounds{r.x*w,r.y*h,r.width*w,r.height*h};

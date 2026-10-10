@@ -115,7 +115,14 @@ public:
     }
     RunConfig config() const override { return {Time(240000),options_.speed,{},true,true}; }
     std::string activity_label() const override { return stage_==Stage::claim?"Claiming hive":""; }
-    std::vector<Rect> text_regions() const override { return child_?child_->text_regions():std::vector<Rect>{}; }
+    std::vector<Rect> text_regions() const override {
+        if (child_) {
+            auto regions=child_->text_regions();
+            if (child_guard_) { const auto requested=child_guard_->text_regions(); regions.insert(regions.end(),requested.begin(),requested.end()); }
+            return regions;
+        }
+        return stage_==Stage::locate || stage_==Stage::observe?std::vector<Rect>{game::hive_proximity_prompt().region}:std::vector<Rect>{};
+    }
     bool expects_respawn() const noexcept override { return child_ && child_->expects_respawn(); }
     ProgramFactory recovery(Interruption reason,const View&) override {
         if (reason!=Interruption::death || !options_.recovery) return {};

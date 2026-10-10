@@ -159,7 +159,7 @@ void Discord::update(RunState state,std::uint64_t session_id,const QString& reas
     if (settings_.enabled || history_requested_) {
         history_.observe(now,state==RunState::paused?"Paused":activity.isEmpty()?"Session setup":activity,active(state));
         if ((active(state) && now>=next_sample_) || (active(state_) && !active(state))) {
-            next_sample_=now+10000;
+            next_sample_=now+sample_interval_ms;
             try { if (snapshot_) history_.sample(now,snapshot_()); } catch (...) {}
         }
     }
@@ -248,7 +248,7 @@ void Discord::send_report() {
 Report Discord::preview_report() {
     const auto elapsed=active(state_) && session_clock_.isValid()?session_clock_.elapsed():elapsed_;
     auto snapshot=snapshot_?snapshot_():Snapshot{}; const auto now=clock_.elapsed();
-    if ((settings_.enabled || history_requested_) && active(state_) && now>=next_sample_) { history_.sample(now,snapshot); next_sample_=now+10000; }
+    if ((settings_.enabled || history_requested_) && active(state_) && now>=next_sample_) { history_.sample(now,snapshot); next_sample_=now+sample_interval_ms; }
     auto report=history_.report(std::move(snapshot),elapsed,qint64(settings_.report_minutes)*60000,now);
     report.buffs.removeIf([this](const auto& trace) {
         return !settings_.buff_ids.contains(trace.current.id.isEmpty()?trace.current.name:trace.current.id);

@@ -20,7 +20,11 @@ public:
     Challenge(ProgramFactory prepare,ProgramFactory home,double speed,movement::Source source,std::function<void(const ObservationContext&)> unavailable):unavailable_(std::move(unavailable)),prepare_(std::move(prepare)),home_(std::move(home)),speed_(speed),position_(movement::snapshot(source)->path("ant-position",{},speed).at(0)) {
         if (!prepare_ || !home_ || !std::isfinite(speed) || speed<8 || speed>200) throw std::invalid_argument("Ant Challenge needs hive preparation and return");
     }
-    std::vector<Rect> text_regions() const override { return {{.2,0,.6,.3},{.4,.6,.6,.4}}; }
+    std::vector<Rect> text_regions() const override {
+        if (phase_==4) return {start.region,{.4,.6,.6,.4}};
+        if (phase_==5 || phase_==6) return {score.region,amulet.region};
+        return {};
+    }
     RunConfig config() const override { return {std::chrono::minutes(12),speed_,{},true,true}; }
     void observe(const View& view) override {
         if (phase_!=4 || !view.observations) return;

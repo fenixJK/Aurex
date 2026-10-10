@@ -67,6 +67,7 @@ public:
             throw std::invalid_argument("Hive claim requires a speed from 8 to 200 and preferred slot from 0 to 6");
     }
     RunConfig config() const override { return {claim_?(can_scan()?Time(120000):Time(60000)):Time(15000),claim_?claim_->speed:28,{},bool(claim_),true}; }
+    std::vector<Rect> text_regions() const override { return stage_==Stage::check?std::vector<Rect>{game::hive_claim_prompt().region}:std::vector<Rect>{}; }
     Step next(const View& view) override {
         if (!started_) { if (claim_ && claim_->result) claim_->result->reset(); started_=true; }
         switch (stage_) {

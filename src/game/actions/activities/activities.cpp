@@ -5,9 +5,17 @@
 #include <algorithm>
 
 namespace hive::automation {
+bool Runner::observes_game() const {
+    return config_.observe || config_.backpack_limit
+        || (recovery_ && recovery_->observes_game()) || (child_ && child_->observes_game()) || (pattern_ && pattern_->observes_game());
+}
 std::vector<Rect> Runner::text_regions() const {
     if (recovery_) return recovery_->text_regions();
+    if (progress_.state!=State::running || awaiting_window_) return {};
     auto regions=program_->text_regions();
+    if (guard_) {
+        const auto requested=guard_->text_regions(); regions.insert(regions.end(),requested.begin(),requested.end());
+    }
     for (const auto* child:{child_.get(),pattern_.get()}) if (child) {
         const auto requested=child->text_regions(); regions.insert(regions.end(),requested.begin(),requested.end());
     }
@@ -19,7 +27,8 @@ std::vector<Rect> Runner::text_regions() const {
         else if constexpr (std::is_same_v<T,UseStation>) regions.push_back(game::station_target(step.name).region);
         else if constexpr (std::is_same_v<T,Pattern>) { if (step.until) regions.push_back(step.until->region); }
         else if constexpr (std::is_same_v<T,AnswerDialog>) { if (step.plan.read_question) regions.push_back(step.plan.question.region); }
-        else if constexpr (std::is_same_v<T,PlaceSprinkler>) regions.push_back({.45,.4,.55,.6});
+        else if constexpr (std::is_same_v<T,Convert>) regions.push_back(game::hive_proximity_prompt().region);
+        else if constexpr (std::is_same_v<T,PlaceSprinkler>) { if (step.plan.completion==workflows::SprinklerCompletion::attempted) regions.push_back({.45,.4,.55,.6}); }
     },*step_);
     return regions;
 }
@@ -30,7 +39,6 @@ class PatternGuard final : public RunGuard {
     std::function<bool()> yield_;
 public:
     explicit PatternGuard(RunConfig config,std::function<bool()> yield):observations_(observation_guard(config)),duration_(config.duration),yield_(std::move(yield)) {}
-    bool needs_ocr() const noexcept override { return true; }
     GuardDecision evaluate(const View& view,Time started) override {
         const auto decision=observations_->evaluate(view,started);
         if (decision.state!=GuardState::ready) return decision;
@@ -152,7 +160,6 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
             if (depth_>=8) throw std::invalid_argument("Workflow nesting exceeds eight levels");
             child_=std::make_unique<Runner>(operation->create(),permissions_,static_cast<TaskPort&>(*this),scope_,navigation_services_,depth_+1); child_->configure_conversion(hive_conversion_); child_->configure_statistics(recovery_counts_); child_->configure_reporting(activity_sink_);
             child_->parent_menu_=[this] { return movement_menu(); };
-            if (child_->needs_ocr() && !needs_ocr_) throw std::invalid_argument("Parent workflow must request observations for its child");
             child_->start(c);
             child_->progress_.route_position=std::move(progress_.route_position); progress_.route_position.reset();
         }
@@ -312,8 +319,6 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
             throw std::runtime_error("Sprinkler placement permissions were not granted");
         if (placement->plan.completion==workflows::SprinklerCompletion::observed && !placement->source)
             throw std::runtime_error("Sprinkler observations are not configured");
-        if (placement->plan.completion==workflows::SprinklerCompletion::attempted && !needs_ocr_)
-            throw std::runtime_error("Sprinkler feedback requires OCR observations");
         if (!sprinkler_) { sprinkler_.emplace(placement->plan); sprinkler_->start(c); }
         sprinkler_->update(c,s,placement->source?placement->source->read(c,s):Observation<game::SprinklerSite>{},tasks_,scope_); progress_.message=sprinkler_->reason();
         if (sprinkler_->stage()==workflows::SprinklerStage::completed) complete_step(c,s);
@@ -343,7 +348,6 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         else if (checkpoint_->stage()==workflows::CheckpointStage::failed) checkpoint_failed(c,s);
         return true;
     }
-    if (!std::holds_alternative<Navigate>(*step_) && !needs_ocr_) throw std::invalid_argument("This operation requires OCR observations");
     if (auto* wait=std::get_if<AwaitText>(&*step_)) {
         game::validate(wait->target);
         if (wait->timeout<Time(100) || wait->timeout>Time(60000)) throw std::invalid_argument("Invalid observation timeout");

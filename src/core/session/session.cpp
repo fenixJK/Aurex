@@ -61,7 +61,7 @@ Session::Session(Desktop& desktop): desktop_(desktop), observer_(desktop), runti
                         observer_.stop(); runtime_.stop("Updating startup window");
                         runtime_.start(snapshot.window,now,CompletionMode::managed);
                         active_window_=snapshot.window; window_id_=snapshot.window.id;
-                        observer_.watch({active_window_,tasks_.generation(),now},feature_->needs_ocr());
+                        observer_.watch({active_window_,tasks_.generation(),now},feature_->observes_game(),bool(connection_reconnect_));
                         startup_window_missing_=Time(-1); recovering=true;
                     }
                     else if (starting && !snapshot.window.id &&
@@ -83,6 +83,7 @@ Session::Session(Desktop& desktop): desktop_(desktop), observer_(desktop), runti
                         if (runtime_.status().state==RunState::running) {
                             feature_->update({snapshot.window,tasks_.generation(),monotonic_now()},observations);
                             runtime_.tick(monotonic_now(),snapshot);
+                            observer_.watch({snapshot.window,tasks_.generation(),monotonic_now()},feature_->observes_game(),bool(connection_reconnect_));
                             observer_.request_text(feature_->text_regions());
                             const auto progress=feature_->progress();
                             if (progress.state!=automation::State::running && !(continue_features_ && automation::can_handoff(progress))) { runtime_.stop(progress.message); observer_.stop(); }
@@ -288,7 +289,7 @@ void Session::launch_feature(Window window,automation::Launch launch,Time now) {
         feature_->start({window,tasks_.generation(),now});
         next_server_read_={};
         if (managed_ && requested_rejoin(now)) begin_client_rejoin(now,true);
-        if (!client_rejoin_ && (feature_->needs_ocr() || observer_.has_detectors())) observer_.watch({window,tasks_.generation(),now},feature_->needs_ocr());
+        if (!client_rejoin_) observer_.watch({window,tasks_.generation(),now},feature_->observes_game(),bool(connection_reconnect_));
     } catch (...) { clear_feature(); if (!continue_features_) runtime_.stop("Feature could not start"); throw; }
 }
 bool Session::yield_feature(const std::string& id) {

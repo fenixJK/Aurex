@@ -94,6 +94,6 @@ void Session::adopt_window(const Window& window,Time now) {
     active_window_=window; window_id_=active_window_.id;
     window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset();
     if (feature_->progress().state!=automation::State::running) { runtime_.stop(feature_->progress().message); return; }
-    observer_.watch({active_window_,tasks_.generation(),now},feature_->needs_ocr());
+    observer_.watch({active_window_,tasks_.generation(),now},feature_->observes_game(),bool(connection_reconnect_));
 }
 }

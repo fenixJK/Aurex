@@ -18,7 +18,6 @@ class ObservationGuard final : public RunGuard {
     Time sampled_{Time(-1)},sampled_at_{Time(-1)};
 public:
     explicit ObservationGuard(const RunConfig& config):limit_(config.backpack_limit) {}
-    bool needs_ocr() const noexcept override { return true; }
     GuardDecision evaluate(const View& view,Time started) override {
         const auto& c=view.context;
         const auto* state=view.observations;

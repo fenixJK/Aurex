@@ -10,6 +10,7 @@
 #include <optional>
 
 namespace hive::reporting {
+inline constexpr qint64 sample_interval_ms=10000;
 struct Metric { QString label,value; std::optional<double> progress; QColor color; };
 struct Section { QString name; QList<Metric> metrics; QString id; std::vector<Counter> counters; };
 struct Level { std::optional<double> value; double maximum{100}; };
@@ -22,6 +23,7 @@ struct Snapshot {
     std::optional<std::uint64_t> honey;
     QList<Gauge> buffs;
     std::vector<Counter> counters;
+    qint64 honey_age_ms{};
 };
 struct ActivityTime { QString name; qint64 milliseconds{}; };
 struct Sample { qint64 at{}; std::optional<double> percent; std::optional<double> floor; std::optional<double> level; };

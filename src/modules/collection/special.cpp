@@ -20,7 +20,10 @@ public:
         choice_=unsigned(found-eggs.begin());
     }
     RunConfig config() const override { return {Time(45000),28,{},true,true}; }
-    std::vector<Rect> text_regions() const override { return {{.1,.1,.8,.85}}; }
+    std::vector<Rect> text_regions() const override {
+        if (phase_==3) return {{.1,.1,.8,.85}};
+        return phase_==4?std::vector<Rect>{game::station_target("Sticker Printer",true).region}:std::vector<Rect>{};
+    }
     ActivityStatus activity_status() const override { return {"Printing sticker",egg_}; }
     Step next(const View& view) override {
         const auto& c=view.context;

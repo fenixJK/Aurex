@@ -21,6 +21,7 @@ public:
         if (enemy_.progress) enemy_.progress->begin(enemy_.maximum_health,enemy_.initial_health);
     }
     automation::RunConfig config() const override { return {enemy_.keep_old?enemy_.fight.duration+Time(15000):std::chrono::hours(8),speed_,{},true,true}; }
+    std::vector<Rect> text_regions() const override { return !enemy_.amulet.empty() && !amulet_kept_?std::vector<Rect>{{.1,.1,.8,.85}}:std::vector<Rect>{}; }
     ActivityStatus activity_status() const override { return {"Fighting",enemy_.id}; }
     std::optional<automation::SharedActivity> shared_activity() const override {
         if (!enemy_.shared || !visible_ || complete_ || session_finished_) return {};

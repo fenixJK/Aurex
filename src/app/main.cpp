@@ -16,6 +16,7 @@
 #include "game/detection/inventory.hpp"
 #include "modules/quests/detection.hpp"
 #include "core/session/session.hpp"
+#include "game/detection/honey.hpp"
 #include "game/actions/travel/localization.hpp"
 #include "game/actions/hive/hive_setup.hpp"
 #include "game/actions/travel/field_routes.hpp"
@@ -127,7 +128,7 @@ class Window final : public QMainWindow {
     QPushButton* pause_{};
     std::unique_ptr<hive::reporting::Discord> discord_;
     std::unique_ptr<hive::reporting::DiscordRemote> remote_;
-    std::shared_ptr<const hive::game::DetectionSource> reporting_nectar_,reporting_buffs_,reporting_upkeep_;
+    std::shared_ptr<const hive::game::DetectionSource> reporting_nectar_,reporting_buffs_,reporting_upkeep_,reporting_honey_;
     hive::app::StatusPage* status_page_{};
     QTimer start_timer_;
     std::optional<hive::ClientRejoin> initial_join_;
@@ -380,7 +381,13 @@ public:
                 {"rejoins","Successful rejoins",snapshot.recovery.rejoins,snapshot.session_id}};
             const hive::ObservationContext context{snapshot.window,snapshot.generation,snapshot.now};
             const auto readings=session_.observations(); report.trend.name="Backpack";
-            if (readings.state.honey.has_value(context,hive::Time(5000))) report.honey=readings.state.honey.value;
+            if (reporting_honey_) if (const auto packet=reporting_honey_->peek()) {
+                const auto* value=dynamic_cast<const hive::game::HoneyDetection*>(packet->value.get());
+                if (value && value->amount.has_value(context,hive::Time(2*hive::reporting::sample_interval_ms))) {
+                    report.honey=value->amount.value;
+                    report.honey_age_ms=(context.now-value->amount.captured).count();
+                }
+            }
             if (readings.state.backpack_percent.has_value(context,hive::Time(5000))) report.trend.percent=readings.state.backpack_percent.value;
             for (const auto* name:{"Comforting","Refreshing","Satisfying","Motivating","Invigorating"}) {
                 const auto id=std::string("nectar/")+name; const auto found=thresholds.find(id);
@@ -506,6 +513,7 @@ public:
         native_modules_.quests.fields=hive::features::quests::default_fields();
         auto inventory_requests=std::make_shared<hive::game::InventoryRequests>();
         std::vector<hive::game::DetectorConfig> detectors{
+            {"honey",hive::game::honey_detector(),hive::Time(hive::reporting::sample_interval_ms)},
             {"enemies",hive::game::enemy_detector()},
             {"memory-board",hive::game::memory_match_detector()},
             {"daylight",hive::game::daylight_detector(),hive::Time(2000),hive::game::DetectionMode::pixels,true},
@@ -529,6 +537,7 @@ public:
         for (auto& detector:detectors) detector.on_demand=true;
         auto channels=session_.configure_detectors(std::move(detectors));
         reporting_upkeep_=channels.at("buff-upkeep");
+        reporting_honey_=channels.at("honey");
         native_modules_.field_boosts=channels.at("field-boosts");
         session_.configure_hotbar(native_modules_.boosting);
         reporting_nectar_=channels.at("nectar"); reporting_buffs_=channels.at("movement-buffs");
@@ -757,6 +766,10 @@ public:
             case hive::WorkActivity::other: break;
             }
             if ((discord_->settings().enabled || remote_->settings().enabled) && status.state==hive::RunState::running && reporting_nectar_) {
+                if (reporting_honey_) {
+                    const auto reading=reporting_honey_->peek();
+                    if (!reading || reading->context.generation!=snapshot.generation || snapshot.now-reading->context.now>=hive::Time(hive::reporting::sample_interval_ms)) reporting_honey_->read();
+                }
                 const auto& selected=discord_->settings().buff_ids;
                 for (const auto& source:{reporting_buffs_,reporting_upkeep_}) if (source) {
                     const bool needed=source==reporting_buffs_?std::any_of(selected.begin(),selected.end(),[](const auto& id) {

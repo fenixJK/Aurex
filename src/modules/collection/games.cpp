@@ -18,6 +18,11 @@ public:
         if (!source_ || station_.empty()) throw std::invalid_argument("Memory Match needs board observations and a station");
     }
     automation::RunConfig config() const override { return {std::chrono::minutes(3),28,{},true,true}; }
+    std::vector<Rect> text_regions() const override {
+        auto regions=std::vector<Rect>{game::station_target(station_).region};
+        if (!playing_ && !accepted_) regions.push_back({.1,.2,.8,.65});
+        return regions;
+    }
     ActivityStatus activity_status() const override { return {"Playing",station_}; }
     automation::Step next(const automation::View& view) override {
         using namespace automation;

@@ -30,7 +30,10 @@ public:
         inventory_=inventory_target(plan_.inventory,plan_.target); report_.status="Checking selected bee"; publish();
     }
     RunConfig config() const override { return {std::chrono::hours(8),28,{},true,true}; }
-    std::vector<Rect> text_regions() const override { return {{.02,.12,.93,.78}}; }
+    std::vector<Rect> text_regions() const override {
+        if (stage_==Stage::select || stage_==Stage::feed || (stage_==Stage::result && receipt_ && !receipt_->completed)) return {};
+        return {{.02,.12,.93,.78}};
+    }
     Step next(const View& view) override {
         const auto& c=view.context;
         if (!plan_.target.belongs_to(c.window)) return done("Game window changed; select the bee again");

@@ -18,7 +18,6 @@ Runner::Runner(std::unique_ptr<Program> program,Permissions permissions,TaskPort
     speed_=std::make_shared<game::MovementSpeed>(config_.speed);
     guard_=program_->guard();
     if (!guard_) guard_=observation_guard(config_);
-    needs_ocr_=guard_ && guard_->needs_ocr();
 }
 Progress Runner::progress() const {
     auto result=progress_;
@@ -97,7 +96,6 @@ void Runner::configure_connection_recovery(ProgramFactory reconnect,ProgramFacto
     if (bool(reconnect)!=bool(replacement)) throw std::invalid_argument("Connection recovery requires both connection factories");
     connection_reconnect_=std::move(reconnect); connection_replacement_=std::move(replacement);
     startup_pending_=bool(connection_reconnect_) && permissions_.contains(Permission::interact);
-    needs_ocr_=needs_ocr_ || startup_pending_;
 }
 void Runner::start(const ObservationContext& c) {
     if (progress_.state!=State::ready || !c.window.id || !c.window.bounds.valid() || c.generation!=scope_.generation)
@@ -180,7 +178,6 @@ bool Runner::recover(Interruption interruption,const ObservationContext& c,const
         connection_recovering_=true; resume_connected_=resume; ++connection_attempts_;
     }
     recovery_=std::make_unique<Runner>(factory(),permissions_,static_cast<TaskPort&>(*this),scope_,navigation_services_,depth_+1); recovery_->configure_conversion(hive_conversion_); recovery_->configure_statistics(recovery_counts_); recovery_->configure_reporting(activity_sink_);
-    if (recovery_->needs_ocr() && !needs_ocr_) throw std::invalid_argument("Parent workflow must request observations for recovery");
     recovery_->start(c); progress_.message=connection?"Recovering game connection":"Recovering at hive";
     return true;
 }
@@ -226,9 +223,8 @@ void Runner::replace_window(const ObservationContext& c,ModuleScope scope) {
     scope_=scope; context_=c; progress_.elapsed+=c.now-last_; last_=c.now; speed_->start(c);
     if (progress_.elapsed>=config_.duration) { finish(State::failed,"Workflow deadline reached during reconnect"); return; }
     guard_=program_->guard(); if (!guard_) guard_=observation_guard(config_);
-    needs_ocr_=bool(connection_reconnect_) || (guard_ && guard_->needs_ocr()); clock_started_=true;
+    clock_started_=true;
     recovery_=std::make_unique<Runner>(replacement_(),permissions_,static_cast<TaskPort&>(*this),scope_,navigation_services_,depth_+1); recovery_->configure_conversion(hive_conversion_); recovery_->configure_statistics(recovery_counts_); recovery_->configure_reporting(activity_sink_);
-    if (recovery_->needs_ocr() && !needs_ocr_) throw std::invalid_argument("Parent workflow must request observations for recovery");
     recovery_->start(c); awaiting_window_=false; rejoin_requested_=false; window_replaced_=true;
     progress_.message="Confirming the replacement game window";
 }

@@ -8,7 +8,7 @@ public:
     void departing(const View& view) {
         if (!view.observations) return;
         const auto& prompt=view.observations->hive_prompt;
-        was_away_=prompt.usable(view.context,Time(2000)) && prompt.knowledge==Knowledge::absent;
+        if (prompt.usable(view.context,Time(2000))) was_away_=prompt.knowledge==Knowledge::absent;
     }
     bool ready(const View& view,const game::RespawnSource& source,Time minimum) {
         const auto& c=view.context;
@@ -58,18 +58,14 @@ public:
     explicit Respawn(std::shared_ptr<const game::RespawnSource> source):source_(std::move(source)) {
         if (!source_) throw std::invalid_argument("Respawn needs game observations");
     }
-    RunConfig config() const override { return {Time(35000),28,{},false,true}; }
-    class Guard final : public RunGuard {
-    public:
-        bool needs_ocr() const noexcept override { return true; }
-        GuardDecision evaluate(const View&,Time) override { return {}; }
-    };
-    std::unique_ptr<RunGuard> guard() const override { return std::make_unique<Guard>(); }
+    RunConfig config() const override { return {Time(35000),28,{},true,true}; }
+    std::vector<Rect> text_regions() const override { return {game::hive_proximity_prompt().region}; }
     bool expects_respawn() const noexcept override { return stage_!=Stage::done; }
     Step next(const View& view) override {
         const auto& c=view.context;
         if (started_<Time{}) started_=minimum_=c.now;
         if (stage_==Stage::done) return Done{"Respawn finished; confirming the hive"};
+        if (stage_==Stage::locate) completion_.departing(view);
         if (stage_==Stage::locate && view.observations && view.observations->alive.has_value(c,Time(2000),minimum_)
             && !view.observations->alive.value) {
             stage_=Stage::transition; started_=minimum_=c.now;

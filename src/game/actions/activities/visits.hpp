@@ -7,6 +7,7 @@ namespace hive::automation {
 class AvailabilitySource {
 public:
     virtual ~AvailabilitySource()=default;
+    virtual std::vector<Rect> text_regions(const std::string&) const { return {}; }
     virtual Observation<bool> read(const std::string& id,const View& view) const=0;
     virtual Observation<Time> remaining(const std::string&,const View&) const { return {}; }
 };

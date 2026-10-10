@@ -73,9 +73,11 @@ void History::sample(qint64 now,const Snapshot& snapshot) {
     };
     counters({},snapshot.counters);
     for (const auto& section:snapshot.sections) counters(section.id.isEmpty()?section.name:section.id,section.counters);
-    const HoneySample reading{now,snapshot.honey};
-    if (!honey_.empty() && honey_.back().at==now) honey_.back()=reading; else honey_.push_back(reading);
-    if (!first_honey_ && reading.value) first_honey_=reading;
+    const HoneySample reading{now-std::max(qint64(0),snapshot.honey_age_ms),snapshot.honey};
+    if (reading.at>=began_ && (honey_.empty() || reading.at>honey_.back().at)) {
+        honey_.push_back(reading);
+        if (!first_honey_ && reading.value) first_honey_=reading;
+    }
     trim(honey_,now);
 }
 void History::alert(qint64 now) {

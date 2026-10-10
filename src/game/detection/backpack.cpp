@@ -101,25 +101,11 @@ HudFeatures inspect_hud(const Frame& frame,std::uint64_t generation) {
     }
     return result;
 }
-std::vector<Rect> hud_text_regions(bool in_game) {
-    if (!in_game) return {{0,0,1,1}};
-    return {{0,0,1,.3},{.2,.2,.6,.65}};
-}
-std::vector<Rect> hud_text_regions(const Frame& frame,const HudFeatures& hud) {
-    const bool in_game=hud.backpack.knowledge==Knowledge::present || std::count_if(hud.menus.begin(),hud.menus.end(),
-        [](const auto& control) { return control.selected.has_value(); })>=2;
-    if (!in_game || !hud.resources) return hud_text_regions(in_game);
-    std::vector<Rect> regions{{.2,.2,.6,.65}};
-    for (const auto& r:*hud.resources) regions.push_back({r.x/frame.width,r.y/frame.height,r.width/frame.width,r.height/frame.height});
-    regions.push_back({.15,0,.7,.2});
-    return regions;
-}
-State read_hud(const Frame& frame,const std::vector<TextLine>& lines,std::uint64_t generation) {
+State read_game_text(const Frame& frame,const std::vector<TextLine>& lines,std::uint64_t generation) {
     State state;
     if (!frame.valid()) return state;
     state.connection=read_connection(frame,lines,generation);
-    state.honey=read_honey(frame,lines,generation);
-    if (!lines.empty()) state.text={Knowledge::present,{frame.width,frame.height,lines},frame.captured,frame.window,generation};
+    state.text={Knowledge::present,{frame.width,frame.height,lines},frame.captured,frame.window,generation};
     state.hive_prompt=read_hive_prompt(frame,lines,{frame.width*0.15,0,frame.width*0.7,frame.height*0.3},generation);
     if (state.hive_prompt.knowledge==Knowledge::present) {
         state.at_hive={Knowledge::present,true,frame.captured,frame.window,generation};

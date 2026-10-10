@@ -82,6 +82,7 @@ class CollectionAvailability final : public automation::AvailabilitySource {
     bool glue_;
 public:
     CollectionAvailability(std::shared_ptr<const automation::AvailabilitySource> source,bool glue):source_(std::move(source)),glue_(glue) {}
+    std::vector<Rect> text_regions(const std::string& id) const override { return source_->text_regions(id); }
     Observation<bool> read(const std::string& id,const automation::View& view) const override {
         if (glue_ && id=="Glue Dispenser" && view.route_position && view.route_position->usable(view.context)
             && view.route_position->location=="station.glue")

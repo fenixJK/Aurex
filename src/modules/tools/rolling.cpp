@@ -109,6 +109,7 @@ public:
             inventory_=inventory_target(plan_.inventory,*plan_.target);
         }
     }
+    std::vector<Rect> text_regions() const override { return stage_==Stage::feed?std::vector<Rect>{}:Rolling::text_regions(); }
     Step next(const View& view) override {
         if (plan_.neon && !plan_.target->belongs_to(view.context.window)) return finish("Game window changed; select the bee again");
         if (stage_==Stage::restart) {

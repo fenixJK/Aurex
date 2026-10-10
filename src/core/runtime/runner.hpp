@@ -38,7 +38,7 @@ public:
     bool wait_window(Time now,const std::string& status={});
     void replace_window(const ObservationContext& context,ModuleScope scope);
     bool request_yield();
-    bool needs_ocr() const { return needs_ocr_; }
+    bool observes_game() const;
     std::vector<Rect> text_regions() const;
 private:
     std::unique_ptr<Program> program_;
@@ -55,7 +55,7 @@ private:
     std::optional<Step> step_;
     Time last_{}, hold_left_{};
     Time death_seen_{Time(-1)};
-    bool clock_started_{},needs_ocr_{};
+    bool clock_started_{};
     std::unique_ptr<Runner> pattern_;
     std::unique_ptr<Runner> child_;
     std::unique_ptr<Runner> recovery_;
