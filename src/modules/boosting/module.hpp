@@ -14,6 +14,7 @@ struct BoostItems {
     Time roll_interval{3000},extend_after{780000};
     unsigned target_stacks{1};
     Time duration{};
+    bool maintain{};
 };
 struct Preferences {
     bool follow{true},interrupt{true},during_boosts{},pre_glitter{};
@@ -37,6 +38,8 @@ class Controller final : public automation::HotbarSource {
     struct BoostAge { std::optional<Time> started; bool extended{}; };
     std::map<std::string,BoostAge> ages_;
     std::optional<Time> last_dice_,last_glitter_;
+    std::optional<Time> dice_hit_;
+    std::string dice_field_;
     unsigned dice_used_{},glitter_used_{};
     Time observed_{},updated_{},next_item_{};
     std::optional<Time> blue_remaining_;

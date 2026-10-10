@@ -43,11 +43,23 @@ void Controller::update(const extensions::SessionView& view,const std::optional<
         if (data && data->readable) {
             const bool continuous=readable_ && reading->context.now-observed_<=Time(3000);
             const auto previous=boosted_;
-            for (const auto& boost:data->boosts) if (!previous.contains(boost.field)
-                || (boost.stacks && stacks_.contains(boost.field) && stacks_.at(boost.field) && *boost.stacks>*stacks_.at(boost.field))) {
-                const bool rolled=last_dice_ && reading->context.now>=*last_dice_
+            for (const auto& boost:data->boosts) {
+                auto& age=ages_[boost.field];
+                const auto remaining=boost.remaining && *boost.remaining>Time{} && *boost.remaining<=game::field_boost_duration?boost.remaining:std::nullopt;
+                const bool added=!previous.contains(boost.field);
+                const bool increased=boost.stacks && stacks_.contains(boost.field) && stacks_.at(boost.field) && *boost.stacks>*stacks_.at(boost.field);
+                const bool refreshed=remaining && age.started && reading->context.now+*remaining>*age.started+game::field_boost_duration+Time(90000);
+                const bool rolled=last_dice_ && reading->context.now>*last_dice_
                     && reading->context.now-*last_dice_<=Time(10000);
-                ages_[boost.field]={continuous || rolled?std::optional<Time>(reading->context.now):std::nullopt,false};
+                if (added || increased || refreshed) {
+                    age.extended=false;
+                    age.started=continuous || rolled?std::optional<Time>(reading->context.now):std::nullopt;
+                    if (boost.field==preferences_.boost.field && (rolled || (added && !dice_hit_))) {
+                        dice_hit_=reading->context.now-(rolled?Time{}:game::field_boost_duration-remaining.value_or(game::field_boost_duration));
+                        dice_field_=boost.field;
+                    }
+                }
+                if (remaining) age.started=reading->context.now-game::field_boost_duration+*remaining;
             }
             observed_=reading->context.now; readable_=true;
             boosted_.clear(); stacks_.clear();
@@ -79,7 +91,11 @@ unsigned Controller::take_boost(const automation::HotbarContext& context) {
     const auto& boost=preferences_.boost;
     const auto stacks=stacks_.find(context.field);
     const bool below_target=!boosted_.contains(context.field) || (stacks!=stacks_.end() && stacks->second && *stacks->second<boost.target_stacks);
-    if (can_roll() && context.field==boost.field && below_target
+    const auto age=ages_.find(context.field);
+    const bool expiring=age!=ages_.end() && age->second.started
+        && now-*age->second.started>=boost.extend_after && now-*age->second.started<game::field_boost_duration;
+    const bool dice_expired=!dice_hit_ || dice_field_!=context.field || now-*dice_hit_>=game::field_boost_duration;
+    if (can_roll() && context.field==boost.field && dice_expired && (below_target || (boost.maintain && expiring))
         && (!last_dice_ || observed_>=*last_dice_+boost.roll_interval)) {
         if (!boost_started_) boost_started_=now;
         last_dice_=now; ++dice_used_; return boost.dice_slot;
@@ -94,9 +110,9 @@ unsigned Controller::take_boost(const automation::HotbarContext& context) {
     }
     if (boost.glitter_slot && glitter_used_<boost.glitter_limit && allowed && boosted_.contains(context.field)
         && (!last_glitter_ || now-*last_glitter_>=std::chrono::seconds(905))) {
-        auto& age=ages_.at(context.field);
-        if (age.started && !age.extended && now-*age.started>=boost.extend_after && now-*age.started<std::chrono::minutes(15)) {
-            age.extended=true;
+        auto& current=ages_.at(context.field);
+        if (expiring && !current.extended) {
+            current.extended=true;
             if (!boost_started_) boost_started_=now;
             last_glitter_=now; ++glitter_used_; return boost.glitter_slot;
         }

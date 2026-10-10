@@ -41,6 +41,7 @@ public:
             std::chrono::seconds(std::get<int>(settings.at("dice-interval"))),std::chrono::minutes(std::get<int>(settings.at("glitter-after")))};
         preferences.boost.target_stacks=unsigned(std::get<int>(settings.at("target-stacks")));
         preferences.boost.duration=std::chrono::minutes(std::get<int>(settings.at("boost-minutes")));
+        preferences.boost.maintain=std::get<bool>(settings.at("maintain-boost"));
         if (std::find(fields_.begin(),fields_.end(),preferences.boost.field)==fields_.end()) preferences.boost.field.clear();
         validate(preferences);
         preferences_=std::move(preferences);
@@ -75,7 +76,7 @@ public:
 extensions::Manifest module_manifest() {
     extensions::Manifest manifest; manifest.id="hive.native-boosting"; manifest.provider="native-boosting";
     manifest.name="Boosting"; manifest.version="1.0.0";
-    manifest.settings_version=3;
+    manifest.settings_version=4;
     manifest.description="Follow boosts, roll for a field and extend with glitter. Uses Gathering's field settings.";
     manifest.permissions={automation::Permission::movement,automation::Permission::interact};
     manifest.requests={extensions::RequestService::fields};
@@ -101,18 +102,20 @@ extensions::Manifest module_manifest() {
     const std::vector<std::string> slots{"Off","1","2","3","4","5","6","7"};
     manifest.settings.push_back({"boost-field","Field",std::string("Pine Tree"),0,0,fields});
     manifest.settings.push_back({"dice-slot","Dice slot",std::string("Off"),0,0,slots});
-    manifest.settings.back().help="Field, Smooth or Loaded Dice. Rolls while gathering here until this field reaches the selected stack target. Unreadable stacks do not trigger more rolls.";
+    manifest.settings.back().help="Field, Smooth or Loaded Dice. Stops after hitting this field; another dice replaces its boost. Higher targets need glitter or another boost source. Unreadable stacks do not trigger more rolls.";
     manifest.settings.push_back({"target-stacks","Target stacks",1,1,4});
+    manifest.settings.push_back({"maintain-boost","Maintain boost",false});
+    manifest.settings.back().help="Refresh with eligible dice and glitter near expiry. Uses the visible boost timer; item and time limits still apply.";
     manifest.settings.push_back({"boost-minutes","Time limit",0,0,1440}); manifest.settings.back().suffix=" min";
     manifest.settings.back().help="Stops spending dice and glitter after this long from the first use. 0 is unlimited; item use limits still apply.";
     manifest.settings.push_back({"dice-limit","Use limit",25,1,10000});
     manifest.settings.back().help="Maximum dice presses per macro session, including presses when out of dice.";
     manifest.settings.push_back({"dice-interval","Roll interval",3,2,10}); manifest.settings.back().suffix=" sec";
     manifest.settings.push_back({"glitter-slot","Glitter slot",std::string("Off"),0,0,slots});
-    manifest.settings.back().help="Extends once per observed boost start. An existing boost with unknown age is left alone. Without dice, uses the selected follow fields.";
+    manifest.settings.back().help="Extends near expiry when off cooldown. A new boost cycle is recognized from its timer or increased stacks. Without dice, uses the selected follow fields.";
     manifest.settings.push_back({"glitter-limit","Use limit",1,1,1000}); manifest.settings.back().help="Maximum glitter presses per macro session.";
     manifest.settings.push_back({"glitter-after","Extend after",13,10,14}); manifest.settings.back().suffix=" min";
-    sections.push_back({"dice","Dice",{},{"boost-field","dice-slot","target-stacks","dice-limit","dice-interval","boost-minutes"},false,2}); sections.back().tab="Dice & glitter";
+    sections.push_back({"dice","Dice",{},{"boost-field","dice-slot","target-stacks","dice-limit","dice-interval","boost-minutes","maintain-boost"},false,2}); sections.back().tab="Dice & glitter";
     sections.push_back({"glitter","Glitter",{},{"glitter-slot","glitter-limit","glitter-after","pre-glitter"},false,2}); sections.back().tab="Dice & glitter";
     sections.push_back({"hotbar-help","Hotbar","Use items from the game hotbar. Limits count presses per session; 0 is unlimited.",{},false,1}); sections.back().tab="Hotbar";
     for (unsigned slot=1;slot<=7;++slot) {
@@ -131,7 +134,7 @@ extensions::Manifest module_manifest() {
     return manifest;
 }
 Settings migrate_settings(int version,Settings settings) {
-    if(version<1 || version>2) throw std::invalid_argument("Unsupported Boosting settings version");
+    if(version<1 || version>3) throw std::invalid_argument("Unsupported Boosting settings version");
     if(auto previous=settings.extract("blue-when-ready");!previous.empty()) {
         previous.key()="during-boosts"; settings.insert(std::move(previous));
     }

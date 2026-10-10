@@ -18,6 +18,7 @@ add_library(hive_automation
   travel/field_routes.cpp
   travel/planting_routes.cpp
   hive/hive_acquisition.cpp
+  hive/whirligig.cpp
   hive/hive_survey.cpp
   hive/hive_setup.cpp
   travel/travel_preparation.cpp

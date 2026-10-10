@@ -64,6 +64,7 @@ struct NativeModules {
     CombatServices combat;
     std::shared_ptr<features::boosting::Controller> boosting{std::make_shared<features::boosting::Controller>()};
     std::shared_ptr<const game::DetectionSource> field_boosts,buffs;
+    std::shared_ptr<automation::WhirligigCooldown> whirligig{std::make_shared<automation::WhirligigCooldown>()};
     std::vector<features::gathering::PatternPreset> patterns{features::gathering::default_pattern_controls().presets};
     std::shared_ptr<const game::DetectionSource> blooms;
     std::shared_ptr<const game::ScreenReferenceSource> screen_reference;

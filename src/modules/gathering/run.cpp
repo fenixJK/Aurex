@@ -2,6 +2,8 @@
 #include <utility>
 #include "run.hpp"
 #include "strategy.hpp"
+#include "game/detection/buffs.hpp"
+#include "game/detection/field_boosts.hpp"
 #include <algorithm>
 
 namespace hive::features::gathering {
@@ -27,6 +29,27 @@ void BalloonSchedule::completed(Time now) {
     std::lock_guard lock(mutex_); completed_=now;
 }
 namespace {
+TimeExtension extension(const Plan& plan,const FieldPlan& field) {
+    if (field.extend_while.empty()) return {};
+    return {field.extension_limit,[buffs=plan.buffs,boosts=plan.field_boosts,selected=field.extend_while,name=field.preference.field](const automation::View& view) {
+        const auto read=[&](const auto& source) -> std::shared_ptr<const game::Detection> {
+            const auto result=source?source->read():std::nullopt;
+            if (!result || !result->error.empty() || result->context.generation!=view.context.generation
+                || result->context.window.id!=view.context.window.id || result->context.window.process!=view.context.window.process
+                || result->context.window.bounds!=view.context.window.bounds || result->context.now>view.context.now
+                || view.context.now-result->context.now>Time(3000)) return {};
+            return result->value;
+        };
+        if (std::find(selected.begin(),selected.end(),"Field boost")!=selected.end()) {
+            if (const auto result=std::dynamic_pointer_cast<const game::FieldBoostDetection>(read(boosts));result && result->readable)
+                for (const auto& boost:result->boosts) if (boost.field==name) return true;
+        }
+        if (std::any_of(selected.begin(),selected.end(),[](const auto& name) { return name!="Field boost"; }))
+            if (const auto result=std::dynamic_pointer_cast<const game::BuffDetection>(read(buffs)))
+                for (const auto& buff:result->buffs) if (buff.active==true && std::find(selected.begin(),selected.end(),buff.name)!=selected.end()) return true;
+        return false;
+    }};
+}
 automation::FollowPath offset_path(Point offset,double speed,bool reverse=false) {
     workflows::CheckpointPlan movement;
     const auto leg=[&](double tiles,Key positive,Key negative) {
@@ -272,8 +295,8 @@ public:
             };
             if (field.strategy) {
                 const automation::RunConfig limits{field.pattern.duration,plan_.config.speed,field.pattern.backpack_limit,true};
-                return automation::RunProgram{[this,create=field.strategy,between_cycles=field.pattern.between_cycles,limits,hotbar] {
-                    return bounded_pattern(create,limits,[this](unsigned heading) { pattern_heading_=heading; },between_cycles,[this] { return yielding_; },hotbar);
+                return automation::RunProgram{[this,create=field.strategy,between_cycles=field.pattern.between_cycles,limits,hotbar,extend=extension(plan_,field)] {
+                    return bounded_pattern(create,limits,[this](unsigned heading) { pattern_heading_=heading; },between_cycles,[this] { return yielding_; },hotbar,extend);
                 }};
             }
             auto pattern=field.pattern; pattern.activity=WorkActivity::gathering; pattern.hotbar=hotbar; pattern.yield=[this] { return yielding_; }; return pattern;

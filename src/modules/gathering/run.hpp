@@ -3,6 +3,7 @@
 #include "game/movement/field_plans.hpp"
 #include "core/module_host/requests.hpp"
 #include "game/actions/travel/services.hpp"
+#include "game/detection/detection.hpp"
 #include <mutex>
 
 namespace hive::features::gathering {
@@ -18,6 +19,8 @@ struct FieldPlan {
     bool reset_return{};
     std::optional<bool> shift_lock;
     std::function<std::vector<automation::Step>()> prepare;
+    std::vector<std::string> extend_while;
+    Time extension_limit{std::chrono::minutes(5)};
 };
 struct Snapshot {
     game::FieldContext field;
@@ -57,6 +60,8 @@ struct Plan {
     bool shared_conversion{};
     Time balloon_interval{};
     std::shared_ptr<BalloonSchedule> balloon_schedule{std::make_shared<BalloonSchedule>()};
+    std::shared_ptr<const game::DetectionSource> buffs,field_boosts;
+    std::function<std::unique_ptr<automation::Program>(unsigned)> whirligig_return;
 };
 enum class Phase { waiting, travelling, preparing, gathering, returning, converting, finished, recovering };
 struct Report {

@@ -43,6 +43,11 @@ std::string interval_choice(int minutes) {
     return balloon_intervals.back();
 }
 const std::vector<std::string> facings{"0°","45° right","90° right","135° right","180°","135° left","90° left","45° left"};
+std::vector<std::string> return_choices(const Plan& plan) {
+    std::vector<std::string> result{"Walk","Reset"};
+    if (plan.whirligig_return) result.push_back("Whirligig / reset");
+    return result;
+}
 bool boolean(const Settings& settings,const std::string& key) {
     const auto it=settings.find(key);
     if (it==settings.end() || !std::holds_alternative<bool>(it->second)) throw std::invalid_argument("Invalid gathering setting: "+key);
@@ -119,7 +124,7 @@ public:
             settings=migrate_settings(4,settings);
         }
         for (const auto& setting : schema.settings)
-            if (setting.id.starts_with("field-") || setting.id.starts_with("start-") || setting.id.starts_with("balloon-") || setting.id=="shift-lock" || setting.id=="convert-balloon" || setting.id=="return-method" || setting.id=="recenter" || setting.id=="pattern-scale" || setting.id=="pattern-repetitions" || setting.id=="invert-fb" || setting.id=="invert-lr" || (!controls_ && setting.id=="fields")) settings.try_emplace(setting.id,setting.initial);
+            if (setting.id.starts_with("field-") || setting.id.starts_with("start-") || setting.id.starts_with("balloon-") || setting.id=="whirligig-slot" || setting.id=="shift-lock" || setting.id=="convert-balloon" || setting.id=="return-method" || setting.id=="recenter" || setting.id=="pattern-scale" || setting.id=="pattern-repetitions" || setting.id=="invert-fb" || setting.id=="invert-lr" || (!controls_ && setting.id=="fields")) settings.try_emplace(setting.id,setting.initial);
         if (settings.size()!=schema.settings.size() || std::any_of(schema.settings.begin(),schema.settings.end(),
             [&](const auto& setting) { return !settings.contains(setting.id); })) throw std::invalid_argument("Unexpected gathering settings");
         for (const auto& setting : schema.settings) if (setting.id.starts_with("field-")) {
@@ -190,6 +195,12 @@ public:
                 if (rotation && field.rotation) { rotation->press=field.rotation->press; rotation->release=field.rotation->release; }
                 field.rotation=rotation;
                 field.shift_lock=boolean(settings,prefix+"shift-lock");
+                const auto* extensions=std::get_if<SettingSelection>(&settings.at(prefix+"extend-while"));
+                if (!extensions || std::any_of(extensions->begin(),extensions->end(),[](const auto& name) {
+                    return name!="Pop Star" && name!="Guiding Star" && name!="Field boost";
+                })) throw std::invalid_argument("Invalid gathering extension");
+                field.extend_while=*extensions;
+                field.extension_limit=std::chrono::minutes(integer(settings,prefix+"extend-minutes",1,30));
                 auto chosen=generate(prefix,heading);
                 field.pattern=std::move(chosen.pattern); field.strategy=std::move(chosen.strategy);
             }
@@ -214,15 +225,26 @@ public:
             if (!type || std::find(types.begin(),types.end(),*type)==types.end()) throw std::invalid_argument("Select a sprinkler type");
             equipment=*type; slot=integer(settings,"sprinkler-slot",1,7);
         }
+        unsigned return_slot=0;
+        if (plan.whirligig_return) {
+            const auto& slot=std::get<std::string>(settings.at("whirligig-slot"));
+            if (slot!="Off") {
+                if (slot.size()!=1 || slot.front()<'1' || slot.front()>'7') throw std::invalid_argument("Invalid Whirligig slot");
+                return_slot=unsigned(slot.front()-'0');
+            }
+        }
         for (auto& field:plan.fields) {
             const auto field_key=field_prefix(field.preference.field)+"-";
             const auto prefix=controls_?field_key:std::string{};
             field.start_offset={integer(settings,prefix+"start-side",-200,200)/10.,integer(settings,prefix+"start-forward",-200,200)/10.};
             if (plan.route_recovery) {
                 const auto* method=std::get_if<std::string>(&settings.at(prefix+"return-method"));
-                if (!method || (*method!="Walk" && *method!="Reset")) throw std::invalid_argument("Invalid gathering return method");
-                field.reset_return=*method=="Reset";
-                if (field.reset_return) field.return_setup=plan.route_recovery;
+                const auto methods=return_choices(plan);
+                if (!method || std::find(methods.begin(),methods.end(),*method)==methods.end()) throw std::invalid_argument("Invalid gathering return method");
+                field.reset_return=*method!="Walk";
+                if (*method=="Reset") field.return_setup=plan.route_recovery;
+                else if (*method=="Whirligig / reset") field.return_setup=return_slot?
+                    automation::ProgramFactory([create=plan.whirligig_return,slot=return_slot] { return create(slot); }):plan.route_recovery;
             }
             if (sprinklers_) {
                 field.prepare=[prepare=sprinklers_->prepare,configured=field,equipment,slot] { return prepare(configured,equipment,slot); };
@@ -301,7 +323,7 @@ public:
 };
 }
 Settings migrate_settings(int version,const Settings& saved) {
-    if (version<1 || version>6) throw std::invalid_argument("Unsupported gathering settings version");
+    if (version<1 || version>7) throw std::invalid_argument("Unsupported gathering settings version");
     auto settings=saved;
     std::erase_if(settings,[](const auto& entry) {
         const auto& key=entry.first;
@@ -369,7 +391,7 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
     result.id=std::move(id); result.provider=std::move(provider); result.name="Gathering"; result.version="0.1.0";
     result.enabled_by_default=true;
     result.description="Follow the configured field rotation, gather, return to the hive and convert. Active field requests can temporarily change the selected field.";
-    result.permissions=permissions; result.settings_version=controls?7:defaults.shared_conversion || (sprinklers && sprinklers->equipment)?4:3;
+    result.permissions=permissions; result.settings_version=controls?8:defaults.shared_conversion || (sprinklers && sprinklers->equipment)?4:3;
     result.settings={{"cycles","Completed cycles",static_cast<int>(defaults.cycles),1,10000,{}},
         {"run-seconds","Run limit (seconds)",static_cast<int>(defaults.config.duration.count()/1000),1,28800,{}}};
     if (!defaults.fields.empty()) {
@@ -388,7 +410,7 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
     }
     if (!controls) {
         position_settings(result.settings,"");
-        if (defaults.route_recovery) result.settings.push_back({"return-method","Return",std::string("Walk"),0,0,{"Walk","Reset"}});
+        if (defaults.route_recovery) result.settings.push_back({"return-method","Return",std::string("Walk"),0,0,return_choices(defaults)});
     }
     if (sprinklers) {
         if (!sprinklers->prepare) throw std::invalid_argument("Sprinkler controls need a setup factory");
@@ -400,6 +422,11 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
     }
     result.page=extensions::PageLayout{{},true};
     if (!defaults.fields.empty()) result.page->sections.push_back({"fields","Field rotation","Select fields and arrange the order to visit them.",{"fields"},false,1});
+    if (defaults.whirligig_return) {
+        result.settings.push_back({"whirligig-slot","Whirligig slot",std::string("Off"),0,0,{"Off","1","2","3","4","5","6","7"}});
+        result.settings.back().help="Only used for fields set to Whirligig / reset. Resets during its cooldown or when the item does not teleport you.";
+        result.page->sections.push_back({"return-item","Whirligig",{},{"whirligig-slot"},false,1,true});
+    }
     if (sprinklers && !sprinklers->equipment) result.page->sections.push_back({"sprinklers","Sprinklers",{},
         {"sprinkler-type","sprinkler-slot"},false,2,true});
     if (sprinklers && sprinklers->recenter && !controls) result.page->sections.push_back({"correction","Field correction",{},{"recenter"},false,1});
@@ -417,7 +444,7 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
             const auto id=field_prefix(field.preference.field),prefix=id+"-";
             if (!ids.insert(id).second) throw std::invalid_argument("Gathering fields need unique setting identities");
             position_settings(result.settings,prefix,field.start_offset);
-            if (defaults.route_recovery) result.settings.push_back({prefix+"return-method","Return",std::string("Walk"),0,0,{"Walk","Reset"}});
+            if (defaults.route_recovery) result.settings.push_back({prefix+"return-method","Return",std::string("Walk"),0,0,return_choices(defaults)});
             if (sprinklers && sprinklers->recenter) result.settings.push_back({prefix+"recenter","FDC",false});
             const auto& name=field.preference.field;
             const auto* field_defaults=defaults_for(name);
@@ -429,6 +456,8 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
             result.settings.push_back({prefix+"pattern-width","Width",width,1,12,{}});
             result.settings.push_back({prefix+"gather-minutes","Time limit",controls->minutes,1,120,{}});
             result.settings.push_back({prefix+"backpack-percent","Bag limit",controls->backpack,1,100,{}});
+            result.settings.push_back({prefix+"extend-while","Finish active buffs",SettingSelection{},0,0,{"Pop Star","Guiding Star","Field boost"}});
+            result.settings.push_back({prefix+"extend-minutes","Extra time limit",5,1,30,{}});
             const auto heading=field.rotation?game::turned_heading(0,*field.rotation):0;
             result.settings.push_back({prefix+"shift-lock","Shift Lock",field.shift_lock.value_or(defaults.shift_lock)});
             result.settings.push_back({prefix+"facing","Camera turn",facings.at(heading),0,0,facings});
@@ -439,6 +468,10 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
             limits.collection="fields"; limits.choice=field.preference.field;
             if (defaults.route_recovery) limits.settings.push_back(prefix+"return-method");
             result.page->sections.push_back(std::move(limits));
+            extensions::PageSection extend{id+"-extend","Extend gathering",{},
+                {prefix+"extend-while",prefix+"extend-minutes"},false,2,true};
+            extend.collection="fields"; extend.choice=field.preference.field;
+            result.page->sections.push_back(std::move(extend));
             extensions::PageSection layout{id+"-layout","Position",{},
                 {prefix+"facing",prefix+"start-forward",prefix+"start-side",prefix+"shift-lock"},false,2};
             layout.collection="fields"; layout.choice=field.preference.field;
@@ -449,6 +482,8 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
     for (auto& section:result.page->sections) section.inline_labels=true;
     for(auto& setting:result.settings) {
         if(setting.id.ends_with("gather-minutes")) setting.suffix=" min";
+        if(setting.id.ends_with("extend-minutes")) setting.suffix=" min";
+        if(setting.id.ends_with("extend-while")) setting.help="Stay past the time limit while a selected buff is active. Bag limits, completed objectives and gather interrupts still end the run.";
         if(setting.id.ends_with("backpack-percent")) setting.suffix="%";
         if(setting.id=="run-seconds" || setting.id=="cycles") setting.hidden=true;
         if(setting.id.ends_with("recenter")) setting.help="Field drift correction using a Supreme sprinkler.";

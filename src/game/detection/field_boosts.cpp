@@ -8,16 +8,37 @@
 
 namespace hive::game {
 namespace {
+bool gold(const Frame& frame,int x,int y) {
+    if (x<0 || y<0 || x>=frame.width || y>=frame.height) return false;
+    const auto p=(std::size_t(y)*frame.width+x)*4;
+    const int r=frame.rgba[p],g=frame.rgba[p+1],b=frame.rgba[p+2];
+    return r>100 && g>80 && b<g*.65 && r>g*.8 && r<g*1.65;
+}
+std::optional<Time> remaining(const Frame& frame,const Rect& cell,double scale) {
+    const int bottom=std::lround(cell.y+cell.height)-1,top=std::lround(cell.y);
+    const auto height=[&](double edge) {
+        int best=0;
+        for (int x=std::lround(edge-scale);x<=std::lround(edge+scale);++x) {
+            int y=bottom;
+            while (y>=bottom-std::ceil(scale) && !gold(frame,x,y)) --y;
+            const int end=y;
+            while (y>=top && gold(frame,x,y)) --y;
+            if (y<end) best=std::max(best,bottom-y);
+        }
+        return best;
+    };
+    const int left=height(cell.x),right=height(cell.x+cell.width-scale);
+    if (!left || !right || std::abs(left-right)>2*scale) return {};
+    return Time(std::lround(field_boost_duration.count()*std::clamp(std::min(left,right)/cell.height,0.,1.)));
+}
 bool boost_bar(const Frame& frame,const Rect& cell,double scale) {
-    unsigned gold=0,total=0;
+    unsigned colored=0,total=0;
     for (int y=std::lround(cell.y+cell.height-3*scale);y<int(cell.y+cell.height);++y)
         for (int x=std::max(0,int(cell.x+scale));x<std::min(frame.width,int(cell.x+cell.width-scale));++x) {
             if (y<0 || y>=frame.height) continue;
-            const auto p=(std::size_t(y)*frame.width+x)*4;
-            const int r=frame.rgba[p],g=frame.rgba[p+1],b=frame.rgba[p+2];
-            gold+=r>100 && g>80 && b<g*.65 && r>g*.8 && r<g*1.65; ++total;
+            colored+=gold(frame,x,y); ++total;
         }
-    return total && gold>=total*.6;
+    return total && colored>=total*.6;
 }
 double difference(const Frame& frame,const detail::FieldIcon& icon,double left,double top,double scale) {
     unsigned error=0,count=0;
@@ -59,7 +80,8 @@ public:
                 best[index]=score; cells[index]={cell.x,cell.y+offsets[index]*scale,cell.width,cell.height};
             }
         }
-        for (unsigned i=0;i<best.size();++i) if (best[i]<28) result->boosts.push_back({std::string(detail::field_icons[i].field),detail::read_buff_stack(input,cells[i],scale,4)});
+        for (unsigned i=0;i<best.size();++i) if (best[i]<28)
+            result->boosts.push_back({std::string(detail::field_icons[i].field),detail::read_buff_stack(input,cells[i],scale,4),remaining(input.frame,{cells[i].x-scale,cells[i].y-scale,cells[i].width,cells[i].height},scale)});
         return result;
     }
 };

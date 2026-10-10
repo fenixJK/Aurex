@@ -35,6 +35,14 @@ struct HiveClaimOptions {
     movement::Source movement;
 };
 ApproachPrompt hive_row_approach(double speed,movement::Source movement={});
+class WhirligigCooldown {
+    std::mutex mutex_;
+    std::optional<Time> attempted_;
+public:
+    bool reserve(Time now);
+};
+std::unique_ptr<Program> whirligig_to_hive(unsigned slot,std::shared_ptr<WhirligigCooldown> cooldown,
+    std::shared_ptr<const game::LandmarkSource> proximity,ProgramFactory prepare,ProgramFactory reset);
 std::unique_ptr<Program> acquire_hive(std::shared_ptr<const game::HiveSlotsSource> slots,
     std::shared_ptr<const game::LandmarkSource> spawn,std::shared_ptr<const game::LandmarkSource> reference,
     std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options={});

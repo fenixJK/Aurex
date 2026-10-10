@@ -86,6 +86,11 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
             hive.options(speed));
     };
     service.plan.route_recovery=return_to_hive;
+    if (return_to_hive) service.plan.whirligig_return=[hive,cooldown=modules.whirligig,reset=return_to_hive](unsigned slot) {
+        return automation::whirligig_to_hive(slot,cooldown,hive.proximity,[hive] {
+            return automation::prepare_hive_view(hive.reference,hive.proximity,hive.result);
+        },reset);
+    };
     if (modules.quests.conversation && service.plan.hive_setup && return_to_hive)
         modules.quests.cycle=features::quests::CyclePlan{{},service.plan.hive_setup,return_to_hive,modules.quests.conversation,*speed,modules.quests.cooldowns};
     else modules.quests.cycle.reset();
@@ -162,6 +167,8 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
     }
     {
         auto service=modules.gathering;
+        service.plan.buffs=modules.buffs;
+        service.plan.field_boosts=modules.field_boosts;
         if (!service.policy) service.policy=std::make_shared<policies::DefaultFieldPolicy>();
         Requirements requirements; requirements.navigation(navigation);
         requirements.need(!service.plan.fields.empty() && !service.plan.hive.empty(),"field and hive setup");
