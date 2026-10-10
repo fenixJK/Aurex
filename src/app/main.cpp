@@ -788,6 +788,7 @@ public:
             case hive::WorkActivity::travelling: activity="Travelling"; break;
             case hive::WorkActivity::converting: activity="Converting"; break;
             case hive::WorkActivity::recovering: activity="Recovering"; break;
+            case hive::WorkActivity::fighting: activity="Fighting"; break;
             case hive::WorkActivity::other: break;
             }
             if ((discord_->settings().enabled || remote_->settings().enabled) && status.state==hive::RunState::running && reporting_nectar_) {

@@ -6,12 +6,14 @@
 #include <mutex>
 
 namespace hive::features::boosting {
-enum class UseWhen { off, gathering, boosted, field_start, converting, backpack, boosted_conversion };
+enum class UseWhen { off, gathering, boosted, field_start, converting, backpack, boosted_conversion, fighting };
 struct ItemRule { UseWhen when{}; Time interval{600000}; unsigned limit{1}; unsigned backpack{90}; };
 struct BoostItems {
     std::string field;
     unsigned dice_slot{},glitter_slot{},dice_limit{25},glitter_limit{1};
     Time roll_interval{3000},extend_after{780000};
+    unsigned target_stacks{1};
+    Time duration{};
 };
 struct Preferences {
     bool follow{true},interrupt{true},during_boosts{},pre_glitter{};
@@ -30,6 +32,8 @@ class Controller final : public automation::HotbarSource {
     std::uint64_t session_{},generation_{},visit_{};
     std::string gathering_field_,last_field_,active_,completed_;
     std::set<std::string> boosted_;
+    std::map<std::string,std::optional<unsigned>> stacks_;
+    std::optional<Time> boost_started_;
     struct BoostAge { std::optional<Time> started; bool extended{}; };
     std::map<std::string,BoostAge> ages_;
     std::optional<Time> last_dice_,last_glitter_;

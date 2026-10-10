@@ -74,6 +74,7 @@ struct Manifest {
     std::optional<PageLayout> page;
     std::vector<Command> commands;
     bool enabled_by_default{};
+    bool presets{true};
 };
 struct SessionView {
     Status status;

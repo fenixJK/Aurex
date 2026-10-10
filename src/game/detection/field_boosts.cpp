@@ -1,7 +1,10 @@
 #include "field_boosts.hpp"
 #include "buff_bar.hpp"
+#include "buff_stack.hpp"
 #include "field_boost_icons.hpp"
 #include <algorithm>
+#include <array>
+#include <cmath>
 
 namespace hive::game {
 namespace {
@@ -37,20 +40,26 @@ public:
         const auto scale=std::abs(layout->scale-pixel_scale)<pixel_scale*.05?pixel_scale:layout->scale;
         result->readable=true;
         std::array<double,detail::field_icons.size()> best; best.fill(255);
+        std::array<Rect,detail::field_icons.size()> cells;
         for (double left=0;left+38*scale<=input.frame.width;left+=std::max(1.,scale)) {
             if (input.cancelled && input.cancelled()) return std::make_shared<FieldBoostDetection>();
             const Rect cell{left,layout->bottom-38*scale,38*scale,38*scale};
             std::array<double,detail::field_icons.size()> scores; scores.fill(255);
+            std::array<int,detail::field_icons.size()> offsets{};
             for (int dy=-6;dy<=6;++dy) {
                 if (!boost_bar(input.frame,{cell.x-scale,cell.y+(dy-1)*scale,cell.width,cell.height},scale)) continue;
-                for (unsigned i=0;i<scores.size();++i) scores[i]=std::min(scores[i],difference(input.frame,detail::field_icons[i],
-                    cell.x,cell.y+dy*scale,scale));
+                for (unsigned i=0;i<scores.size();++i) {
+                    const auto score=difference(input.frame,detail::field_icons[i],cell.x,cell.y+dy*scale,scale);
+                    if (score<scores[i]) { scores[i]=score; offsets[i]=dy; }
+                }
             }
             const auto selected=std::min_element(scores.begin(),scores.end()); const auto score=*selected; const auto index=selected-scores.begin();
             *selected=255; const auto second=*std::min_element(scores.begin(),scores.end());
-            if (score<28 && second-score>6) best[index]=std::min(best[index],score);
+            if (score<28 && second-score>6 && score<best[index]) {
+                best[index]=score; cells[index]={cell.x,cell.y+offsets[index]*scale,cell.width,cell.height};
+            }
         }
-        for (unsigned i=0;i<best.size();++i) if (best[i]<28) result->boosts.push_back({std::string(detail::field_icons[i].field)});
+        for (unsigned i=0;i<best.size();++i) if (best[i]<28) result->boosts.push_back({std::string(detail::field_icons[i].field),detail::read_buff_stack(input,cells[i],scale,4)});
         return result;
     }
 };

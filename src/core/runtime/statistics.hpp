@@ -6,7 +6,7 @@
 #include <atomic>
 
 namespace hive {
-enum class WorkActivity { other, gathering, travelling, converting, recovering };
+enum class WorkActivity { other, gathering, travelling, converting, recovering, fighting };
 struct Counter { std::string id,label; std::uint64_t value{},epoch{}; std::string summary; };
 struct Threshold { std::string id; double minimum{}; };
 class Counters {

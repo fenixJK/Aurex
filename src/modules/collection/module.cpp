@@ -42,6 +42,8 @@ class CollectionModule final : public extensions::Module {
     std::shared_ptr<ItemOrders> orders_;
     std::unique_ptr<extensions::Module> delegate_;
     unsigned ant_limit_{};
+    std::map<game::ItemMenuKind,std::vector<ItemOrder>> queues_;
+    bool connected_{};
 public:
     CollectionModule(const extensions::Manifest& manifest,const Plan& plan,const Plan& available,Builder build,const extensions::Factory& initial)
         :visits_(manifest),available_(visit_plan(plan),visit_plan(available)),options_(item_settings(plan)),defaults_(plan.items),build_(std::move(build)),orders_(plan.items.orders) {
@@ -69,6 +71,7 @@ public:
                 }))) throw std::invalid_argument("Invalid Collection queue");
             settings.erase(found);
         }
+        queues_.clear();
         for (const bool blender:{true,false}) {
             const auto selection=values.find(blender?"blender-orders":"shrine-orders");
             if (selection==values.end()) continue;
@@ -77,14 +80,18 @@ public:
                 const auto key=item_key(blender,item);
                 orders.push_back({item,unsigned(std::get<int>(values.at(key+"-amount"))),unsigned(std::get<int>(values.at(key+"-runs"))),std::get<bool>(values.at(key+"-unlimited"))});
             }
-            orders_->configure(blender?game::ItemMenuKind::blender:game::ItemMenuKind::wind_shrine,orders);
+            queues_[blender?game::ItemMenuKind::blender:game::ItemMenuKind::wind_shrine]=std::move(orders);
         }
         if (values.contains("shrine-hours")) options.shrine_interval=std::chrono::hours(std::get<int>(values.at("shrine-hours")));
         if (values.contains("printer-egg")) options.printer_egg=std::get<std::string>(values.at("printer-egg"));
         ant_limit_=unsigned(std::get<int>(values.at("ant-purchases")));
-        auto next=build_(std::move(options),visits_); next->start(available_.values(std::move(settings))); delegate_=std::move(next);
+        auto next=build_(std::move(options),visits_); next->start(available_.values(std::move(settings))); delegate_=std::move(next); connected_=false;
     }
     void update(const extensions::SessionView& view) override {
+        if (!connected_) {
+            for (const auto& [kind,orders]:queues_) orders_->configure(kind,orders);
+            connected_=true;
+        }
         if (defaults_.ant_passes) defaults_.ant_passes->configure(ant_limit_,view.session_id);
         delegate_->update(view);
     }
@@ -110,7 +117,7 @@ public:
     std::vector<extensions::ModuleTimer> timers() const override { return delegate_->timers(); }
     std::optional<std::vector<extensions::Metric>> report_metrics() const override { return delegate_->report_metrics(); }
     std::vector<Counter> report_counters() const override { return delegate_->report_counters(); }
-    void stop() noexcept override { if (defaults_.ant_passes) defaults_.ant_passes->disable(); delegate_->stop(); }
+    void stop() noexcept override { if (connected_ && defaults_.ant_passes) defaults_.ant_passes->disable(); connected_=false; delegate_->stop(); }
     game::RequestBatch request_channels() const override { return delegate_->request_channels(); }
     std::optional<extensions::RoutineParticipation> routine() const override { return delegate_->routine(); }
     std::unique_ptr<automation::Program> routine_program() const override { return delegate_->routine_program(); }

@@ -4,11 +4,12 @@
 namespace hive::features::boosting {
 void validate(const Preferences& preferences) {
     for (const auto& rule:preferences.items)
-        if (rule.when<UseWhen::off || rule.when>UseWhen::boosted_conversion || rule.interval<Time(1000)
+        if (rule.when<UseWhen::off || rule.when>UseWhen::fighting || rule.interval<Time(1000)
             || rule.interval>std::chrono::hours(24) || rule.backpack<1 || rule.backpack>100)
             throw std::invalid_argument("Invalid consumable rule");
     const auto& boost=preferences.boost;
-    if (boost.dice_slot>7 || boost.glitter_slot>7 || boost.dice_limit<1 || boost.dice_limit>10000
+    if (boost.target_stacks<1 || boost.target_stacks>4 || boost.duration<Time{} || boost.duration>std::chrono::hours(24)
+        || boost.dice_slot>7 || boost.glitter_slot>7 || boost.dice_limit<1 || boost.dice_limit>10000
         || boost.glitter_limit<1 || boost.glitter_limit>1000 || boost.roll_interval<Time(2000) || boost.roll_interval>Time(10000)
         || boost.extend_after<std::chrono::minutes(10) || boost.extend_after>std::chrono::minutes(14))
         throw std::invalid_argument("Invalid boost item settings");
@@ -28,11 +29,11 @@ void Controller::update(const extensions::SessionView& view,const std::optional<
     if (view.session_id && view.session_id!=session_) {
         session_=view.session_id; used_at_={}; uses_={}; visits_={}; visit_=0; next_item_={}; attempted_.clear();
         dice_used_=glitter_used_=0; ages_.clear(); boosted_.clear(); active_.clear(); completed_.clear(); readable_=false;
-        observed_={}; gathering_field_.clear(); last_field_.clear();
+        observed_={}; gathering_field_.clear(); last_field_.clear(); boost_started_.reset(); stacks_.clear();
     }
     if (view.generation!=generation_) {
         generation_=view.generation; active_.clear(); completed_.clear(); boosted_.clear(); ages_.clear();
-        readable_=false; observed_={}; gathering_field_.clear(); last_field_.clear();
+        readable_=false; observed_={}; gathering_field_.clear(); last_field_.clear(); stacks_.clear();
     }
     running_=enabled_ && view.status.state==RunState::running; updated_=view.now;
     if (!running_) return;
@@ -42,13 +43,15 @@ void Controller::update(const extensions::SessionView& view,const std::optional<
         if (data && data->readable) {
             const bool continuous=readable_ && reading->context.now-observed_<=Time(3000);
             const auto previous=boosted_;
-            for (const auto& boost:data->boosts) if (!previous.contains(boost.field)) {
+            for (const auto& boost:data->boosts) if (!previous.contains(boost.field)
+                || (boost.stacks && stacks_.contains(boost.field) && stacks_.at(boost.field) && *boost.stacks>*stacks_.at(boost.field))) {
                 const bool rolled=last_dice_ && reading->context.now>=*last_dice_
                     && reading->context.now-*last_dice_<=Time(10000);
                 ages_[boost.field]={continuous || rolled?std::optional<Time>(reading->context.now):std::nullopt,false};
             }
             observed_=reading->context.now; readable_=true;
-            boosted_.clear(); for (const auto& boost:data->boosts) boosted_.insert(boost.field);
+            boosted_.clear(); stacks_.clear();
+            for (const auto& boost:data->boosts) { boosted_.insert(boost.field); stacks_[boost.field]=boost.stacks; }
             std::erase_if(ages_,[&](const auto& entry) { return !boosted_.contains(entry.first); });
         }
     }
@@ -68,13 +71,17 @@ void Controller::update(const extensions::SessionView& view,const std::optional<
     }
 }
 bool Controller::fresh(Time now) const { return readable_ && now>=observed_ && now-observed_<=Time(3000); }
-bool Controller::can_roll() const { return preferences_.boost.dice_slot && !preferences_.boost.field.empty() && dice_used_<preferences_.boost.dice_limit; }
+bool Controller::can_roll() const { return (!boost_started_ || preferences_.boost.duration==Time{} || updated_-*boost_started_<preferences_.boost.duration) && preferences_.boost.dice_slot && !preferences_.boost.field.empty() && dice_used_<preferences_.boost.dice_limit; }
 unsigned Controller::take_boost(const automation::HotbarContext& context) {
     if (!fresh(context.observation.now) || context.activity!=WorkActivity::gathering || context.field.empty()) return 0;
+    if (boost_started_ && preferences_.boost.duration>Time{} && context.observation.now-*boost_started_>=preferences_.boost.duration) return 0;
     const auto now=context.observation.now;
     const auto& boost=preferences_.boost;
-    if (can_roll() && context.field==boost.field && !boosted_.contains(context.field)
+    const auto stacks=stacks_.find(context.field);
+    const bool below_target=!boosted_.contains(context.field) || (stacks!=stacks_.end() && stacks->second && *stacks->second<boost.target_stacks);
+    if (can_roll() && context.field==boost.field && below_target
         && (!last_dice_ || observed_>=*last_dice_+boost.roll_interval)) {
+        if (!boost_started_) boost_started_=now;
         last_dice_=now; ++dice_used_; return boost.dice_slot;
     }
     const bool allowed=boost.dice_slot?context.field==boost.field:
@@ -82,13 +89,16 @@ unsigned Controller::take_boost(const automation::HotbarContext& context) {
     if (preferences_.pre_glitter && boost.glitter_slot && glitter_used_<boost.glitter_limit && allowed
         && !boosted_.contains(context.field) && blue_remaining_ && *blue_remaining_>=std::chrono::minutes(10)
         && *blue_remaining_<=std::chrono::minutes(11) && (!last_glitter_ || now-*last_glitter_>=std::chrono::seconds(905))) {
+        if (!boost_started_) boost_started_=now;
         last_glitter_=now; ++glitter_used_; return boost.glitter_slot;
     }
     if (boost.glitter_slot && glitter_used_<boost.glitter_limit && allowed && boosted_.contains(context.field)
         && (!last_glitter_ || now-*last_glitter_>=std::chrono::seconds(905))) {
         auto& age=ages_.at(context.field);
         if (age.started && !age.extended && now-*age.started>=boost.extend_after && now-*age.started<std::chrono::minutes(15)) {
-            age.extended=true; last_glitter_=now; ++glitter_used_; return boost.glitter_slot;
+            age.extended=true;
+            if (!boost_started_) boost_started_=now;
+            last_glitter_=now; ++glitter_used_; return boost.glitter_slot;
         }
     }
     return 0;
@@ -111,7 +121,8 @@ unsigned Controller::take(const automation::HotbarContext& context) {
             rule.when==UseWhen::field_start?gathering && visits_[i]!=visit_:
             rule.when==UseWhen::converting?context.activity==WorkActivity::converting:
             rule.when==UseWhen::backpack?gathering && context.backpack && *context.backpack>=rule.backpack:
-            rule.when==UseWhen::boosted_conversion?context.activity==WorkActivity::converting && fresh(now) && boosted_.contains(last_field_):false;
+            rule.when==UseWhen::boosted_conversion?context.activity==WorkActivity::converting && fresh(now) && boosted_.contains(last_field_):
+            rule.when==UseWhen::fighting?context.activity==WorkActivity::fighting:false;
         if (!allowed) continue;
         ++uses_[i]; used_at_[i]=now; visits_[i]=visit_; next_item_=now+Time(500);
         return i+1;
@@ -159,8 +170,9 @@ bool Controller::needs_backpack() const {
 bool Controller::needs_reading() const {
     std::lock_guard lock(mutex_);
     if (!enabled_) return false;
+    const bool spending=!boost_started_ || preferences_.boost.duration==Time{} || updated_-*boost_started_<preferences_.boost.duration;
     if ((preferences_.follow && !preferences_.fields.empty()) || (!preferences_.during_boosts && !preferences_.boosters.empty())
-        || preferences_.boost.dice_slot || preferences_.boost.glitter_slot) return true;
+        || !active_.empty() || (spending && (can_roll() || (preferences_.boost.glitter_slot && glitter_used_<preferences_.boost.glitter_limit)))) return true;
     for (unsigned i=0;i<preferences_.items.size();++i) {
         const auto& rule=preferences_.items[i];
         if ((rule.when==UseWhen::boosted || rule.when==UseWhen::boosted_conversion) && (!rule.limit || uses_[i]<rule.limit)) return true;
@@ -171,6 +183,10 @@ std::vector<extensions::Metric> Controller::metrics() const {
     std::lock_guard lock(mutex_);
     std::vector<extensions::Metric> result{{"Field",active_.empty()?"No selected field boosted":active_},
         {"Reading",readable_?"Current":"Waiting for buff bar"}};
+    if (const auto found=stacks_.find(active_); found!=stacks_.end() && readable_)
+        result.push_back({"Stacks",found->second?"x"+std::to_string(*found->second):"Unreadable"});
+    if (boost_started_ && preferences_.boost.duration>Time{} && updated_-*boost_started_>=preferences_.boost.duration)
+        result.push_back({"Spending","Time limit reached"});
     if (preferences_.boost.dice_slot) result.push_back({"Dice",std::to_string(dice_used_)+" / "+std::to_string(preferences_.boost.dice_limit)+" presses"});
     if (preferences_.boost.glitter_slot) result.push_back({"Glitter",std::to_string(glitter_used_)+" / "+std::to_string(preferences_.boost.glitter_limit)+" presses"});
     for (unsigned i=0;i<uses_.size();++i) if (preferences_.items[i].when!=UseWhen::off)

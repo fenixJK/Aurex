@@ -39,6 +39,8 @@ private:
     std::optional<game::RequestScope> request_scope_;
     void stop() noexcept;
 };
+struct ModuleConfiguration { Settings settings; bool enabled{}; };
+using Configuration=std::map<std::string,ModuleConfiguration>;
 struct RoutineEntry {
     std::string id;
     std::uint64_t revision{};
@@ -64,6 +66,8 @@ public:
     void enable(const std::string& id);
     void disable(const std::string& id);
     void configure(const std::string& id, Settings settings);
+    QJsonObject preset() const;
+    void apply_preset(const QJsonObject& preset);
     void update(const SessionView& view);
     void fail_module(const std::string& id,const std::string& reason);
     bool pending_work(const std::string& id,const SessionView& view);
@@ -99,7 +103,7 @@ private:
     std::uint64_t next_revision_{1};
     void require_stopped() const;
     std::vector<std::string> order(const std::string& id) const;
-    void persist() const;
+    void persist(const Configuration* configuration=nullptr);
     void restore();
     void stop_all() noexcept;
     void stop_entry(Entry& entry) noexcept;

@@ -1,9 +1,9 @@
 #include "host.hpp"
+#include "configuration.hpp"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
-#include <QJsonArray>
 #include <QSaveFile>
 #include <QRegularExpression>
 #include <set>
@@ -17,36 +17,6 @@ std::string exception_message() {
     try { throw; }
     catch (const std::exception& e) { return e.what(); }
     catch (...) { return "Module raised an unexpected error"; }
-}
-QJsonObject encode(const Settings& settings) {
-    QJsonObject object;
-    for (const auto& [key,value] : settings) std::visit([&,name=q(key)](const auto& v) {
-        using T=std::decay_t<decltype(v)>;
-        if constexpr (std::is_same_v<T,std::string>) object[name]=q(v);
-        else if constexpr (std::is_same_v<T,SettingSelection>) {
-            QJsonArray items; for (const auto& item : v) items.append(q(item)); object[name]=items;
-        }
-        else object[name]=v;
-    },value);
-    return object;
-}
-Settings decode(const QJsonObject& object) {
-    Settings result;
-    for (auto it=object.begin(); it!=object.end(); ++it) {
-        if (it->isBool()) result[it.key().toStdString()]=it->toBool();
-        else if (it->isString()) result[it.key().toStdString()]=it->toString().toStdString();
-        else if (it->isDouble() && it->toDouble()==it->toInt()) result[it.key().toStdString()]=it->toInt();
-        else if (it->isArray() && it->toArray().size()<=static_cast<qsizetype>(maximum_setting_choices)) {
-            SettingSelection items;
-            for (const auto& item : it->toArray()) {
-                if (!item.isString() || item.toString().size()>80) throw std::runtime_error("Invalid stored selection");
-                items.push_back(item.toString().toStdString());
-            }
-            result[it.key().toStdString()]=std::move(items);
-        }
-        else throw std::runtime_error("Invalid stored setting type");
-    }
-    return result;
 }
 }
 void Entry::stop() noexcept {
@@ -394,17 +364,23 @@ std::vector<Metric> Host::metrics(const std::string& id) const {
 std::vector<game::FieldGoal> Host::field_goals(Time now,std::uint64_t generation) const {
     return requests_->snapshot(now,generation);
 }
-void Host::persist() const {
+void Host::persist(const Configuration* configuration) {
     if (!state_writable_) throw std::runtime_error("Extension settings file could not be read; repair it before saving changes");
     auto saved=saved_;
     for (const auto& [id,entry] : entries_) {
-        if (!entry.config_valid) continue;
-        saved[q(id)]=QJsonObject{{"version",entry.manifest.settings_version},{"enabled",entry.requested},{"values",encode(entry.settings)}};
+        if (!entry.config_valid && (!configuration || !configuration->contains(id))) continue;
+        const auto proposed=configuration?configuration->find(id):Configuration::const_iterator{};
+        const bool changed=configuration && proposed!=configuration->end();
+        saved[q(id)]=QJsonObject{{"version",entry.manifest.settings_version},
+            {"enabled",changed?proposed->second.enabled:entry.requested},
+            {"values",encode_settings(changed?proposed->second.settings:entry.settings)}};
     }
+    if (saved==saved_) return;
     if (!QDir().mkpath(QFileInfo(state_file_).absolutePath())) throw std::runtime_error("Cannot create extension settings directory");
     QSaveFile file(state_file_); const auto data=QJsonDocument(QJsonObject{{"version",1},{"extensions",saved}}).toJson();
     if (data.size()>1024*1024) throw std::runtime_error("Extension settings exceed the 1 MiB limit");
     if (!file.open(QIODevice::WriteOnly) || file.write(data)!=data.size() || !file.commit()) throw std::runtime_error("Could not save extension settings");
+    saved_=std::move(saved);
 }
 void Host::restore() {
     if (!QFileInfo::exists(state_file_)) return;
@@ -422,7 +398,7 @@ void Host::restore() {
             const auto version=saved["version"].toInt(0);
             if (version<1 || version>10000 || saved["version"]!=QJsonValue(version)
                 || !saved["enabled"].isBool() || !saved["values"].isObject()) throw std::runtime_error("Invalid stored settings structure");
-            auto values=decode(saved["values"].toObject());
+            auto values=decode_settings(saved["values"].toObject());
             if (version!=entry.manifest.settings_version) {
                 const auto builtin=builtins_.find(id);
                 if (version>entry.manifest.settings_version || builtin==builtins_.end() || !builtin->second.migration)

@@ -4,8 +4,9 @@
 namespace hive::automation {
 bool attach_hotbar(std::span<Action> actions,HotbarSource& source,const HotbarContext& context) {
     if (actions.empty()) return false;
-    const auto compatible=[](const Action& action) {
-        return !action.pointer && !action.pointer_to && !action.scroll && !action.tap && !action.concurrent_pointer
+    const auto compatible=[&](const Action& action) {
+        const bool aimed_attack=context.activity==WorkActivity::fighting && std::find(action.held.begin(),action.held.end(),Key::primary)!=action.held.end();
+        return (!action.pointer || aimed_attack) && !action.pointer_to && !action.scroll && !action.tap && !action.concurrent_pointer
             && std::all_of(action.held.begin(),action.held.end(),[](Key key) {
                 return (key>=Key::forward && key<=Key::right) || key==Key::primary;
             });

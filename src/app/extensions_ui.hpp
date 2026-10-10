@@ -66,7 +66,7 @@ private:
     void reconcile();
     void show_page();
     void release_hidden_pages();
-    bool release_page(const std::string& id);
+    bool release_page(const std::string& id,bool save=true);
     void build_page(const std::string& id);
     void render_page(const std::string& id);
     void refresh_list();

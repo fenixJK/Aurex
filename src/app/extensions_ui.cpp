@@ -1,4 +1,6 @@
 #include "extensions_ui.hpp"
+#include "presets.hpp"
+#include <QJsonArray>
 #include "command_form.hpp"
 #include "module_plot.hpp"
 #include "module_metrics.hpp"
@@ -341,6 +343,32 @@ ExtensionsUi::ExtensionsUi(Navigation* navigation,QStackedWidget* pages,QString 
     auto contents=new QWidget; scroll->setWidget(contents);
     auto layout=new QVBoxLayout(contents); layout->setContentsMargins(12,10,12,10); layout->setSpacing(8);
     auto heading=new QHBoxLayout; heading->addWidget(text("Modules","heading"),1);
+    auto presets=new QPushButton("Presets…"); heading->addWidget(presets);
+    connect(presets,&QPushButton::clicked,this,[this,state_file] {
+        show_presets(manager_,QFileInfo(state_file).dir().filePath("presets"),[this] {
+            apply_settings(); auto preset=host_.preset(); QJsonArray order;
+            for (const auto& id:run_order()) if (host_.entries().at(id).manifest.presets) order.append(q(id));
+            preset["order"]=order; return preset;
+        },[this](const QJsonObject& preset) {
+            if (busy_()) throw std::runtime_error("Stop the macro before applying a preset");
+            std::vector<std::string> order; std::set<std::string> unique;
+            if (!preset["order"].isArray()) throw std::invalid_argument("Preset run order is missing");
+            for (const auto& value:preset["order"].toArray()) {
+                const auto id=value.toString().toStdString(); const auto found=host_.entries().find(id);
+                if (!value.isString() || found==host_.entries().end() || !found->second.manifest.presets || !unique.insert(id).second)
+                    throw std::invalid_argument("Invalid preset run order");
+                order.push_back(id);
+            }
+            host_.apply_preset(preset);
+            for (const auto& [id,entry]:host_.entries()) if (entry.manifest.presets) {
+                release_page(id,false); extension_pages_.at(id)->baseline=entry.settings;
+            }
+            render();
+            const auto available=run_order();
+            std::erase_if(order,[&](const auto& id) { return std::find(available.begin(),available.end(),id)==available.end(); });
+            set_run_order(std::move(order));
+        },busy_);
+    });
     layout->addLayout(heading);
     layout->addWidget(text("Enabled modules appear in the sidebar and run together.","muted"));
     message_=text({},"muted"); layout->addWidget(message_);
@@ -499,18 +527,22 @@ void ExtensionsUi::show_page() {
 void ExtensionsUi::release_hidden_pages() {
     for (const auto& [id,page]:extension_pages_) if(page->widget!=pages_->currentWidget()) release_page(id);
 }
-bool ExtensionsUi::release_page(const std::string& id) {
+bool ExtensionsUi::release_page(const std::string& id,bool save) {
     auto& page=extension_pages_.at(id);
     if (!page->error) return false;
     auto* scroll=static_cast<QScrollArea*>(page->widget);
     auto* body=scroll->widget();
     const auto children=body->findChildren<QDialog*>();
     const auto visible=[](const auto* dialog) { return dialog->isVisible(); };
-    if (std::any_of(page->dialogs.begin(),page->dialogs.end(),visible)
-        || std::any_of(children.begin(),children.end(),visible)) return false;
+    if (save && (std::any_of(page->dialogs.begin(),page->dialogs.end(),visible)
+        || std::any_of(children.begin(),children.end(),visible))) return false;
+    if (!save) {
+        for (auto* dialog:page->dialogs) dialog->reject();
+        for (auto* dialog:children) dialog->reject();
+    }
     const auto& entry=host_.entries().at(id);
     const auto values=page->read(entry.manifest);
-    if (!busy_() && values!=entry.settings) {
+    if (save && !busy_() && values!=entry.settings) {
         try { host_.configure(id,values); }
         catch (const std::exception& e) { message_->setText(QString::fromUtf8(e.what())); return false; }
     }

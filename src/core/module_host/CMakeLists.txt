@@ -9,6 +9,8 @@ if(HIVE_BUILD_DESKTOP)
     settings_text.cpp
     manifest.cpp
     host.cpp
+    configuration.cpp
+    presets.cpp
     package.cpp)
   target_link_libraries(hive_extensions PUBLIC hive_automation hive_session Qt6::Core)
   add_library(hive_extension_providers dashboard.cpp script_module.cpp script_contributor.cpp)

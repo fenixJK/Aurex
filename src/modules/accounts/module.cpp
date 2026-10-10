@@ -88,7 +88,7 @@ public:
 };
 }
 extensions::Manifest module_manifest() {
-    extensions::Manifest result;result.id="hive.native-accounts";result.provider="native-accounts";result.name="Accounts";result.version="1.0.0";
+    extensions::Manifest result;result.id="hive.native-accounts";result.provider="native-accounts";result.presets=false;result.name="Accounts";result.version="1.0.0";
     result.description="Share a server, gather together and help with shared fights.";
     result.requests={extensions::RequestService::fields,extensions::RequestService::enemies,extensions::RequestService::servers};
     result.settings={{"follow-host","Follow host field",true},{"interrupt-gather","Gather interrupt",true},

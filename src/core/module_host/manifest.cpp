@@ -38,8 +38,10 @@ Manifest read_manifest(const QString& path) {
     auto doc=QJsonDocument::fromJson(file.readAll(),&error);
     require(error.error==QJsonParseError::NoError && doc.isObject(),"Manifest must be a JSON object");
     const auto obj=doc.object();
-    keys(obj,{"id","name","version","description","api","settingsVersion","provider","dependencies","settings","bindings","scripts","permissions","requests","routine","consumes","page","commands"});
+    keys(obj,{"id","name","version","description","api","settingsVersion","provider","dependencies","settings","bindings","scripts","permissions","requests","routine","consumes","page","commands","presets"});
     Manifest m;
+    require(!obj.contains("presets") || obj["presets"].isBool(),"Preset participation must be boolean");
+    m.presets=obj["presets"].toBool(true);
     m.id=text(obj,"id",80); require(identifier(m.id),"Invalid extension ID");
     m.name=text(obj,"name",80); m.version=text(obj,"version",32); m.description=text(obj,"description",500);
     require(QRegularExpression("^[0-9]+\\.[0-9]+\\.[0-9]+$").match(QString::fromStdString(m.version)).hasMatch(),"Version must have major.minor.patch form");

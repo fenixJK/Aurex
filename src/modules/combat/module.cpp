@@ -86,6 +86,8 @@ class CombatModule final : public extensions::Module {
     std::shared_ptr<extensions::Module> delegate_;
     std::shared_ptr<MondoTrip> trip_;
     std::function<Time()> clock_;
+    bool public_mondo_{},interrupt_{},connected_{};
+    int lead_{};
 public:
     CombatModule(const extensions::Manifest& manifest,const Plan& plan,const Plan& available,Builder build,std::shared_ptr<MondoTrip> trip)
         :visits_(manifest),available_(visit_plan(plan),visit_plan(available)),options_(option_settings(plan)),build_(std::move(build)),trip_(std::move(trip)),clock_(plan.wall_clock) {
@@ -152,13 +154,15 @@ public:
         }
         auto next=build_(std::move(options),visits_);
         const auto bosses=values.contains("bosses")?std::get<SettingSelection>(values.at("bosses")):SettingSelection{};
-        trip_->configure(values.contains("mondo-public") && std::get<bool>(values.at("mondo-public"))
-            && std::find(bosses.begin(),bosses.end(),"Mondo Chick")!=bosses.end(),
-            values.contains("mondo-lead")?std::get<int>(values.at("mondo-lead")):0,std::get<bool>(values.at("interrupt-gather")));
+        public_mondo_=values.contains("mondo-public") && std::get<bool>(values.at("mondo-public"))
+            && std::find(bosses.begin(),bosses.end(),"Mondo Chick")!=bosses.end();
+        lead_=values.contains("mondo-lead")?std::get<int>(values.at("mondo-lead")):0;
+        interrupt_=std::get<bool>(values.at("interrupt-gather"));
         next->start(available_.values(std::move(settings)));
-        delegate_=std::move(next);
+        delegate_=std::move(next); connected_=false;
     }
     void update(const extensions::SessionView& view) override {
+        if (!connected_) { trip_->configure(public_mondo_,lead_,interrupt_); connected_=true; }
         delegate_->update(view);
         bool due=false;
         if (trip_->selected() && !trip_->active()) {
@@ -186,7 +190,7 @@ public:
     std::vector<extensions::ModuleTimer> timers() const override { return delegate_->timers(); }
     std::optional<std::vector<extensions::Metric>> report_metrics() const override { return delegate_->report_metrics(); }
     std::vector<Counter> report_counters() const override { return delegate_->report_counters(); }
-    void stop() noexcept override { trip_->configure(false,0,false); delegate_->stop(); }
+    void stop() noexcept override { if (connected_) trip_->configure(false,0,false); connected_=false; if (delegate_) delegate_->stop(); }
     game::Requests requests() const override { return delegate_->requests(); }
     game::RequestBatch request_channels() const override { return trip_->requests(); }
     std::optional<extensions::RoutineParticipation> routine() const override { return delegate_->routine(); }
