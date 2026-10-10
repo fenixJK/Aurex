@@ -14,14 +14,25 @@ Routine::Routine(std::vector<RoutineEntry> entries,std::unique_ptr<automation::A
             throw std::invalid_argument("Invalid routine participation");
     }
 }
+Routine::Readiness Routine::readiness(Host& host,const SessionView& view,std::size_t index) const {
+    const auto& e=entries_[index];
+    const auto& p=e.participation;
+    if (deferred_until_[index]>view.now || after_work_[index]>completed_work_) return {};
+    if (!p.fallback && !p.demand_only && !p.reactive && due_[index]>view.now) return {};
+    const auto found=host.entries().find(e.id);
+    if (found==host.entries().end() || !found->second.executable()) return {};
+    const bool pending=!p.fallback && host.pending_work(e.id,view);
+    if (!found->second.executable()) return {};
+    return {pending,p.fallback || (p.demand_only?pending:(due_[index]<=view.now || (p.reactive && pending)))};
+}
 bool Routine::should_yield(Host& host,const SessionView& view) const {
     if (!active_ || !view.feature || view.feature->state!=automation::State::running) return false;
     const bool gathering=entries_[*active_].participation.fallback;
     const auto priority=entries_[*active_].participation.priority;
-    for (std::size_t i=0;i<entries_.size();++i) if (i!=*active_ && deferred_until_[i]<=view.now && after_work_[i]<=completed_work_ && (entries_[i].participation.demand_only || due_[i]<=view.now || entries_[i].participation.reactive)
+    for (std::size_t i=0;i<entries_.size();++i) if (i!=*active_ && !entries_[i].participation.fallback
         && (gathering?entries_[i].participation.interrupt_gather:entries_[i].participation.priority>priority)) {
-        const auto found=host.entries().find(entries_[i].id);
-        if (found!=host.entries().end() && host.pending_work(entries_[i].id,view) && (gathering || !entries_[i].participation.demand_only || !pending_at_dispatch_[i])) return true;
+        const auto work=readiness(host,view,i);
+        if (work.eligible && work.pending && (gathering || !entries_[i].participation.demand_only || !pending_at_dispatch_[i])) return true;
     }
     return false;
 }
@@ -57,23 +68,22 @@ std::optional<automation::Launch> Routine::next(Host& host,const SessionView& vi
     } else if (view.feature && view.feature->state==automation::State::running) throw std::runtime_error("Another feature owns the session");
     if (!allow_launch) return {};
     std::vector<automation::ActivityOption> options;
+    std::fill(pending_at_dispatch_.begin(),pending_at_dispatch_.end(),false);
     std::optional<std::size_t> fallback;
     bool interrupt_gather=false;
     for (std::size_t i=0;i<entries_.size();++i) {
         const auto& e=entries_[i];
-        if (!host.entries().at(e.id).executable() || deferred_until_[i]>view.now || after_work_[i]>completed_work_) continue;
+        const auto work=readiness(host,view,i);
+        pending_at_dispatch_[i]=work.pending;
+        if (!work.eligible) continue;
         if (e.participation.fallback) {
             fallback=i;
             if (e.participation.priority>0 && due_[i]<=view.now)
                 options.push_back({e.id,e.participation.priority,due_[i]});
         }
         else {
-            const bool pending=host.pending_work(e.id,view);
-            if (!host.entries().at(e.id).executable()) continue;
-            if (e.participation.demand_only?pending:(due_[i]<=view.now || (e.participation.reactive && pending))) {
-                options.push_back({e.id,e.participation.priority,std::min(due_[i],view.now)});
-                interrupt_gather=interrupt_gather || (e.participation.interrupt_gather && pending);
-            }
+            options.push_back({e.id,e.participation.priority,std::min(due_[i],view.now)});
+            interrupt_gather=interrupt_gather || (e.participation.interrupt_gather && work.pending);
         }
     }
     if (interrupt_gather && fallback) {
@@ -91,7 +101,6 @@ std::optional<automation::Launch> Routine::next(Host& host,const SessionView& vi
         selected=std::find_if(entries_.begin(),entries_.end(),[&](const auto& e) { return e.id==*choice; })-entries_.begin();
     }
     if (!selected) return {};
-    for(std::size_t i=0;i<entries_.size();++i) pending_at_dispatch_[i]=host.pending_work(entries_[i].id,view);
     if (!host.entries().at(entries_[*selected].id).executable()) return {};
     try {
         auto launch=host.prepare_routine(entries_[*selected]);

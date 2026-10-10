@@ -14,7 +14,7 @@ struct BoostItems {
     Time roll_interval{3000},extend_after{780000};
 };
 struct Preferences {
-    bool follow{true},interrupt{true},force_blue{},pre_glitter{};
+    bool follow{true},interrupt{true},during_boosts{},pre_glitter{};
     std::vector<std::string> fields,boosters;
     std::array<ItemRule,7> items;
     BoostItems boost;
@@ -54,6 +54,7 @@ public:
     bool needs_reading() const;
 };
 extensions::Manifest module_manifest();
+Settings migrate_settings(int version,Settings settings);
 extensions::Factory module_factory(std::shared_ptr<Controller> controller,
     std::shared_ptr<const game::DetectionSource> observations,std::vector<Booster> boosters,std::vector<std::string> fields);
 }

@@ -158,7 +158,7 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
         }
         Requirements requirements; requirements.navigation(navigation);
         auto manifest=features::boosting::module_manifest();
-        add(host,std::move(manifest),features::boosting::module_factory(modules.boosting,modules.field_boosts,boosters,fields),requirements);
+        add(host,std::move(manifest),features::boosting::module_factory(modules.boosting,modules.field_boosts,boosters,fields),requirements,features::boosting::migrate_settings);
     }
     {
         auto service=modules.gathering;

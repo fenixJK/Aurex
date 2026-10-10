@@ -133,13 +133,7 @@ std::optional<std::string> Controller::next_booster(Time now,const std::vector<B
         const auto attempted=attempted_.find(booster.name);
         if (attempted==attempted_.end() || now-attempted->second>=std::chrono::minutes(5)) return booster.name;
     }
-    if (preferences_.force_blue && std::find(preferences_.boosters.begin(),preferences_.boosters.end(),"Blue Field Booster")!=preferences_.boosters.end()) {
-        const auto blue=std::find_if(boosters.begin(),boosters.end(),[](const auto& booster) { return booster.name=="Blue Field Booster"; });
-        const auto tried=attempted_.find("Blue Field Booster");
-        if (blue!=boosters.end() && blue->visit && blue->remaining && blue->remaining()==Time{}
-            && (tried==attempted_.end() || now-tried->second>=std::chrono::minutes(5))) return blue->name;
-    }
-    if (!fresh(now) || (!active_.empty() && boosted_.contains(active_))) return {};
+    if (!preferences_.during_boosts && (!fresh(now) || (!active_.empty() && boosted_.contains(active_)))) return {};
     for (const auto& name:preferences_.boosters) {
         const auto found=std::find_if(boosters.begin(),boosters.end(),[&](const auto& b) { return b.name==name; });
         if (found==boosters.end() || !found->visit || !found->remaining || found->remaining()>Time{}) continue;
@@ -165,7 +159,7 @@ bool Controller::needs_backpack() const {
 bool Controller::needs_reading() const {
     std::lock_guard lock(mutex_);
     if (!enabled_) return false;
-    if ((preferences_.follow && !preferences_.fields.empty()) || !preferences_.boosters.empty()
+    if ((preferences_.follow && !preferences_.fields.empty()) || (!preferences_.during_boosts && !preferences_.boosters.empty())
         || preferences_.boost.dice_slot || preferences_.boost.glitter_slot) return true;
     for (unsigned i=0;i<preferences_.items.size();++i) {
         const auto& rule=preferences_.items[i];

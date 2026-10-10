@@ -14,6 +14,8 @@ class Routine {
     Time last_{};
     std::uint64_t generation_{};
     std::uint64_t session_id_{};
+    struct Readiness { bool pending{},eligible{}; };
+    Readiness readiness(Host& host,const SessionView& view,std::size_t index) const;
     void check(Time now);
 public:
     Routine(std::vector<RoutineEntry> entries,std::unique_ptr<automation::ActivityPolicy> policy);

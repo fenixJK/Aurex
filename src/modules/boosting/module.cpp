@@ -25,7 +25,7 @@ public:
         extensions::validate_settings(manifest_,settings);
         Preferences preferences;
         preferences.follow=std::get<bool>(settings.at("follow")); preferences.interrupt=std::get<bool>(settings.at("interrupt-gather"));
-        preferences.force_blue=std::get<bool>(settings.at("blue-when-ready")); preferences.pre_glitter=std::get<bool>(settings.at("pre-glitter"));
+        preferences.during_boosts=std::get<bool>(settings.at("during-boosts")); preferences.pre_glitter=std::get<bool>(settings.at("pre-glitter"));
         preferences.fields=std::get<SettingSelection>(settings.at("fields")); preferences.boosters=std::get<SettingSelection>(settings.at("boosters"));
         std::erase_if(preferences.fields,[&](const auto& field) { return std::find(fields_.begin(),fields_.end(),field)==fields_.end(); });
         for (unsigned i=0;i<7;++i) {
@@ -73,6 +73,7 @@ public:
 extensions::Manifest module_manifest() {
     extensions::Manifest manifest; manifest.id="hive.native-boosting"; manifest.provider="native-boosting";
     manifest.name="Boosting"; manifest.version="1.0.0";
+    manifest.settings_version=2;
     manifest.description="Follow boosts, roll for a field and extend with glitter. Uses Gathering's field settings.";
     manifest.permissions={automation::Permission::movement,automation::Permission::interact};
     manifest.requests={extensions::RequestService::fields};
@@ -83,14 +84,14 @@ extensions::Manifest module_manifest() {
     for (const auto& field:game::fields()) fields.push_back(field.name);
     manifest.settings={{"follow","Follow boosts",true},{"interrupt-gather","Gather interrupt",true},
         {"fields","Fields",SettingSelection(fields),0,0,fields,true},{"boosters","Boosters",SettingSelection{},0,0,stations,true}};
-    manifest.settings.push_back({"blue-when-ready","Blue Booster when ready",false});
-    manifest.settings.back().help="Use the selected Blue Booster even while another boost is active. Gather interrupt still controls whether gathering can be interrupted.";
+    manifest.settings.push_back({"during-boosts","Use boosters during active boosts",false});
+    manifest.settings.back().help="Use selected boosters when ready, even while following a boost. Selected fields, cooldowns and Gather interrupt still apply.";
     manifest.settings.push_back({"pre-glitter","Pre-glitter",false});
     manifest.settings.back().help="On an unboosted selected field, use glitter 10 minutes before the selected Blue Booster is ready. Uses the same glitter slot and session limit.";
     manifest.page=extensions::PageLayout{{},true}; auto& sections=manifest.page->sections;
     sections.push_back({"follow","Boosts","Gather in boosted fields using their Gathering settings.",{"follow","interrupt-gather"},false,2}); sections.back().tab="Boosts";
     sections.push_back({"fields","Fields",{},{"fields"},false,4}); sections.back().tab="Boosts";
-    sections.push_back({"boosters","Boosters",{},{"boosters","blue-when-ready"},false,1}); sections.back().tab="Boosts";
+    sections.push_back({"boosters","Boosters",{},{"boosters","during-boosts"},false,1}); sections.back().tab="Boosts";
     for (auto& setting:manifest.settings) {
         if (setting.id=="fields" || setting.id=="boosters") { setting.inline_choices=true; }
         if (setting.id=="fields") setting.enabled_by="follow";
@@ -123,6 +124,13 @@ extensions::Manifest module_manifest() {
     sections.push_back({"progress","Current boosts",{},{},true,2}); sections.back().tab="Boosts"; sections.back().collapsed=true;
     for (auto& section:sections) section.inline_labels=true;
     return manifest;
+}
+Settings migrate_settings(int version,Settings settings) {
+    if(version!=1) throw std::invalid_argument("Unsupported Boosting settings version");
+    if(auto previous=settings.extract("blue-when-ready");!previous.empty()) {
+        previous.key()="during-boosts"; settings.insert(std::move(previous));
+    }
+    return settings;
 }
 extensions::Factory module_factory(std::shared_ptr<Controller> controller,
     std::shared_ptr<const game::DetectionSource> observations,std::vector<Booster> boosters,std::vector<std::string> fields) {
