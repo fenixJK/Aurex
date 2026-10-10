@@ -12,6 +12,7 @@
 #include <winrt/Windows.Storage.Streams.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <stdexcept>
 
 namespace hive {
@@ -213,24 +214,28 @@ public:
         if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Input was blocked by Windows");
     }
     void pointer(Point point) override {
-        const auto x=static_cast<LONG>(point.x),y=static_cast<LONG>(point.y);
-        const int left=GetSystemMetrics(SM_XVIRTUALSCREEN),top=GetSystemMetrics(SM_YVIRTUALSCREEN);
-        const int width=GetSystemMetrics(SM_CXVIRTUALSCREEN),height=GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        const int width=GetSystemMetrics(SM_CXSCREEN),height=GetSystemMetrics(SM_CYSCREEN);
         if (width<=0 || height<=0) throw std::runtime_error("Could not read desktop bounds");
-        const auto move=[&](LONG px,LONG py) {
-            mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
-                static_cast<DWORD>(std::clamp((double(px)-left+.5)*65536/width,0.,65535.)),
-                static_cast<DWORD>(std::clamp((double(py)-top+.5)*65536/height,0.,65535.)),0,0);
+        const auto absolute=[](LONG coordinate,int extent) {
+            return std::int64_t(coordinate)*65536/extent+(coordinate<0?-1:1);
         };
+        const auto move=[](std::int64_t x,std::int64_t y) {
+            mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+                static_cast<DWORD>(x),static_cast<DWORD>(y),0,0);
+        };
+        const auto x=absolute(static_cast<LONG>(point.x),width),y=absolute(static_cast<LONG>(point.y),height);
         if (primary_down_) { move(x,y); return; }
         POINT current{};
         if (!GetCursorPos(&current)) throw std::runtime_error("Could not read pointer position");
-        while (current.x!=x || current.y!=y) {
-            const auto distance=std::max(std::abs(double(x)-current.x),std::abs(double(y)-current.y));
-            const auto part=std::min(1.,std::max(24.,distance/2)/distance);
-            current.x+=static_cast<LONG>(std::round((double(x)-current.x)*part));
-            current.y+=static_cast<LONG>(std::round((double(y)-current.y)*part));
-            move(current.x,current.y);
+        auto from_x=absolute(current.x,width),from_y=absolute(current.y,height);
+        const auto advance=[](std::int64_t from,std::int64_t to) {
+            const auto distance=std::abs(to-from);
+            const auto step=std::min(distance,std::max<std::int64_t>(32,distance/2));
+            return from+(to>from?step:-step);
+        };
+        while (from_x!=x || from_y!=y) {
+            from_x=advance(from_x,x); from_y=advance(from_y,y);
+            move(from_x,from_y);
             Sleep(10);
         }
     }
