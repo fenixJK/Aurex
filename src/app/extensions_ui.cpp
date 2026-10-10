@@ -97,9 +97,9 @@ public:
         available_=new QMenu(add_); add_->setMinimumWidth(88); bar->addWidget(add_);
         connect(add_,&QPushButton::clicked,this,[this] { available_->popup(add_->mapToGlobal(QPoint(0,add_->height()))); });
         auto reset=new QPushButton("Defaults"); reset->setObjectName("collection-defaults"); bar->addWidget(reset);
-        pages_=new QStackedWidget; layout->addWidget(pages_);
+        pages_=new QStackedWidget; pages_->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Maximum); layout->addWidget(pages_);
         for(const auto& choice:choices) {
-            auto panel=new QWidget; auto sections=new QVBoxLayout(panel); sections->setContentsMargins(0,0,0,0); sections->setSpacing(8);
+            auto panel=new QWidget; auto sections=new QVBoxLayout(panel); sections->setContentsMargins(0,0,0,0); sections->setSpacing(8); sections->setAlignment(Qt::AlignTop);
             editors_[choice]=panel; pages_->addWidget(panel);
         }
         connect(fields_,&QTabBar::currentChanged,this,[this] { refresh(); if(this->selected) this->selected(); });
@@ -652,6 +652,7 @@ void ExtensionsUi::build_page(const std::string& id) {
             && std::holds_alternative<bool>(saved_values.at(section.settings.front()));
         const bool selection_only=section.settings.size()==1 && std::any_of(entry.manifest.settings.begin(),entry.manifest.settings.end(),[&](const auto& field) { return field.id==section.settings.front() && field.inline_choices; });
         auto group=new QWidget; group->setObjectName("module-section-"+q(section.id)); group->setAccessibleName(q(section.title));
+        group->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Maximum);
         OrderedRows* ordered{};
         QSpinBox* priority{};
         if(!section.order_group.empty()) {
@@ -699,6 +700,8 @@ void ExtensionsUi::build_page(const std::string& id) {
             auto form=new QGridLayout; form->setVerticalSpacing(dense?4:6); form->setHorizontalSpacing(8);
             const bool inline_labels=section.inline_labels && !section.row && !selection_only;
             const auto columns=selection_only?1:section.columns;
+            const bool packed=inline_labels && std::none_of(section.settings.begin(),section.settings.end(),[&](const auto& key) { return collections.contains(key); });
+            if(packed) form->setHorizontalSpacing(24);
             std::vector<int> label_widths(columns);
             for(std::size_t i=0;i<section.settings.size();++i) {
                 const auto& field=*std::find_if(entry.manifest.settings.begin(),entry.manifest.settings.end(),[&](const auto& f) { return f.id==section.settings[i]; });
@@ -709,7 +712,8 @@ void ExtensionsUi::build_page(const std::string& id) {
             if (ordered) {
                 const auto& widths=ordered_widths.at(section.tab+"/"+section.order_group);
                 for(std::size_t i=0;i<widths.size();++i) form->setColumnMinimumWidth(int(i),widths[i]);
-            } else for (unsigned column=0;column<(section.row?section.settings.size()+1:columns);++column)
+            } else if(packed) form->setColumnStretch(columns,1);
+            else for (unsigned column=0;column<(section.row?section.settings.size()+1:columns);++column)
                 form->setColumnStretch(column,1);
             if (section.row && !ordered) {form->setColumnStretch(0,0);form->setColumnMinimumWidth(0,row_widths.at(section.tab));}
             unsigned position=0;
