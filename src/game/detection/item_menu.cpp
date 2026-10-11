@@ -199,6 +199,33 @@ public:
             const bool blender=text.find("blender")!=std::string::npos;
             const bool shrine=text.find("wind shrine")!=std::string::npos && text.find("donate")!=std::string::npos;
             const bool printer=text.find("sticker printer")!=std::string::npos;
+            if (text.find("sticker stack")!=std::string::npos) {
+                result->kind=ItemMenuKind::sticker_stack; result->stage=ItemMenuStage::selection;
+                result->close=Point{(panel.x+panel.width*.05)/f.width,(panel.y+panel.height*.075)/f.height};
+                const cv::Rect area{panel.x+panel.width/2,panel.y+panel.height/7,panel.width/2,panel.height/4};
+                cv::Mat yellow(area.height,area.width,CV_8UC1,cv::Scalar(0));
+                for (int y=0;y<area.height;++y) for (int x=0;x<area.width;++x) {
+                    const auto at=(std::size_t(area.y+y)*f.width+area.x+x)*4;
+                    yellow.at<unsigned char>(y,x)=f.rgba[at]>170 && f.rgba[at+1]>140 && f.rgba[at+2]<130?255:0;
+                }
+                std::vector<std::vector<cv::Point>> buttons;
+                cv::findContours(yellow,buttons,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
+                for (const auto& contour:buttons) {
+                    const auto b=cv::boundingRect(contour);
+                    if (b.width<panel.width*.18 || b.height<panel.height*.05 || b.width<b.height*2
+                        || b.width>b.height*7 || cv::contourArea(contour)<b.area()*.75) continue;
+                    if (result->submit) { result->submit.reset(); break; }
+                    result->submit=Point{(area.x+b.x+b.width/2.)/f.width,(area.y+b.y+b.height/2.)/f.height};
+                }
+                for (const auto& line:rows) {
+                    const auto label=words(line.text);
+                    if (label.find("stack boost")!=std::string::npos) {
+                        const auto duration=timer(line.text);
+                        if (duration && *duration>=std::chrono::minutes(15) && *duration<=std::chrono::hours(1)) result->boost_duration=duration;
+                    }
+                }
+                break;
+            }
             if (printer) {
                 result->kind=ItemMenuKind::sticker_printer; result->stage=ItemMenuStage::selection;
                 result->close=Point{(panel.x+panel.width*.046)/f.width,(panel.y+panel.height*.063)/f.height};

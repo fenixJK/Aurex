@@ -363,7 +363,20 @@ public:
                 auto& result=results_->report_.visits[index_];
                 result.stage=VisitStage::deferred;
                 result.observed_ready_at=view.context.now+*retry;
-            } else confirm(index_,view.context.now);
+            } else {
+                auto& visit=plan_.visits[index_];
+                if (visit.cooldown_after_completion) {
+                    const auto cooldown=visit.cooldown_after_completion();
+                    if (cooldown<=Time{} || cooldown>std::chrono::days(7)) throw std::logic_error("Invalid activity cooldown");
+                    visit.cooldown=cooldown;
+                }
+                confirm(index_,view.context.now);
+                if (visit.cooldown_after_completion) {
+                    std::lock_guard lock(results_->mutex_);
+                    auto& result=results_->report_.visits[index_];
+                    result.observed_ready_at=result.estimated_ready_at;
+                }
+            }
         } else if (phase_==Phase::loot && loot_==plan_.visits[*group_loot_].loot.size()
             && view.context.now-loot_started_>=plan_.visits[*group_loot_].loot_duration) {
             std::lock_guard lock(results_->mutex_);

@@ -334,7 +334,7 @@ public:
         if (stage_==Stage::returned) {
             stage_=Stage::converted; phase(Phase::converting);
             converting_balloon_=plan_.convert_balloon && plan_.balloon_schedule->due(view.context.now,plan_.balloon_interval);
-            return automation::Convert{converting_balloon_};
+            return automation::Convert{converting_balloon_,gathered_};
         }
         throw std::logic_error("Invalid gathering phase");
     }

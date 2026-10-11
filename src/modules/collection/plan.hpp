@@ -19,6 +19,7 @@ struct Station {
     std::function<bool(const ObservationContext&)> scheduled;
     std::function<std::optional<Time>()> retry_after_completion;
     game::StationInteraction kind{game::StationInteraction::activate};
+    std::function<Time()> cooldown_after_completion;
 };
 struct Plan {
     std::vector<Station> stations;

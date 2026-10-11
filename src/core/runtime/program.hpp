@@ -72,7 +72,7 @@ struct EnterNumber { Observation<Point> target; unsigned value{}; };
 struct AwaitText { game::TextTarget target; Time timeout{10000}; };
 struct UseStation { std::string name; Time timeout{15000}; };
 struct UsePrompt { game::PromptLandmark prompt,result; Time timeout{15000}; };
-struct Convert { bool balloon{}; };
+struct Convert { bool balloon{},after_gather{}; };
 struct PlaceSprinkler { workflows::SprinklerPlan plan; std::shared_ptr<const game::SprinklerSource> source; };
 struct DragInventoryItem {
     workflows::InventoryDragPlan plan;

@@ -17,7 +17,9 @@ struct ItemOptions {
 };
 std::unique_ptr<automation::Program> print_sticker(std::shared_ptr<const game::DetectionSource> source,std::string egg);
 std::unique_ptr<automation::Program> collect_glue(std::shared_ptr<const game::InventorySource> inventory,double speed,movement::Source movement);
-struct ItemResult { std::optional<Time> retry; };
+struct ItemResult { std::optional<Time> retry,cooldown; };
+std::unique_ptr<automation::Program> activate_sticker_stack(std::shared_ptr<const game::DetectionSource> source,
+    std::shared_ptr<ItemResult> result);
 std::unique_ptr<automation::Program> blend(std::shared_ptr<const game::DetectionSource> source,
     ItemOptions options,std::shared_ptr<ItemResult> result);
 std::unique_ptr<automation::Program> donate(std::shared_ptr<const game::DetectionSource> source,

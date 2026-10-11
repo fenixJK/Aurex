@@ -5,6 +5,7 @@ add_library(hive_collection
   card_memory.cpp
   items.cpp
   special.cpp
+  sticker_stack.cpp
   orders.cpp)
 target_link_libraries(hive_collection PUBLIC hive_automation)
 add_library(hive_collection_module module.cpp)

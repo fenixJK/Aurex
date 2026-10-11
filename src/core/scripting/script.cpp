@@ -298,7 +298,7 @@ Step step_value(lua_State* state,double speed) {
         game::camera_actions(result.movement);
         return result;
     }
-    if (kind=="convert") return Convert{};
+    if (kind=="convert") return Convert{false,has_field(state,-1,"after_gather") && boolean_field(state,-1,"after_gather")};
     if (kind=="navigate") return Navigate{string_field(state,-1,"destination")};
     if (kind=="approach_prompt") return approach_prompt(state,speed);
     if (kind=="approach_hive") return hive_row_approach(speed);

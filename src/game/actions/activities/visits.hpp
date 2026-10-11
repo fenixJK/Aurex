@@ -44,6 +44,7 @@ struct Visit {
     std::function<std::optional<Time>()> retry_after_completion;
     Time loot_duration{};
     ProgramFactory approach;
+    std::function<Time()> cooldown_after_completion;
 };
 struct VisitPlan {
     std::vector<Visit> visits;

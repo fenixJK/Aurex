@@ -9,6 +9,7 @@
 #include <QSpinBox>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QGridLayout>
 #include <functional>
 
 namespace hive::app {
@@ -22,7 +23,7 @@ class EquipmentSettings final : public QWidget {
         loading_=true;
         equipment_->setCurrentIndex(std::max(0,equipment_->findText(settings_.value("equipment/sprinkler","None").toString())));
         slot_->setValue(settings_.value("equipment/sprinklerSlot",1).toInt());
-        mode_->button(std::clamp(settings_.value("conversion/mode",0).toInt(),0,2))->setChecked(true);
+        mode_->button(std::clamp(settings_.value("conversion/mode",0).toInt(),0,3))->setChecked(true);
         interval_->setCurrentIndex(std::max(0,interval_->findData(settings_.value("conversion/minutes",30).toInt())));
         interval_->setEnabled(mode_->checkedId()==2);
         loading_=false;
@@ -54,9 +55,10 @@ public:
         slot_->setSizePolicy(QSizePolicy::Maximum,QSizePolicy::Fixed); slot_row->addWidget(slot_); slot_row->addStretch(); sprinkler->addLayout(slot_row);
         sprinkler->addStretch();
         auto balloon=make_card("Hive balloon");
-        mode_=new QButtonGroup(this); auto modes=new QHBoxLayout; modes->setSpacing(4);
-        const QStringList labels{"Off","Every return","Timed"};
-        for(int i=0;i<labels.size();++i) { auto button=new QPushButton(labels[i]); button->setCheckable(true); mode_->addButton(button,i); modes->addWidget(button); }
+        mode_=new QButtonGroup(this); auto modes=new QGridLayout; modes->setSpacing(4);
+        const QStringList labels{"Off","Every return","Timed","After gathering"};
+        for(int i=0;i<labels.size();++i) { auto button=new QPushButton(labels[i]); button->setCheckable(true); mode_->addButton(button,i); modes->addWidget(button,i/2,i%2); }
+        mode_->button(3)->setToolTip("Empty the hive balloon after a gathering run, including quest gathering. Other visits only empty the backpack.");
         balloon->addLayout(modes);
         interval_=new QComboBox; interval_->setObjectName("core-balloon-interval");
         interval_->addItem("15 minutes",15); interval_->addItem("30 minutes",30);
@@ -70,6 +72,6 @@ public:
         connect(mode_,&QButtonGroup::idClicked,this,[this] { changed(); });
     }
     game::SprinklerPreference sprinklers() const { return {equipment_->currentText().toStdString(),static_cast<unsigned>(slot_->value())}; }
-    game::ConversionPreference conversion() const { return {mode_->checkedId()!=0,mode_->checkedId()==2?std::chrono::minutes(interval_->currentData().toInt()):Time{}}; }
+    game::ConversionPreference conversion() const { return {mode_->checkedId()!=0,mode_->checkedId()==2?std::chrono::minutes(interval_->currentData().toInt()):Time{},mode_->checkedId()==3}; }
 };
 }

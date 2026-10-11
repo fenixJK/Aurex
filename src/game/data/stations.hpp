@@ -2,7 +2,7 @@
 #include "game/detection/text.hpp"
 
 namespace hive::game {
-enum class StationInteraction { activate, memory_match, blender, wind_shrine, sticker_printer };
+enum class StationInteraction { activate, memory_match, blender, wind_shrine, sticker_printer, sticker_stack };
 struct StationDefinition {
     std::string name,location;
     Time cooldown;

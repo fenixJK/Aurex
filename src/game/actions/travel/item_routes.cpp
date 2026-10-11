@@ -6,10 +6,10 @@ std::shared_ptr<const workflows::RouteCatalog> item_routes(double speed,bool can
     if (!recipes) recipes=movement::snapshot();
     if (!std::isfinite(speed) || speed<8 || speed>200) throw std::invalid_argument("Item activity routes need a valid speed");
     std::vector<workflows::ExecutableRoute> routes;
-    for (unsigned slot=1;slot<=6;++slot) for (const auto kind:{"blender","wind-shrine","coconut","glue","robo-pass","honeystorm","mountain-booster","sticker-printer"}) {
+    for (unsigned slot=1;slot<=6;++slot) for (const auto kind:{"blender","wind-shrine","coconut","glue","robo-pass","honeystorm","mountain-booster","sticker-printer","sticker-stack"}) {
         const bool blender=std::string_view(kind)=="blender";
         if (cannon && (std::string_view(kind)=="wind-shrine" || std::string_view(kind)=="coconut")) continue;
-        auto path=recipes->path(blender || std::string_view(kind)=="wind-shrine"?"items":"activities",{{"kind",std::string(kind)},{"slot",int(slot)},{"cannon",cannon}},speed);
+        auto path=recipes->path(std::string_view(kind)=="sticker-stack"?"sticker-stack":blender || std::string_view(kind)=="wind-shrine"?"items":"activities",{{"kind",std::string(kind)},{"slot",int(slot)},{"cannon",cannon}},speed);
         const auto destination=std::string("station.")+kind;
         const bool portal=std::string_view(kind)=="glue";
         if (!portal) path.push_back({destination,{},{},Time(5000),Time(2000),0});

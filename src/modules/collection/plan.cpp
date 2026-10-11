@@ -13,6 +13,13 @@ void configure_items(Plan& plan) {
             continue;
         }
         if (!plan.item_menus) continue;
+        if (station.id=="Sticker Stack") {
+            auto result=std::make_shared<ItemResult>();
+            station.retry_after_completion=[result] { return result->retry; };
+            station.cooldown_after_completion=[result] { return result->cooldown.value(); };
+            station.action=[source=plan.item_menus,result] { return activate_sticker_stack(source,result); };
+            continue;
+        }
         if (station.id=="Sticker Printer") {
             station.action=[source=plan.item_menus,egg=plan.items.printer_egg] { return print_sticker(source,egg); };
             continue;
@@ -112,6 +119,7 @@ automation::VisitPlan visit_plan(Plan plan) {
         if (station.action) visit.action_program=[action=std::move(station.action)](Time) { return action(); };
         visit.scheduled=std::move(station.scheduled);
         visit.retry_after_completion=std::move(station.retry_after_completion);
+        visit.cooldown_after_completion=std::move(station.cooldown_after_completion);
         visit.settle=station.settle; visits.visits.push_back(std::move(visit));
     }
     return visits;

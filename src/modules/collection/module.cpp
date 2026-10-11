@@ -152,7 +152,7 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     extensions::PageSection games{"games","Memory Match"}; games.tab="Activities";
     for (const auto& station:plan.stations) {
         if (station.id=="Blender" || station.id=="Wind Shrine") continue;
-        if (station.id=="Sticker Printer") continue;
+        if (station.id=="Sticker Printer" || station.id=="Sticker Stack") continue;
         (station.kind==game::StationInteraction::memory_match?games:pickups).settings.push_back(features::visits::selection_key(station.id));
     }
     manifest.page->compact=true;
@@ -165,6 +165,15 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     if (std::any_of(plan.stations.begin(),plan.stations.end(),[](const auto& station) { return station.id=="Sticker Printer"; })) {
         extensions::PageSection printer{"printer","Sticker Printer",{},{features::visits::selection_key("Sticker Printer"),"printer-egg"},false,2};
         printer.tab="Activities"; sections.push_back(std::move(printer));
+    }
+    if (std::any_of(plan.stations.begin(),plan.stations.end(),[](const auto& station) { return station.id=="Sticker Stack"; })) {
+        const auto key=features::visits::selection_key("Sticker Stack");
+        extensions::PageSection stack{"sticker-stack","Sticker Stack",{},{key},false,1};
+        stack.tab="Activities"; sections.push_back(std::move(stack));
+        for (auto& setting:manifest.settings) if (setting.id==key) {
+            setting.label="Activate with 25 tickets";
+            setting.help="Renews when the detected boost duration expires. Never donates stickers or skins.";
+        }
     }
     for (const auto& station:plan.stations) {
         const bool blender=station.id=="Blender";

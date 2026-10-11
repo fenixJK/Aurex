@@ -38,7 +38,7 @@ std::shared_ptr<const workflows::RouteCatalog> accessible_routes(const workflows
         for (const auto& field:game::fields())
             if (location==field.location() || location==field.planting_location()) return field.minimum_bees;
         static const std::map<std::string,unsigned> gates{
-            {"npc.polar-bear",15},{"npc.honey-bee",15},
+            {"npc.polar-bear",15},{"npc.honey-bee",15},{"station.sticker-stack",15},
             {"station.clock",5},{"station.treats",10},{"challenge.ant",20},{"station.ant-pass",20},{"station.ant-pass-paid",20},
             {"station.memory-basic",10},{"station.memory-mega",15},{"station.memory-night",30},{"station.memory-extreme",35},
             {"station.coconut",35},{"station.glue",20},{"station.robo-pass",30},{"station.mountain-booster",25},{"station.sticker-printer",25},

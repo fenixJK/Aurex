@@ -441,7 +441,8 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
     if (std::holds_alternative<Convert>(*step_)) {
         if (!permissions_.contains(Permission::interact)) throw std::runtime_error("Conversion permission was not granted");
         if (!conversion_) {
-            workflows::ConversionConfig config; config.balloon=hive_conversion_?hive_conversion_->due(c):std::get<Convert>(*step_).balloon; converting_balloon_=config.balloon;
+            const auto& request=std::get<Convert>(*step_);
+            workflows::ConversionConfig config; config.balloon=hive_conversion_?hive_conversion_->due(c,request.after_gather):request.balloon; converting_balloon_=config.balloon;
             if (config.balloon) config.total_timeout=std::chrono::minutes(15);
             conversion_.emplace(config); conversion_->start(c);
         }
