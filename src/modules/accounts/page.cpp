@@ -25,7 +25,7 @@ Page::Page(std::shared_ptr<Controller> controller,QWidget* parent)
     actions->addWidget(host_);actions->addWidget(join_);actions->addStretch();actions->addWidget(retry_);actions->addWidget(copy_);actions->addWidget(leave_);layout->addLayout(actions);
     status_=new QLabel;status_->setObjectName("accounts-status");status_->setTextFormat(Qt::PlainText);status_->setWordWrap(true);layout->addWidget(status_);
     members_=new QLabel;members_->setObjectName("accounts-members");members_->setTextFormat(Qt::PlainText);members_->setAlignment(Qt::AlignTop);layout->addWidget(members_);
-    auto help=new QLabel("The host chooses fields in Gathering. Guests can follow with their own patterns. Quests, planters and recovery stay independent.");
+    auto help=new QLabel("Host shares a server and field. Join follows with this account’s own settings.");
     help->setWordWrap(true);help->setObjectName("muted");layout->addWidget(help);
     connect(host_,&QPushButton::clicked,this,[this] { setup(true); });connect(join_,&QPushButton::clicked,this,[this] { setup(false); });
     connect(copy_,&QPushButton::clicked,this,[this] { QApplication::clipboard()->setText(controller_->invite()); });
@@ -45,7 +45,10 @@ void Page::refresh() {
     }
     members_->setText(names.join('\n'));copy_->setVisible(!controller_->invite().isEmpty());retry_->setVisible(controller_->mapping_failed());
     leave_->setVisible(controller_->enabled() && controller_->joined());
-    host_->setEnabled(controller_->enabled() && !controller_->joined());join_->setEnabled(host_->isEnabled());
+    const bool connected=controller_->enabled() && controller_->joined();
+    host_->setVisible(!connected);join_->setVisible(!connected);
+    host_->setEnabled(controller_->enabled());join_->setEnabled(controller_->enabled());
+    members_->setVisible(connected);
 }
 void Page::setup(bool host) {
     auto dialog=new QDialog(this);dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->setWindowModality(Qt::WindowModal);

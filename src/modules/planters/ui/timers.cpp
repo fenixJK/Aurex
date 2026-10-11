@@ -73,7 +73,7 @@ class Timers final : public QWidget {
                 if (plant.id==selected) table_->selectRow(row);
             }
             editable_=true; update_controls();
-            note_->setText(account_->busy()?"Planters is active. Editing unlocks when its current run finishes.":
+            note_->setText(plants_.empty()?"No saved planters. Placed planters appear here, or use Add for one you placed yourself.":account_->busy()?"Planters is active. Editing unlocks when its current run finishes.":
                 "Saved placements set the timers. Correct a timer after a manual change.");
         } catch (const std::exception& error) {
             editable_=false; note_->setText(error.what()); add_->setEnabled(false); edit_->setEnabled(false); remove_->setEnabled(false);

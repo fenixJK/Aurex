@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <variant>
+#include <cmath>
 
 namespace hive::extensions {
 using Value = SettingValue;
@@ -31,8 +32,20 @@ struct Setting {
     std::string step_toggle;
     int checked_step{1};
     std::map<std::string,std::string> icons;
+    std::vector<std::string> enabled_values;
 };
-struct Metric { std::string label, value; std::optional<double> progress; std::string group,color_key; };
+struct Metric {
+    std::string label, value;
+    std::optional<double> progress;
+    std::string group,color_key;
+    bool operator==(const Metric&) const=default;
+};
+struct HotbarUse {
+    unsigned slot{};
+    std::string item,label;
+    bool operator==(const HotbarUse&) const=default;
+};
+struct PlotProgress { bool running{}; std::string message; };
 struct ModuleReport { std::string id,name; std::vector<Metric> metrics; std::vector<Counter> counters; std::vector<Threshold> thresholds; };
 struct Binding { std::string label, signal; };
 struct PageSection {
@@ -93,6 +106,15 @@ public:
     virtual void start(const Settings&) = 0;
     virtual void update(const SessionView&) = 0;
     virtual std::vector<Metric> metrics() const = 0;
+    std::vector<Metric> checked_metrics() const {
+        auto result=metrics();
+        if (result.size()>128) throw std::runtime_error("Too many display metrics");
+        for (const auto& metric:result) if (metric.label.size()>160 || metric.value.size()>4096 || metric.group.size()>160
+            || (metric.progress && (!std::isfinite(*metric.progress) || *metric.progress<0 || *metric.progress>1)))
+            throw std::runtime_error("Invalid display metric");
+        return result;
+    }
+    virtual std::vector<HotbarUse> hotbar_uses() const { return {}; }
     virtual std::optional<std::vector<Metric>> report_metrics() const { return {}; }
     virtual std::vector<Counter> report_counters() const { return {}; }
     virtual std::vector<Threshold> report_thresholds() const { return {}; }
@@ -108,6 +130,8 @@ public:
     virtual std::unique_ptr<automation::Program> command_program(const std::string&) const { throw std::invalid_argument("Unknown launch command"); }
     virtual std::unique_ptr<automation::Program> command_program(const std::string& id,const CommandInput&) const { return command_program(id); }
     virtual std::shared_ptr<const Plot> plot() const { return {}; }
+    virtual PlotProgress plot_progress() const { return {}; }
+    virtual std::map<std::string,std::string> setting_summaries() const { return {}; }
     virtual bool pending_work(const SessionView&) const { return false; }
     virtual bool executable() const noexcept { return false; }
     virtual std::unique_ptr<automation::Program> program() const { return {}; }

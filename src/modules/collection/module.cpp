@@ -160,7 +160,7 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     sections.push_back({"schedule","Options",{},{"interrupt-gather"},false,1});
     if (!pickups.settings.empty()) sections.push_back(std::move(pickups));
     if (!games.settings.empty()) sections.push_back(std::move(games));
-    extensions::PageSection ant{"ant-purchases","Ant quests",{},{"ant-purchases"},false,1};
+    extensions::PageSection ant{"ant-purchases","Ant quests","0 uses free passes only. Each purchased pass costs 10 tickets.",{"ant-purchases"},false,1};
     ant.tab="Activities"; sections.push_back(std::move(ant));
     if (std::any_of(plan.stations.begin(),plan.stations.end(),[](const auto& station) { return station.id=="Sticker Printer"; })) {
         extensions::PageSection printer{"printer","Sticker Printer",{},{features::visits::selection_key("Sticker Printer"),"printer-egg"},false,2};
@@ -171,7 +171,7 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
         extensions::PageSection stack{"sticker-stack","Sticker Stack",{},{key},false,1};
         stack.tab="Activities"; sections.push_back(std::move(stack));
         for (auto& setting:manifest.settings) if (setting.id==key) {
-            setting.label="Activate with 25 tickets";
+            setting.label="Sticker Stack · 25 tickets";
             setting.help="Renews when the detected boost duration expires. Never donates stickers or skins.";
         }
     }
@@ -193,6 +193,11 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
         }
     }
     for (auto option:item_settings(plan)) manifest.settings.push_back(std::move(option));
+    for (auto& setting:manifest.settings) {
+        if (setting.id=="printer-egg") setting.enabled_by=features::visits::selection_key("Sticker Printer");
+        if (setting.id=="shrine-hours" || setting.id=="shrine-orders") setting.enabled_by=features::visits::selection_key("Wind Shrine");
+        if (setting.id=="blender-orders") setting.enabled_by=features::visits::selection_key("Blender");
+    }
     sections.push_back({"run","Run limit",{},{"run-seconds"}});
     for (auto& setting:manifest.settings) if (setting.id=="run-seconds") setting.hidden=true;
     sections.push_back({"overview","Progress",{},{},true,2,true});

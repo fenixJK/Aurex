@@ -63,11 +63,13 @@ inline void apply_theme(QApplication& app) {
         QCheckBox { background:transparent; spacing:6px; padding:2px 0; min-height:20px; }
         QCheckBox:hover { color:#ffffff; }
         QCheckBox:disabled { color:#718587; }
+        QLabel#section-summary { color:#9cacae; font-size:12px; }
         QListWidget { background:#121c20; border:1px solid #34444d; border-radius:5px; padding:2px; }
         QListWidget::item { padding:4px 8px; }
         QListWidget::item:selected { background:#263e35; color:#c8f3cd; }
         QComboBox,QSpinBox,QDoubleSpinBox,QPlainTextEdit,QTreeWidget { background:#121c20; border:1px solid #34444d; border-radius:5px; padding:4px; selection-background-color:#315645; }
         QComboBox:focus,QSpinBox:focus,QDoubleSpinBox:focus { border-color:#89b99a; }
+        QComboBox:disabled,QSpinBox:disabled,QDoubleSpinBox:disabled,QLineEdit:disabled { color:#718587; background:#182126; border-color:#28363c; }
         QScrollArea { border:none; background:transparent; }
         QScrollBar:vertical { background:transparent; width:8px; margin:0; }
         QScrollBar::handle:vertical { background:#40535b; min-height:28px; border-radius:4px; }

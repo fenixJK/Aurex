@@ -75,11 +75,16 @@ RemoteSettingsPage::RemoteSettingsPage(QSettings& settings,reporting::DiscordRem
         }
         remote_->configure(value);return true;
     };
+    const auto availability=[enabled,token,channel,device,retry] {
+        const bool active=enabled->isChecked();
+        for (auto* edit:{token,channel,device}) edit->setEnabled(active);
+        retry->setEnabled(active);
+    };
+    availability(); connect(enabled,&QCheckBox::toggled,this,availability);
     show_status(remote_->connection_status());
     save();
     connect(retry,&QPushButton::clicked,this,[this,save,enabled] {
-        if(!enabled->isChecked())enabled->setChecked(true);
-        else if(save())remote_->retry_connection();
+        if(enabled->isChecked() && save())remote_->retry_connection();
     });
     for (auto* edit:{token,user,channel,device}) connect(edit,&QLineEdit::editingFinished,this,save);
     connect(enabled,&QCheckBox::toggled,this,save);

@@ -1,3 +1,4 @@
+#include "setting_widgets.hpp"
 #include "extensions_ui.hpp"
 #include "presets.hpp"
 #include <QJsonArray>
@@ -52,225 +53,7 @@ QLabel* text(const QString& value,const char* role=nullptr) {
     auto label=new QLabel(value); label->setTextFormat(Qt::PlainText); label->setWordWrap(true);
     if (role) label->setObjectName(role); return label;
 }
-struct SelectionValue {
-    std::function<void()> changed;
-    virtual ~SelectionValue()=default;
-    virtual SettingSelection value() const=0;
-    virtual void setValue(const SettingSelection&)=0;
-};
-class CollectionControl final : public QWidget, public SelectionValue {
-    QTabBar* fields_;
-    QPushButton* add_;
-    QMenu* available_;
-    QStackedWidget* pages_;
-    std::vector<std::string> choices_;
-    std::map<std::string,QWidget*> editors_;
-    int addField(const std::string& choice) {
-        const int index=fields_->addTab(q(choice));
-        auto close=new QToolButton; close->setText("×"); close->setObjectName("collection-remove");
-        close->setAccessibleName("Remove "+q(choice)); close->setToolTip(close->accessibleName());
-        fields_->setTabButton(index,QTabBar::RightSide,close);
-        connect(close,&QToolButton::clicked,this,[this,close] {
-            for(int i=0;i<fields_->count();++i) if(fields_->tabButton(i,QTabBar::RightSide)==close) { fields_->removeTab(i); refresh(); break; }
-        });
-        return index;
-    }
-    void refresh() {
-        const auto selected=value(); available_->clear();
-        for(const auto& choice:choices_) if(std::find(selected.begin(),selected.end(),choice)==selected.end()) {
-            auto action=available_->addAction(q(choice));
-            connect(action,&QAction::triggered,this,[this,choice] {
-                fields_->setCurrentIndex(addField(choice)); refresh();
-            });
-        }
-        add_->setEnabled(!available_->isEmpty());
-        if(fields_->currentIndex()>=0) pages_->setCurrentWidget(editors_.at(fields_->tabText(fields_->currentIndex()).toStdString()));
-        pages_->setVisible(fields_->count()>0);
-        if(changed) changed();
-    }
-public:
-    CollectionControl(const std::vector<std::string>& choices,const SettingSelection& selected,const std::string& label):choices_(choices) {
-        auto layout=new QVBoxLayout(this); layout->setContentsMargins(0,0,0,0); layout->setSpacing(8);
-        auto bar=new QHBoxLayout; bar->setSpacing(6); layout->addLayout(bar);
-        fields_=new QTabBar; fields_->setObjectName("collection-fields"); fields_->setExpanding(false);
-        fields_->setMovable(true); fields_->setDrawBase(false); fields_->setUsesScrollButtons(true);
-        fields_->setToolTip("Drag to change the order."); bar->addWidget(fields_,1);
-        add_=new QPushButton; add_->setText("+ "+q(label)); add_->setObjectName("collection-add");
-        available_=new QMenu(add_); add_->setMinimumWidth(88); bar->addWidget(add_);
-        connect(add_,&QPushButton::clicked,this,[this] { available_->popup(add_->mapToGlobal(QPoint(0,add_->height()))); });
-        auto reset=new QPushButton("Defaults"); reset->setObjectName("collection-defaults"); bar->addWidget(reset);
-        pages_=new QStackedWidget; pages_->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Maximum); layout->addWidget(pages_);
-        for(const auto& choice:choices) {
-            auto panel=new QWidget; auto sections=new QVBoxLayout(panel); sections->setContentsMargins(0,0,0,0); sections->setSpacing(8); sections->setAlignment(Qt::AlignTop);
-            editors_[choice]=panel; pages_->addWidget(panel);
-        }
-        connect(fields_,&QTabBar::currentChanged,this,[this] { refresh(); if(this->selected) this->selected(); });
-        connect(fields_,&QTabBar::tabMoved,this,[this] { refresh(); });
-        connect(fields_,&QTabBar::tabCloseRequested,this,[this](int index) { fields_->removeTab(index); refresh(); });
-        connect(reset,&QPushButton::clicked,this,[this] { if(fields_->currentIndex()>=0 && restore) restore(fields_->tabText(fields_->currentIndex()).toStdString()); });
-        setValue(selected);
-    }
-    std::function<void(const std::string&)> restore;
-    std::function<void()> selected;
-    std::string current() const { return fields_->tabText(fields_->currentIndex()).toStdString(); }
-    void select(const std::string& choice) {
-        for(int i=0;i<fields_->count();++i) if(fields_->tabText(i)==q(choice)) {fields_->setCurrentIndex(i);break;}
-    }
-    void addSection(const std::string& choice,QWidget* section) {
-        auto layout=static_cast<QVBoxLayout*>(editors_.at(choice)->layout());
-        layout->addWidget(section);
-    }
-    SettingSelection value() const override {
-        SettingSelection result; for(int i=0;i<fields_->count();++i) result.push_back(fields_->tabText(i).toStdString()); return result;
-    }
-    void setValue(const SettingSelection& selected) override {
-        QSignalBlocker block(fields_); while(fields_->count()) fields_->removeTab(0);
-        for(const auto& choice:selected) if(editors_.contains(choice)) addField(choice);
-        if(fields_->count()) fields_->setCurrentIndex(0); refresh();
-        if(this->selected) this->selected();
-    }
-};
-class InlineSelection final : public QWidget, public SelectionValue {
-    std::vector<std::pair<std::string,QAbstractButton*>> choices_;
-    SettingSelection order_;
-    bool ordered_;
-public:
-    InlineSelection(const extensions::Setting& field,const SettingSelection& selected,bool compact,unsigned columns=0):ordered_(field.ordered) {
-        const auto& choices=field.choices; const bool ordered=field.ordered;
-        auto layout=new QVBoxLayout(this); layout->setContentsMargins(0,0,0,0); layout->setSpacing(4);
-        auto content=new QWidget; auto grid=new QGridLayout(content); grid->setContentsMargins(0,0,0,0);
-        grid->setHorizontalSpacing(field.icons.empty()?18:6); grid->setVerticalSpacing(field.icons.empty()?(compact?2:8):6);
-        const auto add=[&](const std::string& choice,QGridLayout* target,int index,int columns) {
-            QAbstractButton* check;
-            if (const auto icon=field.icons.find(choice);icon!=field.icons.end()) {
-                auto tile=new QToolButton; tile->setCheckable(true); tile->setObjectName("image-choice");
-                const QSize size{38,28}; QImageReader image(q(icon->second));
-                image.setScaledSize(image.size().scaled(size*2,Qt::KeepAspectRatio));
-                tile->setIcon(QPixmap::fromImage(image.read())); tile->setIconSize(size); tile->setFixedSize(50,38);
-                tile->setToolTip(q(choice)); tile->setAccessibleName(q(choice));
-                tile->setFocusPolicy(Qt::StrongFocus); check=tile;
-            } else {
-                check=new QCheckBox(q(choice)); check->setObjectName(ordered?"choice-tile":"compact-choice"); check->setProperty("compact",compact);
-            }
-            target->addWidget(check,index/columns,index%columns); choices_.emplace_back(choice,check);
-            connect(check,&QAbstractButton::toggled,this,[this,choice](bool enabled) {
-                std::erase(order_,choice); if(enabled) order_.push_back(choice);
-                if(changed) changed();
-            });
-        };
-        if (field.groups.empty()) {
-            const int count=columns?int(columns):!field.icons.empty()?9:choices.size()>24 && std::all_of(choices.begin(),choices.end(),[](const auto& name) { return name.size()<=12; })?4:
-                choices.size()>=6 && std::all_of(choices.begin(),choices.end(),[](const auto& name) { return name.size()<=20; })?3:2;
-            for (std::size_t i=0;i<choices.size();++i) add(choices[i],grid,int(i),count);
-            if (field.icons.empty()) for (int column=0;column<count;++column) grid->setColumnStretch(column,1);
-            else grid->setColumnStretch(count,1);
-        } else {
-            for (std::size_t i=0;i<field.groups.size();++i) {
-                const auto& group=field.groups[i]; auto panel=new QWidget;
-                auto items=new QGridLayout(panel); items->setContentsMargins(0,0,0,0); items->setHorizontalSpacing(8); items->setVerticalSpacing(0);
-                items->addWidget(text(q(group.label),"section-heading"),0,0,1,2);
-                for (std::size_t j=0;j<group.choices.size();++j) add(group.choices[j],items,int(j)+2,2);
-                items->setColumnStretch(0,1); items->setColumnStretch(1,1);
-                grid->addWidget(panel,int(i)/2,int(i)%2,Qt::AlignTop);
-            }
-            grid->setColumnStretch(0,1); grid->setColumnStretch(1,1);
-        }
-        layout->addWidget(content);
-        if(!ordered) {
-            auto buttons=new QHBoxLayout; buttons->setSpacing(8);
-            auto all=new QToolButton; all->setText("All"); auto none=new QToolButton; none->setText("None"); buttons->addWidget(all); buttons->addWidget(none); buttons->addStretch(); layout->addLayout(buttons);
-            connect(all,&QToolButton::clicked,this,[this,choices] { setValue(choices); });
-            connect(none,&QToolButton::clicked,this,[this] { setValue({}); });
-        }
-        setValue(selected);
-    }
-    SettingSelection value() const override {
-        if(ordered_) return order_;
-        SettingSelection selected; for(const auto& [name,check]:choices_) if(check->isChecked()) selected.push_back(name); return selected;
-    }
-    void setValue(const SettingSelection& selected) override {
-        order_.clear();
-        for(const auto& name:selected) if(std::any_of(choices_.begin(),choices_.end(),[&](const auto& choice) { return choice.first==name; })) order_.push_back(name);
-        for(const auto& [name,check]:choices_) { QSignalBlocker block(check); check->setChecked(std::find(order_.begin(),order_.end(),name)!=order_.end()); }
-        if(changed) changed();
-    }
-};
-class SelectionControl final : public QPushButton, public SelectionValue {
-    std::vector<std::pair<std::string,QCheckBox*>> items_;
-    QListWidget* ordered_{};
-    void refresh() {
-        const auto selected=value();
-        setText(selected.empty()?"None selected":QString::number(selected.size())+" selected");
-        QStringList names; for (const auto& name : selected) names.push_back(q(name)); setToolTip(names.join(", "));
-        if(changed) changed();
-    }
-public:
-    SelectionControl(const std::vector<std::string>& choices,const SettingSelection& selected,bool ordered) {
-        auto menu=new QMenu(this); setMenu(menu);
-        auto contents=new QWidget; auto layout=new QVBoxLayout(contents); layout->setContentsMargins(10,8,10,8);
-        auto actions=new QHBoxLayout; auto all=new QPushButton("All"),none=new QPushButton("None");
-        actions->addWidget(all); actions->addWidget(none); layout->addLayout(actions);
-        if (ordered) {
-            ordered_=new QListWidget; ordered_->setObjectName("selection-order");
-            ordered_->setDragDropMode(QAbstractItemView::InternalMove);
-            ordered_->setFixedSize(260,std::min(360,static_cast<int>(choices.size())*30+12));
-            for (const auto& choice : choices) {
-                auto item=new QListWidgetItem(q(choice),ordered_); item->setCheckState(Qt::Unchecked);
-            }
-            layout->addWidget(ordered_);
-            auto moves=new QHBoxLayout;
-            for (const auto direction : {-1,1}) {
-                auto move=new QPushButton(direction<0?"Move up":"Move down"); moves->addWidget(move);
-                connect(move,&QPushButton::clicked,this,[this,direction] {
-                    const auto row=ordered_->currentRow(),next=row+direction;
-                    if (row<0 || next<0 || next>=ordered_->count()) return;
-                    auto item=ordered_->takeItem(row); ordered_->insertItem(next,item); ordered_->setCurrentItem(item); refresh();
-                });
-            }
-            layout->addLayout(moves);
-            connect(ordered_,&QListWidget::itemChanged,this,[this] { refresh(); });
-            connect(ordered_->model(),&QAbstractItemModel::rowsMoved,this,[this] { refresh(); });
-        } else {
-            auto scroll=new QScrollArea; scroll->setWidgetResizable(true); scroll->setFrameShape(QFrame::NoFrame);
-            auto list=new QWidget; auto rows=new QVBoxLayout(list); rows->setContentsMargins(0,0,0,0);
-            for (const auto& choice : choices) {
-                auto box=new QCheckBox(q(choice)); rows->addWidget(box); items_.emplace_back(choice,box);
-                connect(box,&QCheckBox::toggled,this,[this] { refresh(); });
-            }
-            scroll->setWidget(list); scroll->setFixedSize(260,std::min(360,static_cast<int>(choices.size())*30+12)); layout->addWidget(scroll);
-        }
-        auto widget=new QWidgetAction(menu); widget->setDefaultWidget(contents); menu->addAction(widget);
-        connect(all,&QPushButton::clicked,this,[this,choices] {
-            if (ordered_) { for (int i=0;i<ordered_->count();++i) ordered_->item(i)->setCheckState(Qt::Checked); }
-            else setValue(choices);
-        });
-        connect(none,&QPushButton::clicked,this,[this] { setValue({}); }); setValue(selected);
-    }
-    SettingSelection value() const {
-        if (ordered_) {
-            SettingSelection result;
-            for (int i=0;i<ordered_->count();++i) if (ordered_->item(i)->checkState()==Qt::Checked)
-                result.push_back(ordered_->item(i)->text().toStdString());
-            return result;
-        }
-        SettingSelection result; for (const auto& [name,box] : items_) if (box->isChecked()) result.push_back(name); return result;
-    }
-    void setValue(const SettingSelection& selected) {
-        if (ordered_) {
-            QSignalBlocker blocked(ordered_);
-            for (int i=0;i<ordered_->count();++i) ordered_->item(i)->setCheckState(Qt::Unchecked);
-            int next=0;
-            for (const auto& name : selected) {
-                const auto found=ordered_->findItems(q(name),Qt::MatchExactly);
-                if (found.empty()) continue;
-                auto item=ordered_->takeItem(ordered_->row(found.front()));
-                ordered_->insertItem(next++,item); item->setCheckState(Qt::Checked);
-            }
-        }
-        for (const auto& [name,box] : items_) { QSignalBlocker blocked(box); box->setChecked(std::find(selected.begin(),selected.end(),name)!=selected.end()); }
-        refresh();
-    }
-};
+
 }
 struct ExtensionsUi::Page {
     QWidget* widget{};
@@ -279,11 +62,15 @@ struct ExtensionsUi::Page {
     QWidget* row{};
     QLabel* feedback{};
     QLabel* error{};
+    QLabel* warning{};
     QPushButton* enabled{};
     QPushButton* open{};
     extensions::Settings baseline;
     QLabel* status{};
     ModulePlot* plot{};
+    QLabel* plot_status{};
+    std::vector<QPushButton*> plot_commands,plot_exports;
+    std::map<std::string,QLabel*> summaries;
     ModuleMetrics* metrics{};
     bool active{};
     std::optional<bool> busy;
@@ -299,8 +86,15 @@ struct ExtensionsUi::Page {
         const auto checked=[&](const std::string& id) {
             return controls.contains(id)?static_cast<QCheckBox*>(controls.at(id))->isChecked():std::get<bool>(baseline.at(id));
         };
-        for (const auto& field:manifest.settings) if (!field.enabled_by.empty() && controls.contains(field.id))
-            controls.at(field.id)->setEnabled(!busy && checked(field.enabled_by));
+        for (const auto& field:manifest.settings) if (!field.enabled_by.empty() && controls.contains(field.id)) {
+            bool active;
+            if (field.enabled_values.empty()) active=checked(field.enabled_by);
+            else {
+                const auto value=controls.contains(field.enabled_by)?static_cast<QComboBox*>(controls.at(field.enabled_by))->currentText().toStdString():std::get<std::string>(baseline.at(field.enabled_by));
+                active=std::find(field.enabled_values.begin(),field.enabled_values.end(),value)!=field.enabled_values.end();
+            }
+            controls.at(field.id)->setEnabled(!busy && active);
+        }
         for (const auto& field:manifest.settings) if ((field.step!=1 || !field.step_toggle.empty()) && controls.contains(field.id)) {
             const int step=!field.step_toggle.empty() && checked(field.step_toggle)?field.checked_step:field.step;
             auto* control=controls.at(field.id); const QSignalBlocker block(control);
@@ -373,12 +167,15 @@ ExtensionsUi::ExtensionsUi(Navigation* navigation,QStackedWidget* pages,QString 
     layout->addWidget(text("Enabled modules appear in the sidebar and run together.","muted"));
     message_=text({},"muted"); layout->addWidget(message_);
     auto order_label=text("Run order · drag to change","muted"); layout->addWidget(order_label);
-    order_tabs_=new QTabBar; order_tabs_->setMovable(true); order_tabs_->setExpanding(false); order_tabs_->setDrawBase(false);
-    order_tabs_->setToolTip("Higher modules run first when multiple are ready. Gather interrupt overrides this order and can stop active gathering."); layout->addWidget(order_tabs_);
-    connect(order_tabs_,&QTabBar::tabMoved,this,[this] {
+    order_list_=new QListWidget; order_list_->setObjectName("module-run-order");
+    order_list_->setFlow(QListView::LeftToRight); order_list_->setWrapping(true); order_list_->setGridSize(QSize(108,27)); order_list_->setFixedHeight(60);
+    order_list_->setDragDropMode(QAbstractItemView::InternalMove); order_list_->setDefaultDropAction(Qt::MoveAction); order_list_->setDragEnabled(true);
+    order_list_->setFrameShape(QFrame::NoFrame); order_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    order_list_->setToolTip("Higher modules run first when multiple are ready. Gather interrupt overrides this order and can stop active gathering."); layout->addWidget(order_list_);
+    connect(order_list_->model(),&QAbstractItemModel::rowsMoved,this,[this] {
         if (busy_()) return;
         std::vector<std::string> moved;
-        for (int i=0;i<order_tabs_->count();++i) moved.push_back(order_tabs_->tabData(i).toString().toStdString());
+        for (int i=0;i<order_list_->count();++i) moved.push_back(order_list_->item(i)->data(Qt::UserRole).toString().toStdString());
         perform([&] { set_run_order(std::move(moved)); });
     });
     auto sections=new QWidget; list_=new QVBoxLayout(sections); list_->setContentsMargins(0,0,0,0); list_->setSpacing(6); list_->addStretch(); layout->addWidget(sections);
@@ -436,6 +233,12 @@ void ExtensionsUi::scan() {
     show_page();
 }
 void ExtensionsUi::refresh_list() {
+    const auto& warnings=host_.hotbar_warnings();
+    if (shared_hotbar_warning) {
+        QStringList messages;
+        if (const auto found=warnings.find("");found!=warnings.end()) for (const auto& message:found->second) messages.push_back(q(message));
+        shared_hotbar_warning(messages.join("\n"));
+    }
     for (const auto& [id,page] : extension_pages_) {
         const auto& entry=host_.entries().at(id);
         QSignalBlocker blocked(page->enabled); page->enabled->setChecked(entry.requested); page->enabled->setText(entry.requested?"Disable":"Enable");
@@ -444,11 +247,21 @@ void ExtensionsUi::refresh_list() {
         const auto index=pages_->indexOf(page->widget);
         if (!entry.requested && pages_->currentWidget()==page->widget) navigation_->setCurrentRow(pages_->indexOf(manager_));
         navigation_->setItemVisible(index,entry.requested);
-        page->status->setText(!entry.issue.empty()?"Setup needed":entry.active()?"Enabled":"Off");
+        const auto commands=entry.commands();
+        page->status->setText(!entry.issue.empty()?"Setup needed":!entry.active()?"Off":entry.participation()?"Scheduled":std::any_of(commands.begin(),commands.end(),[](const auto& command) { return command.launches; })?"Manual tools":"Connected service");
         page->status->setToolTip(q(entry.issue));
         if (page->error) { page->error->setText(q(entry.issue)); page->error->setVisible(!entry.issue.empty()); }
+        const auto summaries=entry.setting_summaries();
+        for (const auto& [key,label]:page->summaries) {
+            const auto found=summaries.find(key); label->setText(found==summaries.end()?QString{}:q(found->second)); label->setVisible(!label->text().isEmpty());
+        }
+        if (page->warning) {
+            QStringList messages;
+            if (const auto found=warnings.find(id);found!=warnings.end()) for (const auto& message:found->second) messages.push_back(q(message));
+            page->warning->setText(messages.join("\n"));page->warning->setVisible(!messages.empty());
+        }
     }
-    order_tabs_->setEnabled(!busy_());
+    order_list_->setEnabled(!busy_());
     if (busy_()) return;
     try {
         auto entries=host_.routine_entries();
@@ -460,18 +273,18 @@ void ExtensionsUi::refresh_list() {
             return rank(a)<rank(b);
         });
         for (const auto& entry:entries) if (std::find(order_.begin(),order_.end(),entry.id)==order_.end()) order_.push_back(entry.id);
-        bool changed=order_tabs_->count()!=static_cast<int>(entries.size());
-        for (int i=0;!changed && i<order_tabs_->count();++i) changed=order_tabs_->tabData(i).toString()!=q(entries[i].id);
+        bool changed=order_list_->count()!=static_cast<int>(entries.size());
+        for (int i=0;!changed && i<order_list_->count();++i) changed=order_list_->item(i)->data(Qt::UserRole).toString()!=q(entries[i].id);
         if (changed) {
-            QSignalBlocker block(order_tabs_);
-            while(order_tabs_->count()) order_tabs_->removeTab(0);
+            QSignalBlocker block(order_list_);
+            order_list_->clear();
             for (const auto& entry:entries) {
-                const int tab=order_tabs_->addTab(q(host_.entries().at(entry.id).manifest.name));
-                order_tabs_->setTabData(tab,q(entry.id));
+                auto* item=new QListWidgetItem(q(host_.entries().at(entry.id).manifest.name),order_list_);
+                item->setData(Qt::UserRole,q(entry.id)); item->setFlags(item->flags() & ~Qt::ItemIsDropEnabled);
             }
         }
-        order_tabs_->setVisible(order_tabs_->count()>1);
-    } catch (const std::exception&) { order_tabs_->hide(); }
+        order_list_->setVisible(order_list_->count()>1);
+    } catch (const std::exception&) { order_list_->hide(); }
 }
 void ExtensionsUi::reconcile() {
     const QSignalBlocker blocked(pages_);
@@ -491,8 +304,8 @@ void ExtensionsUi::reconcile() {
         const auto& saved_values=drafts.contains(id)?drafts.at(id):entry.settings;
         auto page=std::make_unique<Page>(); page->active=entry.active(); page->baseline=saved_values;
         page->row=new QWidget; page->row->setObjectName("feature-card"); page->row->setProperty("feature-id",q(id));
-        auto header=new QHBoxLayout(page->row); header->setContentsMargins(10,8,10,8);
-        auto description=new QVBoxLayout; description->addWidget(text(q(entry.manifest.name),"title")); header->addLayout(description,1);
+        auto header=new QHBoxLayout(page->row); header->setContentsMargins(8,5,8,5);
+        auto description=new QHBoxLayout; description->addWidget(text(q(entry.manifest.name),"title")); description->addStretch(); header->addLayout(description,1);
         page->enabled=new QPushButton(entry.requested?"Disable":"Enable"); page->enabled->setCheckable(true); page->enabled->setObjectName("feature-enabled"); page->enabled->setChecked(entry.requested);
         page->status=text({},"muted"); description->addWidget(page->status); header->addWidget(page->enabled);
         page->open=new QPushButton("Settings"); header->addWidget(page->open);
@@ -519,6 +332,7 @@ void ExtensionsUi::show_page() {
     auto* widget=pages_->currentWidget();
     if (!widget) return;
     const auto id=widget->property("feature-id").toString().toStdString();
+    host_.set_display_interest(id.empty()?std::nullopt:std::optional(id));
     const auto found=extension_pages_.find(id);
     if (found==extension_pages_.end() || !host_.entries().at(id).requested) return;
     if (!found->second->error) build_page(id);
@@ -548,7 +362,7 @@ bool ExtensionsUi::release_page(const std::string& id,bool save) {
     }
     page->baseline=values;
     for(const auto& [key,control]:page->controls)
-        if(const auto* collection=dynamic_cast<CollectionControl*>(control)) page->field_choices[key]=collection->current();
+        if(const auto* collection=dynamic_cast<CollectionEditor*>(control)) page->field_choices[key]=collection->current();
     page->tabs.clear();
     for (const auto* bar:body->findChildren<QTabBar*>()) page->tabs.push_back(bar->tabText(bar->currentIndex()));
     page->expanded.clear();
@@ -561,7 +375,7 @@ bool ExtensionsUi::release_page(const std::string& id,bool save) {
     page->save->stop(); page->save=nullptr;
     for (auto* dialog:page->dialogs) dialog->deleteLater();
     page->dialogs.clear(); page->controls.clear(); page->ordered_rows.clear(); page->busy.reset();
-    page->tool=nullptr; page->content=nullptr; page->feedback=nullptr; page->error=nullptr; page->plot=nullptr; page->metrics=nullptr;
+    page->tool=nullptr; page->content=nullptr; page->feedback=nullptr; page->error=nullptr; page->warning=nullptr; page->plot=nullptr; page->plot_status=nullptr; page->plot_commands.clear(); page->plot_exports.clear(); page->summaries.clear(); page->metrics=nullptr;
     connect(body,&QObject::destroyed,memory_cleanup_,[this] { memory_cleanup_->start(0); });
     scroll->takeWidget()->deleteLater();
     return true;
@@ -594,10 +408,10 @@ void ExtensionsUi::build_page(const std::string& id) {
         return field->hidden;
     });
     std::erase_if(sections,[](const auto& section) { return section.settings.empty() && !section.metrics && section.description.empty() && section.tool.empty(); });
-    std::map<std::string,CollectionControl*> collections;
+    std::map<std::string,CollectionEditor*> collections;
     for (const auto& section:sections) if(!section.collection.empty() && !collections.contains(section.collection)) {
         const auto& field=*std::find_if(entry.manifest.settings.begin(),entry.manifest.settings.end(),[&](const auto& f) { return f.id==section.collection; });
-        auto editor=new CollectionControl(field.choices,std::get<SettingSelection>(saved_values.at(field.id)),field.label);
+        auto editor=collection_control(field.choices,std::get<SettingSelection>(saved_values.at(field.id)),field.label);
         if(page->field_choices.contains(field.id)) editor->select(page->field_choices.at(field.id));
         page->field_choices[field.id]=editor->current();
         collections[field.id]=editor;
@@ -770,8 +584,8 @@ void ExtensionsUi::build_page(const std::string& id) {
                 }
                 else if (const auto* v=std::get_if<std::string>(&value)) { auto c=new QComboBox; for (const auto& choice : field.choices) c->addItem(q(choice)); c->setCurrentText(q(*v)); control=c; }
                 else if(collections.contains(field.id)) control=collections.at(field.id);
-                else if(field.inline_choices) control=new InlineSelection(field,std::get<SettingSelection>(value),dense,selection_only && section.columns>1?section.columns:0);
-                else control=new SelectionControl(field.choices,std::get<SettingSelection>(value),field.ordered);
+                else if(field.inline_choices) control=inline_selection(field,std::get<SettingSelection>(value),dense,selection_only && section.columns>1?section.columns:0);
+                else control=selection_control(field.choices,std::get<SettingSelection>(value),field.ordered);
                 control->setObjectName(q(field.id)); control->setAccessibleName(q(field.label)); control->setToolTip(q(field.help));
                 const bool scalar=!std::holds_alternative<bool>(value) && !std::holds_alternative<SettingSelection>(value);
                 if(scalar) {
@@ -806,6 +620,9 @@ void ExtensionsUi::build_page(const std::string& id) {
             }
             settings_layout->addLayout(form); section_layout->addWidget(settings);
         }
+        auto summary=text({},"section-summary"); summary->hide();
+        if (ordered) summary->setContentsMargins(28,0,0,0);
+        page->summaries[section.id]=summary; section_layout->addWidget(summary);
         if (section.metrics) { page->metrics=new ModuleMetrics; section_layout->addWidget(page->metrics); }
         if(ordered) ordered->add(group,priority);
         else if(!section.collection.empty()) collections.at(section.collection)->addSection(section.choice,group);
@@ -834,15 +651,16 @@ void ExtensionsUi::build_page(const std::string& id) {
         auto tools_layout=tool_panel(commands.front().tool.empty()?"Tools":commands.front().tool);
         auto bar=new QHBoxLayout; tools_layout->addLayout(bar);
         for(const auto& command:commands) {
-            auto button=new QPushButton(q(command.label)); bar->addWidget(button);
+            auto button=new QPushButton(q(command.label)); bar->addWidget(button); page->plot_commands.push_back(button);
             connect(button,&QPushButton::clicked,this,[this,id,command] { perform([&] {
                 invoke_module(id,command.id);
             }); });
         }
         tools_layout->parentWidget()->setFixedSize(720,520);
+        page->plot_status=text("Choose a duration, then run the simulation.","muted"); tools_layout->addWidget(page->plot_status);
         auto chart=new ModulePlot; page->plot=chart; tools_layout->addWidget(chart,1);
         for(const auto& kind:{QString("PNG"),QString("CSV")}) {
-            auto button=new QPushButton("Export "+kind); bar->addWidget(button);
+            auto button=new QPushButton("Export "+kind); bar->addWidget(button); page->plot_exports.push_back(button); button->setEnabled(false);
             connect(button,&QPushButton::clicked,this,[chart,kind] {
                 if(!chart->hasData()) return;
                 const auto path=QFileDialog::getSaveFileName(chart,"Export chart",{},kind+" (*."+kind.toLower()+")");
@@ -862,6 +680,7 @@ void ExtensionsUi::build_page(const std::string& id) {
         connect(close,&QPushButton::clicked,static_cast<QDialog*>(body->parentWidget()),&QDialog::reject);
         body->parentWidget()->setFixedHeight(std::max(body->parentWidget()->height(),body->minimumSize().height()));
     }
+    page->warning=text({},"muted"); page->warning->setWordWrap(true); page->warning->hide(); layout->addWidget(page->warning);
     page->error=text({},"muted"); page->error->hide(); layout->addWidget(page->error);
     auto reset=new QPushButton("Defaults",body); reset->setVisible(collections.empty());
     title->addWidget(reset);
@@ -896,6 +715,7 @@ void ExtensionsUi::build_page(const std::string& id) {
     }
     if (!page_tabs) layout->addStretch();
     page->error->setText(q(entry.issue));
+    refresh_list();
     int index=0;
     for (auto* bar:body->findChildren<QTabBar*>()) {
         if(index<page->tabs.size()) for(int i=0;i<bar->count();++i)
@@ -988,7 +808,7 @@ extensions::CommandResult ExtensionsUi::invoke_module(const std::string& id,cons
 }
 std::vector<std::string> ExtensionsUi::run_order() const {
     std::vector<std::string> result;
-    for (int i=0;i<order_tabs_->count();++i) result.push_back(order_tabs_->tabData(i).toString().toStdString());
+    for (int i=0;i<order_list_->count();++i) result.push_back(order_list_->item(i)->data(Qt::UserRole).toString().toStdString());
     return result;
 }
 void ExtensionsUi::set_run_order(std::vector<std::string> order) {
@@ -1015,11 +835,15 @@ void ExtensionsUi::apply_settings() {
     for (auto& [id,settings] : values) host_.configure(id,std::move(settings));
 }
 void ExtensionsUi::render() {
-    reconcile(); refresh_list();
+    const bool busy=busy_();
+    if (rendered_revision_!=host_.configuration_revision() || rendered_busy_!=busy) {
+        reconcile(); refresh_list();
+        rendered_revision_=host_.configuration_revision(); rendered_busy_=busy;
+        install_->setEnabled(!busy); reload_->setEnabled(!busy);
+    }
     if(command_revision_!=host_.commands().revision()) {
         command_revision_=host_.commands().revision();if(commands_changed)commands_changed();
     }
-    const bool busy=busy_(); install_->setEnabled(!busy); reload_->setEnabled(!busy);
     show_page();
     for (const auto& [id,page]:extension_pages_) if (page->error && page->widget!=pages_->currentWidget()) render_page(id);
 }
@@ -1033,10 +857,19 @@ void ExtensionsUi::render_page(const std::string& id) {
     if (page->busy!=busy) {
         for (auto& [key,control] : page->controls) control->setEnabled(!busy);
         for (auto* rows:page->ordered_rows) rows->setEnabled(!busy);
-        for (auto* button:page->widget->findChildren<QPushButton*>())
-            if ((!page->tool || !page->tool->isAncestorOf(button)) && (!page->content || !page->content->isAncestorOf(button))) button->setEnabled(!busy || button->property("live-tool").toBool() || button->property("live-command").toBool());
+        for (auto* button:page->widget->findChildren<QPushButton*>()) {
+            const bool owned=std::any_of(page->controls.begin(),page->controls.end(),[button](const auto& item) { return item.second==button || item.second->isAncestorOf(button); });
+            if (!owned && (!page->tool || !page->tool->isAncestorOf(button)) && (!page->content || !page->content->isAncestorOf(button)))
+                button->setEnabled(!busy || button->property("live-tool").toBool() || button->property("live-command").toBool());
+        }
         page->update_conditions(entry.manifest,busy);
         page->busy=busy;
+    }
+    if (page->plot) {
+        const auto state=entry.plot_progress();
+        page->plot_status->setText(state.message.empty()?"Choose a duration, then run the simulation.":q(state.message));
+        for (auto* button:page->plot_commands) button->setEnabled(!busy && !state.running);
+        for (auto* button:page->plot_exports) button->setEnabled(!state.running && page->plot->hasData());
     }
 }
 }

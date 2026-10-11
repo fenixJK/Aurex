@@ -31,6 +31,7 @@ private:
     QLineEdit* report_channel_{};
     QVBoxLayout* discord_layout_{};
     QWidget* webhook_row_{};
+    QWidget* report_channel_row_{};
     QLabel* destination_{};
 };
 }

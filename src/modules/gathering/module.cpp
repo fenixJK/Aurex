@@ -35,13 +35,6 @@ std::vector<std::string> sprinkler_choices() {
     for (const auto& equipment : game::sprinkler_equipment()) result.push_back(equipment.name);
     return result;
 }
-const std::vector<std::string> balloon_intervals{"15 minutes","30 minutes","1 hour","2 hours","3 hours","4 hours","5 hours","6 hours","7 hours","8 hours","9 hours","10 hours","11 hours","12 hours"};
-int interval_minutes(std::size_t index) { return index<2?15*(int(index)+1):60*(int(index)-1); }
-std::string interval_choice(int minutes) {
-    for (std::size_t i=0;i<balloon_intervals.size();++i)
-        if (minutes<=interval_minutes(i)) return balloon_intervals[i];
-    return balloon_intervals.back();
-}
 const std::vector<std::string> facings{"0°","45° right","90° right","135° right","180°","135° left","90° left","45° left"};
 std::vector<std::string> return_choices(const Plan& plan) {
     std::vector<std::string> result{"Walk","Reset"};
@@ -87,6 +80,7 @@ class GatheringModule final : public extensions::Module {
     mutable std::shared_ptr<const Results> results_;
     mutable std::string detail_;
     bool started_{};
+    std::vector<extensions::HotbarUse> hotbar_uses_;
     mutable bool routine_run_{};
     mutable std::size_t rotation_{};
 public:
@@ -113,7 +107,7 @@ public:
         }
     }
     void start(const Settings& saved) override {
-        auto settings=saved;
+        auto settings=saved; hotbar_uses_.clear();
         const auto schema=module_manifest(defaults_,id_,"native-gathering",controls_,sprinklers_);
         if (controls_ && settings.contains("pattern")) {
             for(const auto& field:schema.settings) if(field.id.starts_with("field-") && !field.id.ends_with("-shift-lock")) settings.try_emplace(field.id,field.initial);
@@ -124,7 +118,7 @@ public:
             settings=migrate_settings(4,settings);
         }
         for (const auto& setting : schema.settings)
-            if (setting.id.starts_with("field-") || setting.id.starts_with("start-") || setting.id.starts_with("balloon-") || setting.id=="whirligig-slot" || setting.id=="shift-lock" || setting.id=="convert-balloon" || setting.id=="return-method" || setting.id=="recenter" || setting.id=="pattern-scale" || setting.id=="pattern-repetitions" || setting.id=="invert-fb" || setting.id=="invert-lr" || (!controls_ && setting.id=="fields")) settings.try_emplace(setting.id,setting.initial);
+            if (setting.id.starts_with("field-") || setting.id.starts_with("start-") || setting.id=="whirligig-slot" || setting.id=="shift-lock" || setting.id=="return-method" || setting.id=="recenter" || setting.id=="pattern-scale" || setting.id=="pattern-repetitions" || setting.id=="invert-fb" || setting.id=="invert-lr" || (!controls_ && setting.id=="fields")) settings.try_emplace(setting.id,setting.initial);
         if (settings.size()!=schema.settings.size() || std::any_of(schema.settings.begin(),schema.settings.end(),
             [&](const auto& setting) { return !settings.contains(setting.id); })) throw std::invalid_argument("Unexpected gathering settings");
         for (const auto& setting : schema.settings) if (setting.id.starts_with("field-")) {
@@ -206,16 +200,6 @@ public:
             }
         }
         if (!controls_) plan.shift_lock=boolean(settings,"shift-lock");
-        if(!plan.shared_conversion) {
-        plan.convert_balloon=boolean(settings,"convert-balloon");
-        const auto* balloon_mode=std::get_if<std::string>(&settings.at("balloon-mode"));
-        if (!balloon_mode || (*balloon_mode!="Every return" && *balloon_mode!="Timed interval")) throw std::invalid_argument("Invalid balloon schedule");
-        const auto* choice=std::get_if<std::string>(&settings.at("balloon-interval"));
-        const auto selected=choice?std::find(balloon_intervals.begin(),balloon_intervals.end(),*choice):balloon_intervals.end();
-        if (selected==balloon_intervals.end()) throw std::invalid_argument("Invalid balloon interval");
-        const auto interval=std::chrono::minutes(interval_minutes(selected-balloon_intervals.begin()));
-        plan.balloon_interval=*balloon_mode=="Timed interval"?interval:Time::zero();
-        }
         std::string equipment;
         unsigned slot=1;
         if (sprinklers_ && sprinklers_->equipment) { equipment=sprinklers_->equipment->equipment; slot=sprinklers_->equipment->slot; }
@@ -224,6 +208,7 @@ public:
             const auto types=sprinkler_choices();
             if (!type || std::find(types.begin(),types.end(),*type)==types.end()) throw std::invalid_argument("Select a sprinkler type");
             equipment=*type; slot=integer(settings,"sprinkler-slot",1,7);
+            if (equipment!="None") hotbar_uses_.push_back({slot,"Sprinkler","Sprinkler"});
         }
         unsigned return_slot=0;
         if (plan.whirligig_return) {
@@ -242,6 +227,8 @@ public:
                 const auto methods=return_choices(plan);
                 if (!method || std::find(methods.begin(),methods.end(),*method)==methods.end()) throw std::invalid_argument("Invalid gathering return method");
                 field.reset_return=*method!="Walk";
+                if (field.preference.enabled && *method=="Whirligig / reset" && return_slot && std::none_of(hotbar_uses_.begin(),hotbar_uses_.end(),[](const auto& use) { return use.item=="Whirligig"; }))
+                    hotbar_uses_.push_back({return_slot,"Whirligig","Return to hive"});
                 if (*method=="Reset") field.return_setup=plan.route_recovery;
                 else if (*method=="Whirligig / reset") field.return_setup=return_slot?
                     automation::ProgramFactory([create=plan.whirligig_return,slot=return_slot] { return create(slot); }):plan.route_recovery;
@@ -259,6 +246,7 @@ public:
         if (!started_) throw std::logic_error("Gathering module is not started");
         detail_=view.feature && view.feature->module_id==id_?view.feature->message:std::string{};
     }
+    std::vector<extensions::HotbarUse> hotbar_uses() const override { return hotbar_uses_; }
     std::vector<extensions::Metric> metrics() const override {
         if (!started_) return {{"Status","Stopped"}};
         if (!results_) return {{"Status","Ready"},{"Fields",std::to_string(std::count_if(plan_.fields.begin(),plan_.fields.end(),[](const auto& f) { return f.preference.enabled; }))},
@@ -330,10 +318,7 @@ Settings migrate_settings(int version,const Settings& saved) {
         return key=="sprinkler-spacing-forward" || key=="sprinkler-spacing-lateral"
             || (key.starts_with("field-") && (key.ends_with("-sprinkler-spacing-forward") || key.ends_with("-sprinkler-spacing-lateral")));
     });
-    if (settings.contains("balloon-minutes")) {
-        settings["balloon-interval"]=interval_choice(integer(settings,"balloon-minutes",5,1440));
-        settings.erase("balloon-minutes");
-    }
+    for(const auto* key:{"convert-balloon","balloon-mode","balloon-interval","balloon-minutes"}) settings.erase(key);
     if (settings.contains("pattern")) {
         std::vector<std::string> prefixes;
         for(const auto& [key,value]:settings) if(key.starts_with("field-") && key.ends_with("-pattern")) prefixes.push_back(key.substr(0,key.size()-7));
@@ -391,7 +376,7 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
     result.id=std::move(id); result.provider=std::move(provider); result.name="Gathering"; result.version="0.1.0";
     result.enabled_by_default=true;
     result.description="Follow the configured field rotation, gather, return to the hive and convert. Active field requests can temporarily change the selected field.";
-    result.permissions=permissions; result.settings_version=controls?8:defaults.shared_conversion || (sprinklers && sprinklers->equipment)?4:3;
+    result.permissions=permissions; result.settings_version=controls?8:4;
     result.settings={{"cycles","Completed cycles",static_cast<int>(defaults.cycles),1,10000,{}},
         {"run-seconds","Run limit (seconds)",static_cast<int>(defaults.config.duration.count()/1000),1,28800,{}}};
     if (!defaults.fields.empty()) {
@@ -403,11 +388,6 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
         result.settings.push_back({"fields","Fields",selected,0,0,choices,true});
     }
     if (!controls) result.settings.push_back({"shift-lock","Shift Lock",defaults.shift_lock});
-    if (!defaults.shared_conversion) {
-        result.settings.push_back({"convert-balloon","Convert hive balloon",defaults.convert_balloon});
-        result.settings.push_back({"balloon-mode","Balloon schedule",std::string(defaults.balloon_interval==Time::zero()?"Every return":"Timed interval"),0,0,{"Every return","Timed interval"}});
-        result.settings.push_back({"balloon-interval","Balloon interval",interval_choice(defaults.balloon_interval==Time::zero()?30:int(std::chrono::duration_cast<std::chrono::minutes>(defaults.balloon_interval).count())),0,0,balloon_intervals});
-    }
     if (!controls) {
         position_settings(result.settings,"");
         if (defaults.route_recovery) result.settings.push_back({"return-method","Return",std::string("Walk"),0,0,return_choices(defaults)});
@@ -430,8 +410,6 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
     if (sprinklers && !sprinklers->equipment) result.page->sections.push_back({"sprinklers","Sprinklers",{},
         {"sprinkler-type","sprinkler-slot"},false,2,true});
     if (sprinklers && sprinklers->recenter && !controls) result.page->sections.push_back({"correction","Field correction",{},{"recenter"},false,1});
-    if(!defaults.shared_conversion) result.page->sections.push_back({"balloon","Hive balloon","Convert when due on a normal return to the hive.",
-        {"convert-balloon","balloon-mode","balloon-interval"},false,2,true});
     if (!controls) result.page->sections.push_back({"position","Field starting position","Distance from route arrival, in tiles.",
         {"start-forward","start-side"},false,2,true});
     result.page->sections.push_back({"run","Gathering",{},{"cycles","run-seconds"},false,2});
@@ -461,9 +439,12 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
             const auto heading=field.rotation?game::turned_heading(0,*field.rotation):0;
             result.settings.push_back({prefix+"shift-lock","Shift Lock",field.shift_lock.value_or(defaults.shift_lock)});
             result.settings.push_back({prefix+"facing","Camera turn",facings.at(heading),0,0,facings});
-            extensions::PageSection basic{id,"Pattern",{},{prefix+"pattern",prefix+"pattern-width",prefix+"pattern-scale",prefix+"pattern-repetitions",prefix+"invert-fb",prefix+"invert-lr"},false,2};
+            extensions::PageSection basic{id,"Pattern",{},{prefix+"pattern",prefix+"pattern-width"},false,2};
             basic.collection="fields"; basic.choice=field.preference.field;
             result.page->sections.push_back(std::move(basic));
+            extensions::PageSection options{id+"-shape","Pattern options",{},{prefix+"pattern-scale",prefix+"pattern-repetitions",prefix+"invert-fb",prefix+"invert-lr"},false,2,true};
+            options.collection="fields"; options.choice=field.preference.field;
+            result.page->sections.push_back(std::move(options));
             extensions::PageSection limits{id+"-limits","When to return",{},{prefix+"gather-minutes",prefix+"backpack-percent"},false,3};
             limits.collection="fields"; limits.choice=field.preference.field;
             if (defaults.route_recovery) limits.settings.push_back(prefix+"return-method");
@@ -474,7 +455,7 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
             result.page->sections.push_back(std::move(extend));
             extensions::PageSection layout{id+"-layout","Position",{},
                 {prefix+"facing",prefix+"start-forward",prefix+"start-side",prefix+"shift-lock"},false,2};
-            layout.collection="fields"; layout.choice=field.preference.field;
+            layout.collapsed=true; layout.collection="fields"; layout.choice=field.preference.field;
             if (sprinklers && sprinklers->recenter) layout.settings.push_back(prefix+"recenter");
             result.page->sections.push_back(std::move(layout));
         }

@@ -34,11 +34,14 @@ Point pointer_rest(const ObservationContext& c,const State& state) {
     }
     return {std::clamp(rest.x,0.01,0.95),std::clamp(rest.y,0.01,0.95)};
 }
-std::vector<MenuControl> menu_controls(const DetectionInput& input) {
+std::vector<MenuControl> menu_controls(const DetectionInput& input,std::optional<Rect> search,std::span<const MenuControl> hints) {
     const auto& f=input.frame;
     if (!f.valid() || !f.window.id || !input.generation || (input.cancelled && input.cancelled())) return {};
     if (input.hud) return input.hud->menus;
-    const int width=(f.width+1)/2,height=(f.height+1)/2;
+    const int width=search?std::clamp(int(std::ceil((search->x+search->width)*f.width)),1,(f.width+1)/2):(f.width+1)/2;
+    const int height=search?std::clamp(int(std::ceil((search->y+search->height)*f.height)),1,(f.height+1)/2):(f.height+1)/2;
+    const int first_x=search?std::clamp(int(std::floor(search->x*f.width)),0,width-1):0;
+    const int first_y=search?std::clamp(int(std::floor(search->y*f.height)),0,height-1):0;
     if (static_cast<std::size_t>(width)*height>8000000) return {};
     auto color=[&](int x,int y) {
         const auto i=(static_cast<std::size_t>(y)*f.width+x)*4;
@@ -48,47 +51,59 @@ std::vector<MenuControl> menu_controls(const DetectionInput& input) {
         const auto c=color(x,y); const auto lo=*std::min_element(c.begin(),c.end());
         return lo>=200 || (lo>=170 && *std::max_element(c.begin(),c.end())-lo<=35);
     };
-    std::vector<std::uint8_t> visited(static_cast<std::size_t>(width)*height);
-    std::vector<int> stack; std::vector<Candidate> candidates;
-    for (int y=0;y<height;++y) {
-        if (input.cancelled && input.cancelled()) return {};
-        for (int x=0;x<width;++x) {
-            const int start=y*width+x; if (visited[start]) continue;
-            visited[start]=1; if (!pale(x,y)) continue;
-            stack={start}; int left=x,right=x,top=y,bottom=y,count=0;
-            while (!stack.empty()) {
-                const int pos=stack.back(); stack.pop_back(); const int xx=pos%width,yy=pos/width;
-                left=std::min(left,xx); right=std::max(right,xx); top=std::min(top,yy); bottom=std::max(bottom,yy); ++count;
-                if (!(count%4096) && input.cancelled && input.cancelled()) return {};
-                for (const auto d : {std::pair{-1,0},std::pair{1,0},std::pair{0,-1},std::pair{0,1}}) {
-                    const int nx=xx+d.first,ny=yy+d.second;
-                    if (nx<0 || ny<0 || nx>=width || ny>=height) continue;
-                    const int next=ny*width+nx; if (visited[next]) continue;
-                    visited[next]=1; if (pale(nx,ny)) stack.push_back(next);
+    const auto match=[&](const Mask& mask,int left,int top,int w,int h)->std::optional<Candidate> {
+        if (left<0 || top<0 || w<1 || h<1 || left+w>f.width || top+h>f.height) return {};
+        const int mh=static_cast<int>(mask.rows.size());
+        int ink=0,ink_ok=0,holes=0,holes_ok=0; std::vector<int> light;
+        for (int yy=0;yy<mh;++yy) for (int xx=0;xx<mask.width;++xx) {
+            const int px=left+std::min(w-1,int((xx+.5)*w/mask.width)),py=top+std::min(h-1,int((yy+.5)*h/mh));
+            const bool white=pale(px,py);
+            if (mask.rows[yy]&(1ULL<<xx)) {
+                ++ink; ink_ok+=white;
+                if (white && interior(mask,xx,yy)) {
+                    const auto c=color(px,py); light.push_back(*std::min_element(c.begin(),c.end()));
                 }
-            }
-            const int w=right-left+1,h=bottom-top+1;
-            if (right+1==width || bottom+1==height) continue;
-            if (w<20 || h<18 || w>170 || h>190 || count<w*h*.35) continue;
-            for (const auto& mask : masks) {
-                const int mh=static_cast<int>(mask.rows.size());
-                if (std::abs(double(w)/h-double(mask.width)/mh)>.12) continue;
-                int ink=0,ink_ok=0,holes=0,holes_ok=0; std::vector<int> light;
-                for (int yy=0;yy<mh;++yy) for (int xx=0;xx<mask.width;++xx) {
-                    const int px=left+std::min(w-1,int((xx+.5)*w/mask.width)),py=top+std::min(h-1,int((yy+.5)*h/mh));
-                    const bool white=pale(px,py);
-                    if (mask.rows[yy]&(1ULL<<xx)) {
-                        ++ink; ink_ok+=white;
-                        if (white && interior(mask,xx,yy)) {
-                            const auto c=color(px,py); light.push_back(*std::min_element(c.begin(),c.end()));
-                        }
-                    } else { ++holes; holes_ok+=!white; }
+            } else { ++holes; holes_ok+=!white; }
+        }
+        if (ink_ok<ink*(mask.tab==MenuTab::settings?.85:.9)
+            || holes_ok<holes*(mask.tab==MenuTab::settings?.7:.5)) return {};
+        return Candidate{{mask.tab,{double(left)/f.width,double(top)/f.height,double(w)/f.width,double(h)/f.height},{}},icon_brightness(light)};
+    };
+    std::vector<Candidate> candidates;
+    for (const auto& hint:hints) {
+        const auto mask=std::find_if(masks.begin(),masks.end(),[&](const auto& m) { return m.tab==hint.tab; });
+        if (mask!=masks.end()) if (const auto found=match(*mask,int(std::lround(hint.bounds.x*f.width)),int(std::lround(hint.bounds.y*f.height)),int(std::lround(hint.bounds.width*f.width)),int(std::lround(hint.bounds.height*f.height)))) candidates.push_back(*found);
+    }
+    if (candidates.size()!=masks.size()) {
+        candidates.clear();
+        std::vector<std::uint8_t> visited(static_cast<std::size_t>(width)*height);
+        std::vector<int> stack;
+        for (int y=first_y;y<height;++y) {
+            if (input.cancelled && input.cancelled()) return {};
+            for (int x=first_x;x<width;++x) {
+                const int start=y*width+x; if (visited[start]) continue;
+                visited[start]=1; if (!pale(x,y)) continue;
+                stack={start}; int left=x,right=x,top=y,bottom=y,count=0;
+                while (!stack.empty()) {
+                    const int pos=stack.back(); stack.pop_back(); const int xx=pos%width,yy=pos/width;
+                    left=std::min(left,xx); right=std::max(right,xx); top=std::min(top,yy); bottom=std::max(bottom,yy); ++count;
+                    if (!(count%4096) && input.cancelled && input.cancelled()) return {};
+                    for (const auto d : {std::pair{-1,0},std::pair{1,0},std::pair{0,-1},std::pair{0,1}}) {
+                        const int nx=xx+d.first,ny=yy+d.second;
+                        if (nx<first_x || ny<first_y || nx>=width || ny>=height) continue;
+                        const int next=ny*width+nx; if (visited[next]) continue;
+                        visited[next]=1; if (pale(nx,ny)) stack.push_back(next);
+                    }
                 }
-                if (ink_ok<ink*(mask.tab==MenuTab::settings?.85:.9)
-                    || holes_ok<holes*(mask.tab==MenuTab::settings?.7:.5)) continue;
-                const auto brightness=icon_brightness(light);
-                candidates.push_back({{mask.tab,{double(left)/f.width,double(top)/f.height,double(w)/f.width,double(h)/f.height},{}},brightness});
-                if (candidates.size()>16) return {};
+                const int w=right-left+1,h=bottom-top+1;
+                if (right+1==width || bottom+1==height) continue;
+                if (w<20 || h<18 || w>170 || h>190 || count<w*h*.35) continue;
+                for (const auto& mask : masks) {
+                    const int mh=static_cast<int>(mask.rows.size());
+                    if (std::abs(double(w)/h-double(mask.width)/mh)>.12) continue;
+                    if (const auto found=match(mask,left,top,w,h)) candidates.push_back(*found);
+                    if (candidates.size()>16) return {};
+                }
             }
         }
     }

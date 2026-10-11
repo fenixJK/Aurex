@@ -19,5 +19,5 @@ public:
     virtual Observation<NectarLevels> read(const ObservationContext&) const=0;
 };
 std::shared_ptr<const Detector> nectar_detector();
-std::shared_ptr<const NectarSource> nectar_source(std::shared_ptr<const DetectionSource> channel,std::shared_ptr<const DetectionSource> fallback={});
+std::shared_ptr<const NectarSource> nectar_source(std::shared_ptr<const DetectionSource> channel);
 }

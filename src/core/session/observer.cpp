@@ -107,6 +107,7 @@ ObservedState Observer::latest(bool request_speed) {
     return result;
 }
 void Observer::capture() {
+    HudInspector hud_inspector;
     std::unique_lock lock(mutex_);
     while (!exiting_) {
         wake_->changed.wait(lock,[this] { return exiting_ || target_.has_value(); });
@@ -133,7 +134,7 @@ void Observer::capture() {
                 throw std::runtime_error("Game window changed during capture or returned an invalid timestamp");
             if (hud) {
                 confirmation=read_confirmation(frame,context.generation);
-                features=std::make_shared<const HudFeatures>(inspect_hud(frame,context.generation));
+                features=std::make_shared<const HudFeatures>(hud_inspector.inspect(frame,context.generation));
                 backpack=features->backpack;
                 const auto& controls=features->menus;
                 menus={Knowledge::present,controls,frame.captured,frame.window,context.generation};

@@ -21,13 +21,6 @@ Snapshot NavigationSource::read(const ObservationContext& context,const game::St
 std::vector<game::FieldGoal> NavigationSource::goals(const ObservationContext& context,const game::State&) const {
     return goals_->snapshot(context.now,context.generation);
 }
-bool BalloonSchedule::due(Time now,Time interval) const {
-    std::lock_guard lock(mutex_);
-    return interval==Time::zero() || !completed_ || now<*completed_ || now-*completed_>=interval;
-}
-void BalloonSchedule::completed(Time now) {
-    std::lock_guard lock(mutex_); completed_=now;
-}
 namespace {
 TimeExtension extension(const Plan& plan,const FieldPlan& field) {
     if (field.extend_while.empty()) return {};
@@ -75,7 +68,7 @@ class Gathering final : public automation::Program {
     enum class Stage { prepare_hive, hive_unlocked, select, arrived, positioned, setup, rotated, shift_enabled, gathered, shift_disabled, pattern_restored, restored, position_restored, prepared_return, returned, converted } stage_{Stage::prepare_hive};
     std::size_t selected_{}, next_setup_{}, completed_{}, expected_{}, rotation_{};
     Time last_{};
-    bool gathered_{}, temporary_{},yielding_{},converting_balloon_{};
+    bool gathered_{}, temporary_{},yielding_{};
     std::optional<unsigned> pattern_heading_;
     std::string gather_end_;
     bool objective_complete_{};
@@ -129,7 +122,6 @@ public:
         :plan_(std::move(plan)),network_(std::move(network)),policy_(std::move(policy)),source_(std::move(source)),results_(std::move(results)) {
         plan_.config.require_done=true;
         if (!network_ || !policy_ || !source_ || !network_->contains(plan_.hive) || plan_.fields.empty() || plan_.fields.size()>64
-            || !plan_.balloon_schedule || plan_.balloon_interval<Time::zero() || plan_.balloon_interval>std::chrono::hours(24)
             || plan_.cycles<1 || plan_.cycles>10000 || plan_.max_recoveries>10 || !plan_.config.observe || plan_.config.backpack_limit
             || plan_.config.duration<Time(1000) || plan_.config.duration>std::chrono::hours(8)
             || !std::isfinite(plan_.config.speed) || plan_.config.speed<1 || plan_.config.speed>200)
@@ -211,7 +203,7 @@ public:
         case Stage::positioned: case Stage::setup: case Stage::rotated: case Stage::shift_enabled:
             return {};
         case Stage::gathered: return {"Gathering",plan_.fields[selected_].preference.field};
-        case Stage::converted: return {"Converting",converting_balloon_?"Backpack and hive balloon":"Backpack"};
+        case Stage::converted: return {"Converting","At hive"};
         default: return {"Returning to hive",gather_end_};
         }
     }
@@ -232,7 +224,7 @@ public:
             completed_=completed; ++results_->report_.recoveries; results_->report_.phase=Phase::recovering;
         }
         expected_=acknowledged_=view.completed_steps; last_=view.elapsed;
-        gathered_=false; converting_balloon_=false; pattern_heading_.reset(); next_setup_=0; stage_=Stage::converted;
+        gathered_=false; pattern_heading_.reset(); next_setup_=0; stage_=Stage::converted;
         return true;
     }
     automation::Step next(const automation::View& view) override {
@@ -333,8 +325,7 @@ public:
         if (stage_==Stage::prepared_return) { stage_=Stage::returned; phase(Phase::returning); return automation::Navigate{plan_.hive}; }
         if (stage_==Stage::returned) {
             stage_=Stage::converted; phase(Phase::converting);
-            converting_balloon_=plan_.convert_balloon && plan_.balloon_schedule->due(view.context.now,plan_.balloon_interval);
-            return automation::Convert{converting_balloon_,gathered_};
+            return automation::Convert{false,gathered_};
         }
         throw std::logic_error("Invalid gathering phase");
     }
@@ -351,7 +342,6 @@ public:
             if (end.backpack_percent) gather_end_+=" · Bag "+std::to_string(static_cast<int>(std::round(*end.backpack_percent)))+"%";
         }
         if (stage_==Stage::converted) {
-            if (converting_balloon_) { plan_.balloon_schedule->completed(view.context.now); converting_balloon_=false; }
             consecutive_recoveries_=0;
             std::lock_guard lock(results_->mutex_);
             results_->report_.converted_at=view.context.now;

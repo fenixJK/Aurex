@@ -154,7 +154,7 @@ Manifest read_manifest(const QString& path) {
     require(obj["settings"].isArray() && obj["settings"].toArray().size()<=static_cast<qsizetype>(maximum_settings),"Invalid settings"); seen.clear();
     for (const auto& value : obj["settings"].toArray()) {
         require(value.isObject(),"Setting must be an object"); auto s=value.toObject();
-        keys(s,{"id","label","type","default","min","max","choices","ordered","inline","help","hidden","suffix","decimals","groups","enabled_by","step","step_toggle","checked_step","icons"});
+        keys(s,{"id","label","type","default","min","max","choices","ordered","inline","help","hidden","suffix","decimals","groups","enabled_by","step","step_toggle","checked_step","icons","enabled_values"});
         Setting field; field.id=text(s,"id",80); field.label=text(s,"label",80);
         require(identifier(field.id) && seen.insert(field.id).second,"Invalid or duplicate setting ID");
         const auto type=text(s,"type");
@@ -170,6 +170,10 @@ Manifest read_manifest(const QString& path) {
         field.inline_choices=s["inline"].toBool(); field.hidden=s["hidden"].toBool();
         if(s.contains("help")) field.help=text(s,"help",500);
         if(s.contains("enabled_by")) field.enabled_by=text(s,"enabled_by",80);
+        if(s.contains("enabled_values")) {
+            require(s["enabled_values"].isArray() && s["enabled_values"].toArray().size()<=64,"Invalid enabled values");
+            for (const auto& value:s["enabled_values"].toArray()) { require(value.isString(),"Enabled values must be text"); field.enabled_values.push_back(value.toString().toStdString()); }
+        }
         if(s.contains("step")) field.step=integer(s["step"],1,1000000);
         if(s.contains("step_toggle")) field.step_toggle=text(s,"step_toggle",80);
         if(s.contains("checked_step")) field.checked_step=integer(s["checked_step"],1,1000000);
@@ -289,10 +293,17 @@ void validate_page(const Manifest& manifest) {
             require(source!=manifest.settings.end() && !source->hidden && std::holds_alternative<bool>(source->initial),"Numeric step must refer to a visible checkbox");
         }
     }
-    for (const auto& setting:manifest.settings) if (!setting.enabled_by.empty()) {
+    for (const auto& setting:manifest.settings) {
+        require(!setting.enabled_by.empty() || setting.enabled_values.empty(),"Enabled values require a dependency");
+        if (setting.enabled_by.empty()) continue;
         const auto source=std::find_if(manifest.settings.begin(),manifest.settings.end(),[&](const auto& field) { return field.id==setting.enabled_by; });
         require(source!=manifest.settings.end() && source->id!=setting.id && !source->hidden
-            && source->enabled_by.empty() && std::holds_alternative<bool>(source->initial),"Setting dependency must be an independent visible checkbox");
+            && source->enabled_by.empty(),"Setting dependency must be an independent visible control");
+        if (setting.enabled_values.empty()) require(std::holds_alternative<bool>(source->initial),"Checkbox dependency required");
+        else {
+            require(std::holds_alternative<std::string>(source->initial),"Choice dependency required");
+            for (const auto& value:setting.enabled_values) require(std::find(source->choices.begin(),source->choices.end(),value)!=source->choices.end(),"Unknown dependency choice");
+        }
     }
     for (const auto& setting:manifest.settings) if (!setting.groups.empty()) {
         require(setting.inline_choices && !setting.ordered && std::holds_alternative<SettingSelection>(setting.initial)

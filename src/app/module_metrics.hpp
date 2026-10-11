@@ -21,6 +21,7 @@ public:
         layout_->addWidget(label("No activity yet","muted"));
     }
     void setMetrics(const std::vector<extensions::Metric>& values) {
+        if (previous_==values) return;
         const bool same=previous_.size()==values.size() && std::equal(values.begin(),values.end(),previous_.begin(),[](const auto& a,const auto& b) {
             return a.label==b.label && a.group==b.group && a.progress.has_value()==b.progress.has_value();
         });

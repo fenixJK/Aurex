@@ -209,10 +209,20 @@ public:
         return extensions::Module::execute_command(id,input);
     }
     std::shared_ptr<const extensions::Plot> plot() const override { return plot_; }
+    extensions::PlotProgress plot_progress() const override { return {preview_status_=="Running",preview_status_=="Running"?"Simulating…":preview_status_}; }
+    std::map<std::string,std::string> setting_summaries() const override {
+        std::map<std::string,std::string> result;
+        for (std::size_t i=0;i<5;++i) {
+            const auto& target=plan_.preferences->targets[i];
+            const auto band=bounds(target);
+            result["nectar-"+std::to_string(i)]=target.minimum==0?"Not maintained":"Band "+std::to_string(int(std::lround(band.lower)))+"–"+std::to_string(int(std::lround(band.upper)))+"%";
+        }
+        return result;
+    }
     void invoke(const std::string& command) override {
         if(command!="simulate" || !started_ || !plan_.preferences) throw std::invalid_argument("Simulation is unavailable");
         if(preview_.valid() && preview_.wait_for(std::chrono::seconds(0))!=std::future_status::ready) return;
-        cancel_preview_=std::make_shared<std::atomic_bool>(false); preview_status_="Running";
+        cancel_preview_=std::make_shared<std::atomic_bool>(false); plot_.reset(); preview_status_="Running";
         preview_=std::async(std::launch::async,[preferences=*plan_.preferences,capacity=plan_.capacity,days=simulation_days_,cancel=cancel_preview_] {
             return simulation_plot(preferences,capacity,days,cancel);
         });

@@ -15,7 +15,7 @@ public:
     }
 };
 class ChannelSource final : public NectarSource {
-    std::shared_ptr<const DetectionSource> channel_,fallback_;
+    std::shared_ptr<const DetectionSource> channel_;
     static Observation<NectarLevels> sample(const DetectionSource& channel,const ObservationContext& context) {
         const auto result=channel.read();
         if (!result || !result->error.empty()) return {};
@@ -27,16 +27,11 @@ class ChannelSource final : public NectarSource {
         return value->levels;
     }
 public:
-    ChannelSource(std::shared_ptr<const DetectionSource> channel,std::shared_ptr<const DetectionSource> fallback)
-        :channel_(std::move(channel)),fallback_(std::move(fallback)) {
+    explicit ChannelSource(std::shared_ptr<const DetectionSource> channel):channel_(std::move(channel)) {
         if (!channel_) throw std::invalid_argument("Nectar detection channel is missing");
     }
     Observation<NectarLevels> read(const ObservationContext& context) const override {
-        auto reading=sample(*channel_,context);
-        if (!fallback_ || (reading.has_value(context,Time(2000)) && reading.value.known()==5)) return reading;
-        const auto fallback=sample(*fallback_,context);
-        return fallback.has_value(context,Time(2000)) && (!reading.has_value(context,Time(2000))
-            || fallback.value.known()>reading.value.known())?fallback:reading;
+        return sample(*channel_,context);
     }
 };
 }
@@ -108,7 +103,7 @@ Observation<NectarLevels> read_nectar(const DetectionInput& input) {
     result.knowledge=Knowledge::present; result.value=levels; return result;
 }
 std::shared_ptr<const Detector> nectar_detector() { return std::make_shared<NectarDetector>(); }
-std::shared_ptr<const NectarSource> nectar_source(std::shared_ptr<const DetectionSource> channel,std::shared_ptr<const DetectionSource> fallback) {
-    return std::make_shared<ChannelSource>(std::move(channel),std::move(fallback));
+std::shared_ptr<const NectarSource> nectar_source(std::shared_ptr<const DetectionSource> channel) {
+    return std::make_shared<ChannelSource>(std::move(channel));
 }
 }

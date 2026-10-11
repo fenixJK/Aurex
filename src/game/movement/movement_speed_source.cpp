@@ -74,15 +74,14 @@ double permanent_multiplier(double base) {
 }
 class BuffSpeed final : public MovementSpeedSource {
     std::shared_ptr<const DetectionSource> source_;
-    std::shared_ptr<const DetectionSource> text_;
     double base_,permanent_;
     mutable std::mutex mutex_;
     mutable std::optional<ObservationContext> context_;
     mutable Time captured_{Time(-1)};
     mutable Observation<double> published_;
 public:
-    BuffSpeed(std::shared_ptr<const DetectionSource> source,double base,std::shared_ptr<const DetectionSource> text)
-        :source_(std::move(source)),text_(std::move(text)),base_(base),permanent_(permanent_multiplier(base)) {
+    BuffSpeed(std::shared_ptr<const DetectionSource> source,double base)
+        :source_(std::move(source)),base_(base),permanent_(permanent_multiplier(base)) {
         if (!source_ || !std::isfinite(base_) || base_<8 || base_>200) throw std::invalid_argument("Invalid movement speed source");
     }
     void reset() const override {
@@ -105,14 +104,6 @@ public:
             published_=reading; return reading;
         };
         auto packet=source_->read();
-        const auto usable=[&](const std::optional<DetectionResult>& result) {
-            if (!result || !result->error.empty()) return false;
-            const auto* frame=dynamic_cast<const MovementBuffDetection*>(result->value.get());
-            const auto& stamp=result->context;
-            return frame && frame->buffs.layout_known
-                && Observation<bool>{Knowledge::present,true,stamp.now,stamp.window,stamp.generation}.has_value(c,Time(2000));
-        };
-        if (!usable(packet) && text_) packet=text_->read();
         if (!packet || !packet->error.empty()) return publish(fallback);
         const auto* value=dynamic_cast<const MovementBuffDetection*>(packet->value.get());
         const auto& stamp=packet->context;
@@ -131,8 +122,7 @@ public:
 };
 }
 std::shared_ptr<const Detector> movement_buff_detector() { return std::make_shared<BuffDetector>(); }
-std::shared_ptr<const MovementSpeedSource> movement_speed_source(std::shared_ptr<const DetectionSource> source,double base_speed,
-    std::shared_ptr<const DetectionSource> text_fallback) {
-    return std::make_shared<BuffSpeed>(std::move(source),base_speed,std::move(text_fallback));
+std::shared_ptr<const MovementSpeedSource> movement_speed_source(std::shared_ptr<const DetectionSource> source,double base_speed) {
+    return std::make_shared<BuffSpeed>(std::move(source),base_speed);
 }
 }

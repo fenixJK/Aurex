@@ -87,6 +87,18 @@ public:
         if (!report.result.empty()) result.push_back({"Last result",report.result});
         return result;
     }
+    std::map<std::string,std::string> setting_summaries() const override {
+        std::string bees; const auto& selected=std::get<SettingSelection>(settings_.at("bees"));
+        for (const auto& name:selected) { if(!bees.empty()) bees+=", "; bees+=name; }
+        if (bees.empty()) bees="No bee filter";
+        if(std::get<bool>(settings_.at("gifted"))) bees+=" · Stop on gifted";
+        if(std::get<bool>(settings_.at("mythic"))) bees+=" · Stop on mythic";
+        const auto filters=mutation_filter(settings_); std::string mutations;
+        for(const auto& filter:filters) { if(!mutations.empty())mutations+=", ";mutations+=filter.name; }
+        if(mutations.empty())mutations="Any mutation";
+        if(std::get<bool>(settings_.at("jelly-mutations"))) bees+=" · "+mutations;
+        return {{"stops",bees},{"bitter-run",mutations}};
+    }
     std::optional<std::vector<extensions::Metric>> report_metrics() const override { return std::vector<extensions::Metric>{}; }
 };
 }
@@ -131,7 +143,7 @@ extensions::Manifest module_manifest() {
     auto section=[&](std::string id,std::string title,std::vector<std::string> settings,std::string tab,unsigned columns=2,std::string description={}) {
         sections.push_back({std::move(id),std::move(title),std::move(description),std::move(settings),false,columns}); sections.back().tab=std::move(tab);
     };
-    section("jelly-help","Bee Genetics",{},"Bee Genetics",1,"Choose bees and optional mutations. Start from a Royal Jelly result, or select a bee with Automatic Neonberries enabled.");
+    section("jelly-help","Bee Genetics",{},"Bee Genetics",1,"Run these tools here; Start macro runs your farming modules. Esc stops a tool.");
     section("bees","Bees to keep",{"bees"},"Bee Genetics",1);
     section("stops","Rolling",{"gifted","mythic","jelly-mutations","jelly-limit","jelly-neon","jelly-neon-limit"},"Bee Genetics");
     section("mutation-help","Mutation filters",{},"Bee Genetics",1,"Shared by mutation rolling and Bitterberries. No selection accepts any mutation; minimum 0 accepts any value and unit.");
@@ -146,7 +158,7 @@ extensions::Manifest module_manifest() {
         m.settings.back().enabled_by=key;
         section(key,type.name,{key,key+"-minimum",key+"-unit"},"Bee Genetics",3);sections.back().row=true; sections.back().tool="Mutation filters";
     }
-    section("bitter-run","Bitterberries",{"bitter-batch","bitter-limit"},"Bitterberries",2,"Keep the current bee and reroll its mutation. Face your hive, choose mutations, then select a bee. Esc stops.");
+    section("bitter-run","Bitterberries",{"bitter-batch","bitter-limit"},"Bitterberries",2,"Face your hive, choose a mutation filter, then select a bee.");
     section("neon","Radioactive",{"bitter-neon","neon-limit"},"Bitterberries",2,"Uses one Neonberry before feeding and refreshes it after 11 minutes, up to your limit.");
     section("bitter-filter-link","Mutation filters",{},"Bitterberries",1); sections.back().tool="Mutation filters";
     section("ssa-passives","SSA Roller",{"ssa-main","ssa-limit","ssa-double"},"SSA Roller",2,"Start at the SSA generator or an open result. Matches stay open. Escape stops.");
@@ -161,7 +173,7 @@ extensions::Manifest module_manifest() {
     section("ssa-required","Stats to keep",{"ssa-required-stats"},"SSA Roller",1);
     section("ssa-stats","Stat minimums",keys,"SSA Roller",2); sections.back().tool="Stat minimums";
     section("basic-bee","Gifted Basic Bee",{"egg-limit","egg-start-jelly","egg-keep-gifted","egg-keep-mythic"},"Basic Bee",2,
-        "Uses Basic Eggs on the selected bee. Select Starting bee is Basic to use Royal Jelly first. Non-gifted Basic results also use one Royal Jelly before the next egg. Stops on Gifted Basic or your chosen rare results. Keep in-game Auto-Jelly off.");
+        "Rolls Basic Eggs with Royal Jelly between Basic results. Stops on Gifted Basic or selected rare results. Keep in-game Auto-Jelly off.");
     sections.push_back({"progress","Last result",{},{},true,2});
     sections.back().collapsed=true;
     for (auto& section:sections) section.inline_labels=true;

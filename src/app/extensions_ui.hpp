@@ -8,7 +8,7 @@ class QWidget;
 class QVBoxLayout;
 class QLabel;
 class QPushButton;
-class QTabBar;
+class QListWidget;
 class QTimer;
 namespace hive {
 class Navigation;
@@ -34,6 +34,8 @@ public:
     extensions::CommandResult invoke_module(const std::string& id,const std::string& command,bool remote=false,extensions::CommandInput input={});
     const extensions::CommandRegistry& commands() const { return host_.commands(); }
     std::function<void()> commands_changed;
+    std::function<void(const QString&)> shared_hotbar_warning;
+    void set_shared_hotbar(std::vector<extensions::HotbarUse> uses) { host_.set_shared_hotbar(std::move(uses)); render(); }
     std::vector<std::string> run_order() const;
     void set_run_order(std::vector<std::string> order);
     std::unique_ptr<extensions::RoutineRun> routine(Session& session,std::unique_ptr<automation::ActivityPolicy> policy,std::optional<automation::Launch> preparation={}) {
@@ -43,6 +45,8 @@ public:
 private:
     extensions::Host host_;
     std::uint64_t command_revision_{};
+    std::uint64_t rendered_revision_{};
+    std::optional<bool> rendered_busy_;
     Navigation* navigation_;
     QStackedWidget* pages_;
     QStringList roots_;
@@ -54,7 +58,7 @@ private:
     TargetPicker picker_;
     QString order_file_;
     std::vector<std::string> order_;
-    QTabBar* order_tabs_{};
+    QListWidget* order_list_{};
     QWidget* manager_{};
     QVBoxLayout* list_{};
     QLabel* message_{};

@@ -25,12 +25,12 @@ class EquipmentSettings final : public QWidget {
         slot_->setValue(settings_.value("equipment/sprinklerSlot",1).toInt());
         mode_->button(std::clamp(settings_.value("conversion/mode",0).toInt(),0,3))->setChecked(true);
         interval_->setCurrentIndex(std::max(0,interval_->findData(settings_.value("conversion/minutes",30).toInt())));
-        interval_->setEnabled(mode_->checkedId()==2);
+        interval_->setVisible(mode_->checkedId()==2);
         loading_=false;
     }
     void changed() {
         if(loading_) return;
-        interval_->setEnabled(mode_->checkedId()==2);
+        interval_->setVisible(mode_->checkedId()==2);
         if(on_changed && !on_changed()) { restore(); return; }
         settings_.setValue("equipment/sprinkler",equipment_->currentText());
         settings_.setValue("equipment/sprinklerSlot",slot_->value());

@@ -60,6 +60,10 @@ public:
         }
         started_=true; state_="Waiting for a session";
     }
+    std::vector<extensions::HotbarUse> hotbar_uses() const override {
+        if (goo_slot_ && cycle_ && !cycle_->givers.empty()) return {{goo_slot_,"Gumdrops","Goo quests"}};
+        return {};
+    }
     void update(const extensions::SessionView& view) override {
         if (!started_) throw std::logic_error("Quest module is not started");
         if (view.now<Time::zero() || view.now>Time::max()-freshness_) throw std::invalid_argument("Invalid quest module time");
@@ -139,6 +143,7 @@ public:
                 if (!card.complete_view) add("Reading","Some objectives are not visible");
                 else if (last_-found->second.captured>freshness_) add("Reading","Last seen progress");
             }
+            for (const auto& reason:report_.blocked) if (reason.starts_with(giver+": ")) add("Needs attention",reason.substr(giver.size()+2));
             add("This session",std::to_string(visit==visits.end()?0:visit->second.completed)+" completed");
             if (visit!=visits.end() && visit->second.next_visit>last_) {
                 const auto minutes=(visit->second.next_visit-last_+Time(59999)).count()/60000;

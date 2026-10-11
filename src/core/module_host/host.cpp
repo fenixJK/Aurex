@@ -175,6 +175,7 @@ std::vector<std::string> Host::order(const std::string& id) const {
     visit(id); return result;
 }
 void Host::stop_entry(Entry& entry) noexcept {
+    ++configuration_revision_;
     if (entry.request_scope_) { requests_->revoke(*entry.request_scope_); entry.request_scope_.reset(); }
     commands_.remove(entry.manifest.id);entry.stop();
 }
@@ -189,7 +190,7 @@ void Host::stop_all() noexcept {
     for (auto& [key,entry] : entries_) visit(key);
 }
 void Host::discover(const QStringList& roots) {
-    require_stopped();
+    require_stopped(); ++configuration_revision_;
     stop_all(); entries_.clear(); diagnostics_.clear(); saved_={}; state_writable_=true;
     requests_->reset(0); requests_->configure(request_contracts_);
     std::set<std::string> duplicates;
@@ -223,6 +224,7 @@ void Host::discover(const QStringList& roots) {
     }
 }
 void Host::activate(const std::string& id) {
+    ++configuration_revision_;
     const auto sorted=order(id);
     std::vector<std::pair<std::string,std::unique_ptr<Module>>> pending;
     auto registered=commands_;
@@ -322,47 +324,78 @@ void Host::update(const SessionView& view) {
         for (auto& [_,entry] : entries_) entry.request_scope_.reset();
     }
     const auto inbox=requests_->channels(view.now,generation);
-    std::set<std::string> updated;
-    for (const auto& [id,entry] : entries_) {
-        if (!entry.instance_) continue;
-        for (const auto& key : order(id)) {
-            auto& current=entries_.at(key);
-            if (!current.instance_ || !updated.insert(key).second) continue;
-            try {
-                auto supplied=view; supplied.requests.clear();
-                for (const auto& channel : current.manifest.consumes)
-                    if (const auto it=inbox.find(channel); it!=inbox.end()) supplied.requests.emplace(channel,it->second);
-                current.instance_->update(supplied); auto display=current.instance_->metrics();
-                if (display.size()>128) throw std::runtime_error("Too many display metrics");
-                for (const auto& metric : display) if (metric.label.size()>160 || metric.value.size()>4096 || metric.group.size()>160
-                    || (metric.progress && (!std::isfinite(*metric.progress) || *metric.progress<0 || *metric.progress>1)))
-                    throw std::runtime_error("Invalid display metric");
-                current.display=std::move(display);
-                if (generation) {
-                    const auto batch=current.instance_->request_channels();
-                    for (const auto& [channel,_] : batch.channels) if (!current.manifest.requests.contains(channel))
-                        throw std::runtime_error("Module published an undeclared request contract: "+channel);
-                    if (!current.manifest.requests.empty()) {
-                        if (!current.request_scope_) {
-                            game::RequestGrants grants;
-                            for (const auto& channel : current.manifest.requests)
-                                grants.emplace(channel,request_access_.at(current.manifest.provider).at(channel));
-                            current.request_scope_=requests_->grant_channels(key,std::move(grants));
-                        }
-                        requests_->replace_channels(*current.request_scope_,batch,view.now);
+    if (order_revision_!=configuration_revision_) {
+        std::set<std::string> updated; update_order_.clear();
+        for (const auto& [id,entry]:entries_) if (entry.instance_)
+            for (const auto& key:order(id)) if (updated.insert(key).second) update_order_.push_back(key);
+        order_revision_=configuration_revision_;
+    }
+    for (const auto& key:update_order_) {
+        auto& current=entries_.at(key);
+        if (!current.instance_) continue;
+        try {
+            auto supplied=view; supplied.requests.clear();
+            for (const auto& channel : current.manifest.consumes)
+                if (const auto it=inbox.find(channel); it!=inbox.end()) supplied.requests.emplace(channel,it->second);
+            current.instance_->update(supplied);
+            if (!selective_display_ || display_interest_==key) current.display=current.instance_->checked_metrics();
+            if (generation) {
+                const auto batch=current.instance_->request_channels();
+                for (const auto& [channel,_] : batch.channels) if (!current.manifest.requests.contains(channel))
+                    throw std::runtime_error("Module published an undeclared request contract: "+channel);
+                if (!current.manifest.requests.empty()) {
+                    if (!current.request_scope_) {
+                        game::RequestGrants grants;
+                        for (const auto& channel : current.manifest.requests)
+                            grants.emplace(channel,request_access_.at(current.manifest.provider).at(channel));
+                        current.request_scope_=requests_->grant_channels(key,std::move(grants));
                     }
+                    requests_->replace_channels(*current.request_scope_,batch,view.now);
                 }
             }
-            catch (const std::exception& e) { stop_dependents(key,"Extension stopped: "+std::string(e.what())); }
-            catch (...) { stop_dependents(key,"Extension stopped after an unexpected error"); }
         }
+        catch (const std::exception& e) { stop_dependents(key,"Extension stopped: "+std::string(e.what())); }
+        catch (...) { stop_dependents(key,"Extension stopped after an unexpected error"); }
     }
 }
 std::vector<Metric> Host::metrics(const std::string& id) const {
-    return entries_.at(id).display;
+    const auto& entry=entries_.at(id); return entry.instance_?entry.instance_->checked_metrics():std::vector<Metric>{};
 }
 std::vector<game::FieldGoal> Host::field_goals(Time now,std::uint64_t generation) const {
     return requests_->snapshot(now,generation);
+}
+void Host::set_shared_hotbar(std::vector<HotbarUse> uses) {
+    for (const auto& use:uses) if (use.slot<1 || use.slot>7 || use.item.size()>80 || use.label.empty() || use.label.size()>160)
+        throw std::invalid_argument("Invalid shared hotbar assignment");
+    if (uses==shared_hotbar_) return;
+    shared_hotbar_=std::move(uses); ++configuration_revision_;
+}
+const std::map<std::string,std::vector<std::string>>& Host::hotbar_warnings() const {
+    if (hotbar_revision_==configuration_revision_) return hotbar_warnings_;
+    hotbar_warnings_.clear();
+    struct Usage { std::string owner,name; HotbarUse binding; };
+    std::vector<Usage> uses;
+    for (const auto& binding:shared_hotbar_) uses.push_back({{},"Settings",binding});
+    for (const auto& [id,entry]:entries_) if (entry.instance_) {
+        try {
+            auto bindings=entry.instance_->hotbar_uses();
+            if (bindings.size()>64) throw std::invalid_argument("Too many hotbar assignments");
+            for (const auto& binding:bindings) {
+                if (binding.slot<1 || binding.slot>7 || binding.item.size()>80 || binding.label.empty() || binding.label.size()>160)
+                    throw std::invalid_argument("Invalid hotbar assignment");
+                uses.push_back({id,entry.manifest.name,binding});
+            }
+        } catch (const std::exception& e) { hotbar_warnings_[id].push_back(e.what()); }
+    }
+    for (std::size_t i=0;i<uses.size();++i) for (std::size_t j=i+1;j<uses.size();++j) {
+        const auto& a=uses[i];const auto& b=uses[j];
+        if (a.binding.slot!=b.binding.slot || (!a.binding.item.empty() && a.binding.item==b.binding.item)) continue;
+        const auto message="Slot "+std::to_string(a.binding.slot)+": "+a.name+" / "+a.binding.label+" and "+b.name+" / "+b.binding.label+" overlap. Check the assigned item.";
+        hotbar_warnings_[a.owner].push_back(message);
+        if (a.owner!=b.owner) hotbar_warnings_[b.owner].push_back(message);
+    }
+    hotbar_revision_=configuration_revision_;
+    return hotbar_warnings_;
 }
 void Host::persist(const Configuration* configuration) {
     if (!state_writable_) throw std::runtime_error("Extension settings file could not be read; repair it before saving changes");

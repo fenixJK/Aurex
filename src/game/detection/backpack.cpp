@@ -91,9 +91,26 @@ std::optional<std::array<Rect,2>> resource_hud_regions(const Frame& frame) {
 std::optional<std::array<Rect,2>> resource_hud_regions(const DetectionInput& input) {
     return input.hud?input.hud->resources:resource_hud_regions(input.frame);
 }
-HudFeatures inspect_hud(const Frame& frame,std::uint64_t generation) {
+HudFeatures inspect_hud(const Frame& frame,std::uint64_t generation) { return HudInspector{}.inspect(frame,generation); }
+HudFeatures HudInspector::inspect(const Frame& frame,std::uint64_t generation) {
+    if (frame.window.id!=window_.id || frame.window.process!=window_.process || frame.window.bounds!=window_.bounds || frame.width!=width_ || frame.height!=height_ || generation!=generation_) {
+        menu_region_.reset(); menu_hints_.clear(); window_=frame.window; width_=frame.width; height_=frame.height; generation_=generation;
+    }
     HudFeatures result;
-    result.menus=menu_controls({frame,{},generation,{}});
+    if (menu_region_) result.menus=menu_controls({frame,{},generation,{}},menu_region_,menu_hints_);
+    if (result.menus.size()!=3) {
+        result.menus=menu_controls({frame,{},generation,{}}); menu_region_.reset();
+        if (result.menus.size()==3) {
+            double left=1,top=1,right=0,bottom=0,pad_x=0,pad_y=0;
+            for (const auto& menu:result.menus) {
+                left=std::min(left,menu.bounds.x); top=std::min(top,menu.bounds.y);
+                right=std::max(right,menu.bounds.x+menu.bounds.width); bottom=std::max(bottom,menu.bounds.y+menu.bounds.height);
+                pad_x=std::max(pad_x,menu.bounds.width*.4); pad_y=std::max(pad_y,menu.bounds.height*.4);
+            }
+            menu_region_=Rect{left-pad_x,top-pad_y,right-left+2*pad_x,bottom-top+2*pad_y};
+        }
+    }
+    menu_hints_=result.menus;
     result.backpack={Knowledge::unknown,0,frame.captured,frame.window,generation};
     if (generation) if (const auto bar=backpack_bar(frame)) {
         result.resources=resource_regions(frame,bar->pixels);

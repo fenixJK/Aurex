@@ -62,7 +62,7 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
     report_channel_=new QLineEdit;report_channel_->setObjectName("discord-report-channel");report_channel_->setMaxLength(22);
     report_channel_->setPlaceholderText("Same as command channel");
     report_channel_->setToolTip("Timed reports only. Leave blank to use the command channel. Status messages and alerts stay in the command channel.");
-    fields->addRow("Report channel",report_channel_);
+    report_channel_row_=new QWidget; auto channel_form=new QFormLayout(report_channel_row_); channel_form->setContentsMargins(0,0,0,0); channel_form->addRow("Report channel",report_channel_); fields->addRow(report_channel_row_);
     auto interval=new QComboBox; interval->setObjectName("discord-interval");
     for (int minutes:{15,30,60,120,240,360,720})
         interval->addItem(minutes<60?QString("Every %1 min").arg(minutes):minutes==60?"Every hour":QString("Every %1 hours").arg(minutes/60),minutes);
@@ -219,8 +219,8 @@ StatusPage::~StatusPage() {
 }
 void StatusPage::add_remote(QWidget* page) { discord_layout_->insertWidget(0,page); }
 void StatusPage::use_bot(std::optional<reporting::BotDestination> destination) {
-    webhook_row_->setEnabled(!destination);
-    report_channel_->setEnabled(destination.has_value());
+    webhook_row_->setVisible(!destination);
+    report_channel_row_->setVisible(destination.has_value());
     destination_->setText(destination?"Reports sent through your bot.":"Reports use this webhook.");
     discord_->set_bot(std::move(destination));
 }

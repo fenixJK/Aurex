@@ -261,6 +261,8 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     sections.push_back({"overview","Progress",{},{},true,2,true});
     for (auto& section:sections) section.inline_labels=true;
     for (auto setting:option_settings(plan)) manifest.settings.push_back(std::move(setting));
+    for (const auto& enemy:plan.enemies) if (!enemy.boss)
+        for (auto& setting:manifest.settings) if (setting.id==option_key("loot",enemy.id)) setting.enabled_by=features::visits::selection_key(enemy.id);
     if (manifest.settings.size()>maximum_settings) throw std::invalid_argument("Too many Combat settings");
     return manifest;
 }

@@ -36,7 +36,7 @@ PlayerSpeed::PlayerSpeed(QSettings& settings,QWidget* parent):QWidget(parent),se
     base_->setToolTip("Your displayed Movespeed without temporary speed buffs, including permanent equipment bonuses. Update it after changing equipment or hive bonuses.");
     bool ok=false; const auto saved=settings_.value(key).toDouble(&ok);
     if (ok && valid(saved)) base_->setValue(saved);
-    row->addWidget(base_);
+    base_->setFixedWidth(100); row->addWidget(base_);
     row->addStretch(); layout->addLayout(row);
     connect(base_,&QDoubleSpinBox::valueChanged,this,[this](double value) {
         if (busy_ || (on_changed && !on_changed())) {

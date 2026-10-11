@@ -1,13 +1,12 @@
 #include "controller.hpp"
 #include <QJsonDocument>
 #include "game/data/join.hpp"
-#include <QSysInfo>
 #include <QUrl>
 #include <QUuid>
 
 namespace hive::features::accounts {
 Controller::Controller(Credentials credentials,coordination::RouterMapping router,std::shared_ptr<coordination::State> state)
-    :credentials_(std::move(credentials)),state_(state?std::move(state):throw std::invalid_argument("Accounts needs connection state.")),connection_(state_,nullptr,std::move(router)),name_(QSysInfo::machineHostName().left(32)) {
+    :credentials_(std::move(credentials)),state_(state?std::move(state):throw std::invalid_argument("Accounts needs connection state.")),connection_(state_,nullptr,std::move(router)),name_("My account") {
     if(!credentials_.read || !credentials_.write) throw std::invalid_argument("Accounts needs credential storage.");
     connection_.on_changed=[this] { changed(); };
 }

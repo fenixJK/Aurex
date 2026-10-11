@@ -16,9 +16,9 @@ struct Entry {
     std::string issue;
     std::vector<Metric> display;
     ModuleReport report() const {
-        ModuleReport result{manifest.id,manifest.name,display,{},{}};
+        ModuleReport result{manifest.id,manifest.name,{},{},{}};
         if (instance_) {
-            if (auto metrics=instance_->report_metrics()) result.metrics=std::move(*metrics);
+            auto metrics=instance_->report_metrics(); result.metrics=metrics?std::move(*metrics):instance_->checked_metrics();
             result.counters=instance_->report_counters(); result.thresholds=instance_->report_thresholds();
         }
         if (!issue.empty()) result.metrics.insert(result.metrics.begin(),{"Issue",issue});
@@ -27,9 +27,12 @@ struct Entry {
     Entry(Manifest metadata,Settings values):manifest(std::move(metadata)),settings(std::move(values)) {}
     bool active() const { return bool(instance_); }
     bool executable() const { return instance_ && instance_->executable(); }
+    std::optional<RoutineParticipation> participation() const { return instance_?instance_->routine():std::nullopt; }
     std::vector<ModuleTimer> timers() const { return instance_?instance_->timers():std::vector<ModuleTimer>{}; }
     std::vector<Command> commands() const { return instance_?instance_->commands():std::vector<Command>{}; }
     std::shared_ptr<const Plot> plot() const { return instance_?instance_->plot():nullptr; }
+    PlotProgress plot_progress() const { return instance_?instance_->plot_progress():PlotProgress{}; }
+    std::map<std::string,std::string> setting_summaries() const { return instance_?instance_->setting_summaries():std::map<std::string,std::string>{}; }
     bool pending_work(const SessionView& view) const { return instance_ && instance_->pending_work(view); }
     std::uint64_t revision() const { return revision_; }
 private:
@@ -82,7 +85,18 @@ public:
     std::shared_ptr<const game::RequestSource> request_source() const { return requests_; }
     const std::map<std::string, Entry>& entries() const { return entries_; }
     const std::vector<std::string>& diagnostics() const { return diagnostics_; }
+    std::uint64_t configuration_revision() const { return configuration_revision_; }
+    void set_display_interest(std::optional<std::string> id) { display_interest_=std::move(id); selective_display_=true; }
+    void set_shared_hotbar(std::vector<HotbarUse> uses);
+    const std::map<std::string,std::vector<std::string>>& hotbar_warnings() const;
 private:
+    std::uint64_t configuration_revision_{1},order_revision_{};
+    std::vector<std::string> update_order_;
+    bool selective_display_{};
+    std::optional<std::string> display_interest_;
+    std::vector<HotbarUse> shared_hotbar_;
+    mutable std::uint64_t hotbar_revision_{};
+    mutable std::map<std::string,std::vector<std::string>> hotbar_warnings_;
     CommandRegistry commands_;
     std::function<void(automation::Launch)> command_launcher_;
     CommandRegistry::Handler command_handler(const std::string& owner);

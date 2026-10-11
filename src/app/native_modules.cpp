@@ -57,7 +57,6 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
         if (modules.planters.inventory) modules.planters.actions.reset();
         auto routes=automation::live_hive_routes(28,modules.travel_access,modules.movement,true);
         modules.gathering=features::gathering::field_services(routes->network(),28,modules.patterns,modules.screen_reference);
-        modules.gathering.plan.shared_conversion=true;
         if(modules.gathering.sprinklers) modules.gathering.sprinklers->equipment=modules.sprinklers;
         return;
     }
@@ -66,8 +65,6 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
     auto routes=automation::live_hive_routes(*speed,modules.travel_access,modules.movement,!hive.recovery);
     const automation::FieldReturnOptions returns{hive.result,modules.travel_access,modules.transport_prompt,modules.movement};
     auto service=features::gathering::field_services(routes->network(),*speed,modules.patterns,modules.screen_reference,returns);
-    service.plan.balloon_schedule=modules.gathering.plan.balloon_schedule;
-    service.plan.shared_conversion=true;
     if(service.sprinklers) service.sprinklers->equipment=modules.sprinklers;
     modules.startup=[hive,speed=*speed] {
         return automation::acquire_hive(hive.slot_source,hive.spawn,hive.reference,hive.proximity,hive.options(speed));
@@ -181,9 +178,8 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
         if (!service.description.empty()) manifest.description=service.description;
         add(host,std::move(manifest),[service,navigation,goals=host.field_goal_source()](const auto& manifest) {
             return features::gathering::module_factory(service.plan,navigation,service.policy,goals,service.controls,service.sprinklers)(manifest);
-        },requirements,[shared=service.plan.shared_conversion,equipment=service.sprinklers && service.sprinklers->equipment](int version,const Settings& saved) {
+        },requirements,[equipment=service.sprinklers && service.sprinklers->equipment](int version,const Settings& saved) {
             auto values=features::gathering::migrate_settings(version,saved);
-            if(shared) for(const auto* key:{"convert-balloon","balloon-mode","balloon-interval"}) values.erase(key);
             if(equipment) for(const auto* key:{"sprinkler-type","sprinkler-slot"}) values.erase(key);
             return values;
         });

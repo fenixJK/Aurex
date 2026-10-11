@@ -40,13 +40,6 @@ public:
     Snapshot read(const ObservationContext& context,const game::State& observations) const override;
     std::vector<game::FieldGoal> goals(const ObservationContext& context,const game::State&) const override;
 };
-class BalloonSchedule {
-    mutable std::mutex mutex_;
-    std::optional<Time> completed_;
-public:
-    bool due(Time now,Time interval) const;
-    void completed(Time now);
-};
 struct Plan {
     std::vector<FieldPlan> fields;
     std::string hive;
@@ -56,10 +49,7 @@ struct Plan {
     automation::ProgramFactory recovery;
     std::size_t max_recoveries{2};
     automation::ProgramFactory route_recovery;
-    bool convert_balloon{},shift_lock{};
-    bool shared_conversion{};
-    Time balloon_interval{};
-    std::shared_ptr<BalloonSchedule> balloon_schedule{std::make_shared<BalloonSchedule>()};
+    bool shift_lock{};
     std::shared_ptr<const game::DetectionSource> buffs,field_boosts;
     std::function<std::unique_ptr<automation::Program>(unsigned)> whirligig_return;
 };

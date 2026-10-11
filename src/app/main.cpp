@@ -1,14 +1,11 @@
+#include "observations.hpp"
 #include <QIcon>
 #include <QDialog>
 #include "game/actions/field/movement_setup.hpp"
 #include "game/detection/movement_buffs.hpp"
-#include "game/detection/buffs.hpp"
 #include "builtins.hpp"
 #include "native_modules.hpp"
 #include "target_picker.hpp"
-#include "game/detection/memory_match.hpp"
-#include "game/detection/daylight.hpp"
-#include "game/detection/item_menu.hpp"
 #include "modules/gathering/scripts.hpp"
 #include "modules/shared/visit_cooldown_store.hpp"
 #include "modules/planters/store.hpp"
@@ -16,7 +13,6 @@
 #include "game/detection/inventory.hpp"
 #include "modules/quests/detection.hpp"
 #include "core/session/session.hpp"
-#include "game/detection/honey.hpp"
 #include "game/actions/travel/localization.hpp"
 #include "game/actions/hive/hive_setup.hpp"
 #include "game/actions/travel/field_routes.hpp"
@@ -64,36 +60,6 @@
 
 namespace {
 QString q(const std::string& s) { return QString::fromStdString(s); }
-struct BuffStyle { QImage icon; QColor color; QString chart_group; };
-BuffStyle buff_style(QString name) {
-    static const QMap<QString,BuffStyle> styles=[] {
-        QMap<QString,BuffStyle> result{
-            {"blue-boost",{{},"#73aaf2","pollen-boost"}}, {"red-boost",{{},"#ee7773","pollen-boost"}},
-            {"white-boost",{{},"#e9e9e9","pollen-boost"}}, {"pop-star",{{},"#94d9ef"}},
-            {"melody",{{},"#e8e8e8"}}, {"jelly-bean-sharing",{{},"#f9ccff"}},
-            {"guiding-star",{{},"#ead582"}}, {"reindeer-fetch",{{},"#cc4848"}},
-            {"festive-mark",{{},"#7ab55e"}},
-            {"focus",{{},"#6cde83"}}, {"bomb-combo",{{},"#e1e5ea"}},
-            {"balloon-aura",{{},"#f0d66c"}}, {"haste",{{},"#bdc8d3"}},
-            {"precision",{{},"#ba83e1"}}, {"inspire",{{},"#f3e3a1"}},
-            {"honey-mark",{{},"#edbb55"}}, {"pollen-mark",{{},"#e7d86f"}},
-            {"rage",{{},"#efa451"}}, {"baby-love",{{},"#eea6c2"}},
-            {"haste+",{{},"#dfd26c"}}, {"oil",{{},"#e7c47e"}},
-            {"smoothie",{{},"#cba1e8"}}, {"bear-morph",{{},"#cfaa83"}},
-            {"comforting",{{},"#7e9eb3"}}, {"refreshing",{{},"#78b375"}},
-            {"satisfying",{{},"#b398a7"}}, {"motivating",{{},"#937db3"}},
-            {"invigorating",{{},"#b35951"}}
-        };
-        const QDir directory(":/buffs");
-        for (const auto& file:directory.entryList({"*.png"},QDir::Files))
-            result[file.chopped(4)].icon=QImage(directory.filePath(file)).scaled(36,36,Qt::KeepAspectRatio,Qt::SmoothTransformation);
-        return result;
-    }();
-    return styles.value(name.toLower().replace(' ','-'));
-}
-hive::reporting::Metric report_metric(const hive::extensions::Metric& metric) {
-    return {q(metric.label),q(metric.value),metric.progress,buff_style(q(metric.color_key)).color};
-}
 QString state_name(hive::RunState state) {
     switch(state) {
     case hive::RunState::idle: return "Ready to configure";
@@ -128,7 +94,7 @@ class Window final : public QMainWindow {
     QPushButton* pause_{};
     std::unique_ptr<hive::reporting::Discord> discord_;
     std::unique_ptr<hive::reporting::DiscordRemote> remote_;
-    std::shared_ptr<const hive::game::DetectionSource> reporting_nectar_,reporting_buffs_,reporting_upkeep_,reporting_honey_;
+    hive::app::ReportObservations report_observations_;
     hive::app::StatusPage* status_page_{};
     QTimer start_timer_;
     std::optional<hive::ClientRejoin> initial_join_;
@@ -215,11 +181,11 @@ class Window final : public QMainWindow {
                 auto report=discord_->preview_report();std::optional<qint64> age;
                 const auto snapshot=session_.snapshot();const hive::ObservationContext context{snapshot.window,snapshot.generation,hive::monotonic_now()};
                 for(auto& gauge:report.snapshot.gauges)gauge.percent.reset();
-                if(reporting_nectar_)if(const auto packet=reporting_nectar_->peek())
-                    if(const auto* reading=dynamic_cast<const hive::game::NectarDetection*>(packet->value.get());reading && reading->levels.has_value(context,hive::Time(5000))) {
-                        age=(context.now-reading->levels.captured).count();
-                        for(int i=0;i<5 && i<report.snapshot.gauges.size();++i)report.snapshot.gauges[i].percent=reading->levels.value.percent[i];
-                    }
+                const auto reading=report_observations_.nectar();
+                if(reading.has_value(context,hive::Time(5000))) {
+                    age=(context.now-reading.captured).count();
+                    for(int i=0;i<5 && i<report.snapshot.gauges.size();++i)report.snapshot.gauges[i].percent=reading.value.percent[i];
+                }
                 return nectar_reply(report,age);
             }},
             {"screenshot","Show Roblox or its honey and backpack counters",false,[this](const RemoteArguments& args) {
@@ -307,6 +273,7 @@ public:
         native_modules_.accounts->suggested_server=[this] { return settings_.value("recovery/serverLink").toString(); };
         auto speed_card=new QVBoxLayout(card(player_page)); speed_card->setContentsMargins(10,10,10,10); speed_card->addWidget(player_speed);
         auto equipment=new hive::app::EquipmentSettings(settings_); player_page->addWidget(equipment);
+        auto hotbar_warning=label({},"muted"); hotbar_warning->setWordWrap(true); hotbar_warning->hide(); player_page->addWidget(hotbar_warning);
         native_modules_.sprinklers=equipment->sprinklers();
         conversion_->configure(equipment->conversion()); session_.configure_conversion(conversion_);
         auto connection=new QVBoxLayout(card(connection_page)); connection->setContentsMargins(10,10,10,10);
@@ -348,7 +315,7 @@ public:
         auto reconnect_hours=new QComboBox; reconnect_hours->setObjectName("reconnect-hours"); reconnect_hours->addItem("Off",0);
         for (int hours:{1,2,3,4,6,8,12,24}) reconnect_hours->addItem(hours==1?"Every hour":QString("Every %1 hours").arg(hours),hours);
         reconnect_hours->setCurrentIndex(std::max(0,reconnect_hours->findData(settings_.value("recovery/hours",0).toInt())));
-        auto reconnect_minute=new QSpinBox; reconnect_minute->setObjectName("reconnect-minute"); reconnect_minute->setRange(0,59); reconnect_minute->setPrefix(":");
+        auto reconnect_minute=new QSpinBox; reconnect_minute->setObjectName("reconnect-minute"); reconnect_minute->setRange(0,59); reconnect_minute->setPrefix("Minute ");
         reconnect_minute->setKeyboardTracking(false); reconnect_minute->setValue(settings_.value("recovery/minute",0).toInt());
         reconnect_minute->setToolTip("Minute after the hour. Multi-hour schedules align to midnight UTC. Reconnect waits for the current activity to yield.");
         reconnect_minute->setEnabled(reconnect_hours->currentData().toInt()>0);
@@ -384,7 +351,7 @@ public:
         setup->addStretch();
         auto status_page=page("Status",{}); navigation->addItem("Status");
         status_page->addWidget(action_);
-        auto enabled_features=label({},"muted"); status_page->addWidget(enabled_features);
+
         const auto report_frame=[this]() -> std::shared_ptr<const hive::Frame> {
             const auto frame=session_.latest_frame(); const auto snapshot=session_.snapshot();
             if (!frame || !frame->valid() || frame->window.id!=snapshot.window.id || frame->window.process!=snapshot.window.process
@@ -393,73 +360,8 @@ public:
         };
         discord_=std::make_unique<hive::reporting::Discord>([this] {
             const auto snapshot=session_.snapshot();
-            hive::reporting::Snapshot report{state_->text(),snapshot.feature?q(snapshot.feature->activity_label):action_->text(),{}};
-            std::map<std::string,double> thresholds;
-            if (extensions_) for (const auto& module:extensions_->module_reports()) {
-                hive::reporting::Section section{q(module.name),{},q(module.id),module.counters};
-                for (const auto& metric:module.metrics) section.metrics.append(report_metric(metric));
-                for (const auto& threshold:module.thresholds) thresholds[threshold.id]=threshold.minimum;
-                report.sections.push_back(std::move(section));
-            }
-            report.counters={{"disconnects","Disconnects",snapshot.recovery.disconnects,snapshot.session_id},
-                {"rejoins","Successful rejoins",snapshot.recovery.rejoins,snapshot.session_id}};
-            const hive::ObservationContext context{snapshot.window,snapshot.generation,snapshot.now};
-            const auto readings=session_.observations(); report.trend.name="Backpack";
-            if (reporting_honey_) if (const auto packet=reporting_honey_->peek()) {
-                const auto* value=dynamic_cast<const hive::game::HoneyDetection*>(packet->value.get());
-                if (value && value->amount.has_value(context,hive::Time(2*hive::reporting::sample_interval_ms))) {
-                    report.honey=value->amount.value;
-                    report.honey_age_ms=(context.now-value->amount.captured).count();
-                }
-            }
-            if (readings.state.backpack_percent.has_value(context,hive::Time(5000))) report.trend.percent=readings.state.backpack_percent.value;
-            for (const auto* name:{"Comforting","Refreshing","Satisfying","Motivating","Invigorating"}) {
-                const auto id=std::string("nectar/")+name; const auto found=thresholds.find(id);
-                report.gauges.append(hive::reporting::Gauge{name,{},q(id),found==thresholds.end()?std::nullopt:std::optional<double>(found->second)});
-                report.gauges.back().color=buff_style(name).color;
-            }
-            if (reporting_nectar_) if (const auto result=reporting_nectar_->peek()) {
-                const auto* nectar=dynamic_cast<const hive::game::NectarDetection*>(result->value.get());
-                if (nectar && nectar->levels.has_value(context,hive::Time(5000)))
-                    for (int i=0;i<5;++i) report.gauges[i].percent=nectar->levels.value.percent[i];
-            }
-            for (const auto& type:hive::game::tracked_buffs()) {
-                const auto name=QString::fromUtf8(type.name.data(),qsizetype(type.name.size()));
-                report.buffs.append(hive::reporting::Gauge{name,{},"buff/"+name,{},hive::reporting::Level{{},double(type.maximum)}});
-            }
-            if (reporting_upkeep_) {
-                if (const auto packet=reporting_upkeep_->peek()) {
-                    const auto* value=dynamic_cast<const hive::game::BuffDetection*>(packet->value.get());
-                    const auto& stamp=packet->context;
-                    const hive::Observation<bool> reading{hive::Knowledge::present,true,stamp.now,stamp.window,stamp.generation};
-                    if (value && reading.has_value(context,hive::Time(10000)))
-                        for (const auto& observed:value->buffs) for (auto& buff:report.buffs)
-                            if (q(observed.name)==buff.name && observed.active) {
-                                buff.percent=*observed.active?100:0;
-                                if (buff.level) buff.level->value=observed.stacks;
-                            }
-                }
-            }
-            const auto movement_start=report.buffs.size();
-            for (const auto* name:{"Haste","Haste+","Oil","Smoothie","Bear morph"})
-                report.buffs.append(hive::reporting::Gauge{name,{},"buff/"+QString(name),{},hive::reporting::Level{{},QString(name)=="Haste"?10.:1.}});
-            for (auto& buff:report.buffs) {
-                const auto style=buff_style(buff.name); buff.icon=style.icon; buff.color=style.color; buff.chart_group=style.chart_group;
-            }
-            if (reporting_buffs_) if (const auto packet=reporting_buffs_->peek()) {
-                const auto* value=dynamic_cast<const hive::game::MovementBuffDetection*>(packet->value.get());
-                const auto& stamp=packet->context;
-                const hive::Observation<bool> reading{hive::Knowledge::present,true,stamp.now,stamp.window,stamp.generation};
-                if (value && value->buffs.layout_known && reading.has_value(context,hive::Time(5000))) {
-                    for (auto i=movement_start;i<report.buffs.size();++i) { report.buffs[i].percent=0; report.buffs[i].level->value=0; }
-                    for (const auto& buff:value->buffs.candidates) {
-                        const int index=buff.name=="Haste"?0:buff.name=="HastePlus"?1:buff.name=="Oil"?2:buff.name=="Smoothie"?3:buff.name.starts_with("Bear")?4:-1;
-                        if (index>=0) { report.buffs[movement_start+index].percent=100; report.buffs[movement_start+index].level->value=1; }
-                        if (index==0) report.buffs[movement_start].level->value=buff.stacks;
-                    }
-                }
-            }
-            return report;
+            return report_observations_.snapshot(snapshot,session_.observations(),state_->text(),
+                snapshot.feature?q(snapshot.feature->activity_label):action_->text(),extensions_?extensions_->module_reports():std::vector<hive::extensions::ModuleReport>{});
         },[report_frame] { return hive::app::game_image(report_frame()); });
         discord_->set_live_image_source([report_frame] { return hive::app::resource_image(report_frame()); });
         status_page_=new hive::app::StatusPage(settings_,*discord_,nullptr,QDir(data).filePath("activity.log")); status_page->addWidget(status_page_,1);
@@ -497,7 +399,8 @@ public:
         connect(open_movement,&QPushButton::clicked,this,[this,movement_folder] {
             if (!QDesktopServices::openUrl(QUrl::fromLocalFile(movement_folder))) log("Could not open the movement folder.");
         });
-        player_page->insertLayout(player_page->count()-1,pattern_buttons);
+        auto customization=new QWidget; auto customization_page=new QVBoxLayout(customization); customization_page->setContentsMargins(0,8,0,0);
+        customization_page->addLayout(pattern_buttons); customization_page->addStretch(); core_tabs->addTab(customization,"Customization");
         connect(open_patterns,&QPushButton::clicked,this,[this,pattern_folder] {
             if (!QDir().mkpath(pattern_folder) || !QDesktopServices::openUrl(QUrl::fromLocalFile(pattern_folder)))
                 log("Could not open the pattern folder.");
@@ -536,36 +439,13 @@ public:
         };
         native_modules_.quests.fields=hive::features::quests::default_fields();
         auto inventory_requests=std::make_shared<hive::game::InventoryRequests>();
-        std::vector<hive::game::DetectorConfig> detectors{
-            {"honey",hive::game::honey_detector(),hive::Time(hive::reporting::sample_interval_ms)},
-            {"enemies",hive::game::enemy_detector()},
-            {"memory-board",hive::game::memory_match_detector()},
-            {"daylight",hive::game::daylight_detector(),hive::Time(2000),hive::game::DetectionMode::pixels,true},
-            {"item-menu",hive::game::item_menu_detector(),hive::Time(750),hive::game::DetectionMode::text,true},
-            {"buff-upkeep",hive::game::buff_detector(),hive::Time(6000),hive::game::DetectionMode::pixels},
-            {"field-boosts",hive::game::field_boost_detector(),hive::Time(1000),hive::game::DetectionMode::pixels},
-            {"movement-buffs",hive::game::movement_buff_detector(),hive::Time(100),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::responsive},
-            {"respawn-menu",hive::game::respawn_detector()},
-            {"nectar",hive::game::nectar_detector(),hive::Time(750),hive::game::DetectionMode::pixels},
-            {"planters",hive::game::planter_detector()},
-            {"inventory",hive::game::inventory_detector(hive::game::inventory_layout(),inventory_requests)},
-            {"blooms",hive::game::bloom_detector(),hive::Time(250),hive::game::DetectionMode::pixels},
-            {"npc-conversation",hive::game::conversation_detector()},
-            {"quest-cards",hive::features::quests::desktop_detector(native_modules_.quests.fields),hive::Time(750)},
-            {"navigation-landmarks",hive::game::landmark_detector(hive::game::interaction_anchors()),hive::Time(750)},
-            {"interaction-prompt",hive::game::interaction_prompt_detector(),hive::Time(100),hive::game::DetectionMode::pixels},
-            {"sprinkler-reference",hive::game::sprinkler_reference_detector(),hive::Time(500),hive::game::DetectionMode::pixels},
-            {"spawn-view",hive::game::spawn_view_detector(),hive::Time(250),hive::game::DetectionMode::pixels},
-            {"hive-view",hive::game::hive_view_detector(),hive::Time(125),hive::game::DetectionMode::pixels},
-            {"hive-slots",hive::game::hive_slots_detector(),hive::Time(250),hive::game::DetectionMode::pixels}};
-        for (auto& detector:detectors) detector.on_demand=true;
+        auto detectors=hive::app::game_detectors(inventory_requests);
+        detectors.push_back({"quest-cards",hive::features::quests::desktop_detector(native_modules_.quests.fields),hive::Time(750),hive::game::DetectionMode::text,true});
         auto channels=session_.configure_detectors(std::move(detectors));
-        reporting_upkeep_=channels.at("buff-upkeep");
-        native_modules_.buffs=reporting_upkeep_;
-        reporting_honey_=channels.at("honey");
+        report_observations_.configure(channels);
+        native_modules_.buffs=channels.at("buff-upkeep");
         native_modules_.field_boosts=channels.at("field-boosts");
         session_.configure_hotbar(native_modules_.boosting);
-        reporting_nectar_=channels.at("nectar"); reporting_buffs_=channels.at("movement-buffs");
         native_modules_.planters.inventory=hive::game::inventory_source(channels.at("inventory"),inventory_requests);
         native_modules_.planters.detection=hive::game::planter_source(channels.at("planters"));
         native_modules_.planters.observations=hive::features::planters::interaction_source(
@@ -644,7 +524,13 @@ public:
         },[this](const std::string& id,QWidget* parent)->QWidget* {
             return id=="hive.native-accounts"?new hive::features::accounts::Page(native_modules_.accounts,parent):nullptr;
         });
-        player_speed->on_changed=[this,player_speed,bee_count,use_cannon,equipment,hive_sources,enemy_observations,read_patterns,movement_buffs,configure_connection] {
+        const auto update_hotbar=[this,equipment] {
+            const auto sprinkler=equipment->sprinklers();
+            extensions_->set_shared_hotbar(sprinkler.equipment=="None"?std::vector<hive::extensions::HotbarUse>{}:std::vector<hive::extensions::HotbarUse>{{sprinkler.slot,"Sprinkler","Sprinkler"}});
+        };
+        extensions_->shared_hotbar_warning=[hotbar_warning](const QString& warning) { hotbar_warning->setText(warning); hotbar_warning->setVisible(!warning.isEmpty()); };
+        update_hotbar();
+        player_speed->on_changed=[this,player_speed,bee_count,use_cannon,equipment,hive_sources,enemy_observations,movement_buffs,configure_connection,update_hotbar] {
             bool navigation_changed=false;
             try {
                 const auto state=session_.status().state;
@@ -654,7 +540,6 @@ public:
                 auto updated=native_modules_;
                 updated.travel_access={unsigned(bee_count->value()),use_cannon->isChecked()};
                 updated.sprinklers=equipment->sprinklers();
-                updated.patterns=read_patterns();
                 hive::app::configure_travel_modules(updated,player_speed->base_speed(),hive_sources,enemy_observations);
                 session_.configure_navigation(updated.navigation.routes?updated.navigation:hive::automation::NavigationServices{});
                 navigation_changed=true;
@@ -668,7 +553,7 @@ public:
                 configure_connection(base);
                 conversion_->configure(equipment->conversion());
                 settings_.setValue("game/beeCount",bee_count->value()); settings_.setValue("game/useCannon",use_cannon->isChecked());
-                movement_speed_=std::move(speed); native_modules_=std::move(updated); routine_.reset(); hive_setup_->reset();
+                movement_speed_=std::move(speed); native_modules_=std::move(updated); routine_.reset(); hive_setup_->reset(); update_hotbar();
                 return true;
             } catch (const std::exception& e) {
                 if (navigation_changed) {
@@ -685,9 +570,17 @@ public:
         };
         connect(bee_count,&QSpinBox::valueChanged,this,update_travel);
         connect(use_cannon,&QCheckBox::toggled,this,update_travel);
-        equipment->on_changed=player_speed->on_changed;
-        connect(reload_patterns,&QPushButton::clicked,this,[this,player_speed] {
-            if (player_speed->on_changed()) log("Patterns reloaded.");
+        equipment->on_changed=[this,player_speed,equipment] {
+            const auto sprinkler=equipment->sprinklers();
+            if (sprinkler.equipment!=native_modules_.sprinklers.equipment || sprinkler.slot!=native_modules_.sprinklers.slot) return player_speed->on_changed();
+            conversion_->configure(equipment->conversion()); return true;
+        };
+        connect(reload_patterns,&QPushButton::clicked,this,[this,player_speed,read_patterns] {
+            try {
+                auto previous=native_modules_.patterns; native_modules_.patterns=read_patterns();
+                if (player_speed->on_changed()) log("Patterns reloaded.");
+                else native_modules_.patterns=std::move(previous);
+            } catch(const std::exception& error) { log(q(error.what()),true); }
         });
         connect(run_routine,&QPushButton::clicked,this,[this] {
             try { start_run(); }
@@ -750,7 +643,7 @@ public:
             } catch (const std::exception& e) { start_timer_.stop(); initial_join_.reset(); routine_.reset(); pending_feature_.reset(); launch_error_=q(e.what()); log(launch_error_,true); }
         });
         auto timer=new QTimer(this); timer->setInterval(150);
-        connect(timer,&QTimer::timeout,this,[this,stop,run_routine,start_macro,enabled_features,player_speed,equipment,existing_hive,reconnect_hours,reconnect_minute] {
+        connect(timer,&QTimer::timeout,this,[this,stop,run_routine,start_macro,player_speed,equipment,existing_hive,reconnect_hours,reconnect_minute] {
             const auto snapshot=session_.snapshot();
             follow_window(snapshot);
             if (snapshot.feature && hive::automation::can_handoff(*snapshot.feature)) {
@@ -791,26 +684,7 @@ public:
             case hive::WorkActivity::fighting: activity="Fighting"; break;
             case hive::WorkActivity::other: break;
             }
-            if ((discord_->settings().enabled || remote_->settings().enabled) && status.state==hive::RunState::running && reporting_nectar_) {
-                if (reporting_honey_) {
-                    const auto reading=reporting_honey_->peek();
-                    if (!reading || reading->context.generation!=snapshot.generation || snapshot.now-reading->context.now>=hive::Time(hive::reporting::sample_interval_ms)) reporting_honey_->read();
-                }
-                const auto& selected=discord_->settings().buff_ids;
-                for (const auto& source:{reporting_buffs_,reporting_upkeep_}) if (source) {
-                    const bool needed=source==reporting_buffs_?std::any_of(selected.begin(),selected.end(),[](const auto& id) {
-                            return id=="buff/Haste" || id=="buff/Haste+" || id=="buff/Oil" || id=="buff/Smoothie" || id=="buff/Bear morph";
-                        }):
-                        std::any_of(hive::game::tracked_buffs().begin(),hive::game::tracked_buffs().end(),[&](const auto& type) {
-                            return selected.contains("buff/"+QString::fromUtf8(type.name.data(),qsizetype(type.name.size())));
-                        });
-                    if (!needed) continue;
-                    const auto reading=source->peek();
-                    if (!reading || reading->context.generation!=snapshot.generation || snapshot.now-reading->context.now>hive::Time(source==reporting_buffs_?3000:6000)) source->read();
-                }
-                const auto nectar=reporting_nectar_->peek();
-                if (!nectar || nectar->context.generation!=snapshot.generation || snapshot.now-nectar->context.now>hive::Time(3000)) reporting_nectar_->read();
-            }
+            if (discord_->settings().enabled || remote_->settings().enabled) report_observations_.request(snapshot,discord_->settings().buff_ids);
             const auto current_activity=view.feature?q(view.feature->activity_label):QString{};
             const auto reason=status.state!=hive::RunState::running && !status.reason.empty()?q(status.reason):
                 view.feature && view.feature->state==hive::automation::State::failed?q(view.feature->message):q(status.reason);
@@ -845,6 +719,7 @@ public:
                 const auto error=q(reading.error);
                 if (!error.isEmpty() && seen_observation_errors_.insert(error).second) log("Game reading: "+error);
             }
+            const auto features=extensions_->enabled_features();
             auto state_text=state_name(status.state);
             auto action_text=QString(!status.reason.empty()?q(status.reason):status.job.empty()?"Enable your features, then start the macro.":q(status.job)+" · "+q(status.action));
             if (const auto& feature=view.feature) {
@@ -860,8 +735,7 @@ public:
                 action_text=initial_join_?q(initial_join_->status()):"Preparing Roblox.";
             }
             const bool active=status.state==hive::RunState::running || status.state==hive::RunState::paused;
-            const auto features=extensions_->enabled_features();
-            enabled_features->setText(features.empty()?"Enable a module to get started.":features.join(" · "));
+
             if (!active && !start_timer_.isActive() && launch_error_.isEmpty() && status.state==hive::RunState::idle) {
                 state_text=!permissions_ready_?"Permissions needed":features.empty()?"Choose your features":"Ready";
                 action_text=!permissions_ready_?"Allow screen capture and input in Settings.":!selected()?"Start macro will open Bee Swarm using your server settings.":features.empty()?"Choose what to run on the Modules page.":"Start macro runs your enabled features together.";

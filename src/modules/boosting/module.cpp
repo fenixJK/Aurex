@@ -60,6 +60,14 @@ public:
     }
     void stop() noexcept override { if (connected_) controller_->stop(); connected_=false; }
     std::vector<extensions::Metric> metrics() const override { return controller_->metrics(); }
+    std::vector<extensions::HotbarUse> hotbar_uses() const override {
+        std::vector<extensions::HotbarUse> result;
+        if (preferences_.boost.dice_slot) result.push_back({preferences_.boost.dice_slot,"Dice","Field dice"});
+        if (preferences_.boost.glitter_slot) result.push_back({preferences_.boost.glitter_slot,"Glitter","Glitter"});
+        for (unsigned i=0;i<preferences_.items.size();++i) if (preferences_.items[i].when!=UseWhen::off)
+            result.push_back({i+1,{},"Consumable"});
+        return result;
+    }
     game::Requests requests() const override { return controller_->requests(now_,generation_); }
     std::optional<extensions::RoutineParticipation> routine() const override {
         return extensions::RoutineParticipation{75,Time{},false,true,true,preferences_.interrupt};
@@ -115,8 +123,8 @@ extensions::Manifest module_manifest() {
     manifest.settings.back().help="Extends near expiry when off cooldown. A new boost cycle is recognized from its timer or increased stacks. Without dice, uses the selected follow fields.";
     manifest.settings.push_back({"glitter-limit","Use limit",1,1,1000}); manifest.settings.back().help="Maximum glitter presses per macro session.";
     manifest.settings.push_back({"glitter-after","Extend after",13,10,14}); manifest.settings.back().suffix=" min";
-    sections.push_back({"dice","Dice",{},{"boost-field","dice-slot","target-stacks","dice-limit","dice-interval","boost-minutes","maintain-boost"},false,2}); sections.back().tab="Dice & glitter";
-    sections.push_back({"glitter","Glitter",{},{"glitter-slot","glitter-limit","glitter-after","pre-glitter"},false,2}); sections.back().tab="Dice & glitter";
+    sections.push_back({"dice","Dice",{},{"boost-field","dice-slot","target-stacks","dice-limit","dice-interval","boost-minutes","maintain-boost"},false,2}); sections.back().tab="Dice && glitter";
+    sections.push_back({"glitter","Glitter",{},{"glitter-slot","glitter-limit","glitter-after","pre-glitter"},false,2}); sections.back().tab="Dice && glitter";
     sections.push_back({"hotbar-help","Hotbar","Use items from the game hotbar. Limits count presses per session; 0 is unlimited.",{},false,1}); sections.back().tab="Hotbar";
     for (unsigned slot=1;slot<=7;++slot) {
         const auto prefix="slot-"+std::to_string(slot)+"-";
@@ -130,6 +138,16 @@ extensions::Manifest module_manifest() {
             {prefix+"when",prefix+"seconds",prefix+"limit",prefix+"bag"},false,4}); sections.back().tab="Hotbar"; sections.back().row=true;
     }
     sections.push_back({"progress","Current boosts",{},{},true,2}); sections.back().tab="Boosts"; sections.back().collapsed=true;
+    for (auto& field:manifest.settings) {
+        const auto condition=[&](const std::string& source,std::vector<std::string> values) { field.enabled_by=source; field.enabled_values=std::move(values); };
+        if (field.id=="dice-limit" || field.id=="dice-interval" || field.id=="target-stacks" || field.id=="boost-field" || field.id=="maintain-boost") condition("dice-slot",{"1","2","3","4","5","6","7"});
+        if (field.id=="glitter-limit" || field.id=="glitter-after" || field.id=="pre-glitter") condition("glitter-slot",{"1","2","3","4","5","6","7"});
+        for (unsigned slot=1;slot<=7;++slot) {
+            const auto prefix="slot-"+std::to_string(slot)+"-";
+            if (field.id==prefix+"seconds" || field.id==prefix+"limit") { auto active=conditions; std::erase(active,std::string("Off")); condition(prefix+"when",std::move(active)); }
+            if (field.id==prefix+"bag") condition(prefix+"when",{"Bag limit"});
+        }
+    }
     for (auto& section:sections) section.inline_labels=true;
     return manifest;
 }
