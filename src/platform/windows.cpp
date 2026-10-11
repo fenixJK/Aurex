@@ -11,7 +11,6 @@
 #include <winrt/Windows.Media.Ocr.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <algorithm>
-#include <cmath>
 #include <cstdint>
 #include <stdexcept>
 
@@ -195,8 +194,9 @@ public:
     catch (const winrt::hresult_error& error) { throw std::runtime_error(winrt::to_string(error.message())); }
     void key(Key key, bool down) override {
         if (key==Key::primary) {
-            mouse_event(down?MOUSEEVENTF_LEFTDOWN:MOUSEEVENTF_LEFTUP,0,0,0,0);
-            primary_down_=down;
+            INPUT input{}; input.type=INPUT_MOUSE;
+            input.mi.dwFlags=down?MOUSEEVENTF_LEFTDOWN:MOUSEEVENTF_LEFTUP;
+            if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Mouse button input was blocked by Windows");
             return;
         }
         if (key==Key::select_all) {
@@ -214,30 +214,14 @@ public:
         if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Input was blocked by Windows");
     }
     void pointer(Point point) override {
-        const int width=GetSystemMetrics(SM_CXSCREEN),height=GetSystemMetrics(SM_CYSCREEN);
+        const int left=GetSystemMetrics(SM_XVIRTUALSCREEN),top=GetSystemMetrics(SM_YVIRTUALSCREEN);
+        const int width=GetSystemMetrics(SM_CXVIRTUALSCREEN),height=GetSystemMetrics(SM_CYVIRTUALSCREEN);
         if (width<=0 || height<=0) throw std::runtime_error("Could not read desktop bounds");
-        const auto absolute=[](LONG coordinate,int extent) {
-            return std::int64_t(coordinate)*65536/extent+(coordinate<0?-1:1);
-        };
-        const auto move=[](std::int64_t x,std::int64_t y) {
-            mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
-                static_cast<DWORD>(x),static_cast<DWORD>(y),0,0);
-        };
-        const auto x=absolute(static_cast<LONG>(point.x),width),y=absolute(static_cast<LONG>(point.y),height);
-        if (primary_down_) { move(x,y); return; }
-        POINT current{};
-        if (!GetCursorPos(&current)) throw std::runtime_error("Could not read pointer position");
-        auto from_x=absolute(current.x,width),from_y=absolute(current.y,height);
-        const auto advance=[](std::int64_t from,std::int64_t to) {
-            const auto distance=std::abs(to-from);
-            const auto step=std::min(distance,std::max<std::int64_t>(32,distance/2));
-            return from+(to>from?step:-step);
-        };
-        while (from_x!=x || from_y!=y) {
-            from_x=advance(from_x,x); from_y=advance(from_y,y);
-            move(from_x,from_y);
-            Sleep(10);
-        }
+        INPUT input{}; input.type=INPUT_MOUSE;
+        input.mi.dwFlags=MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        input.mi.dx=static_cast<LONG>(std::clamp((point.x-left+.5)*65536/width,0.,65535.));
+        input.mi.dy=static_cast<LONG>(std::clamp((point.y-top+.5)*65536/height,0.,65535.));
+        if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Pointer movement was blocked by Windows");
     }
     void scroll(int lines) override {
         if (lines<-8 || lines>8) throw std::invalid_argument("Invalid scroll distance");
@@ -245,8 +229,6 @@ public:
         input.mi.mouseData=static_cast<DWORD>(lines*WHEEL_DELTA);
         if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Scrolling was blocked by Windows");
     }
-private:
-    bool primary_down_{};
 };
 }
 std::unique_ptr<Desktop> make_desktop() { return std::make_unique<WindowsDesktop>(); }
