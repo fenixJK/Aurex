@@ -12,6 +12,7 @@
 #include <winrt/Windows.Storage.Streams.h>
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 
 namespace hive {
@@ -51,6 +52,8 @@ bool roblox_process(std::int64_t pid) {
     return process && roblox_process(process.get());
 }
 class WindowsDesktop final : public Desktop {
+    static constexpr DWORD mouse_interval=50;
+    std::optional<ULONGLONG> primary_pressed_;
 public:
     bool client_lifecycle_available() const override { return true; }
     std::vector<std::int64_t> client_processes() override {
@@ -194,9 +197,15 @@ public:
     catch (const winrt::hresult_error& error) { throw std::runtime_error(winrt::to_string(error.message())); }
     void key(Key key, bool down) override {
         if (key==Key::primary) {
+            if (!down && primary_pressed_) {
+                const auto elapsed=GetTickCount64()-*primary_pressed_;
+                if (elapsed<mouse_interval) Sleep(mouse_interval-static_cast<DWORD>(elapsed));
+            }
             INPUT input{}; input.type=INPUT_MOUSE;
             input.mi.dwFlags=down?MOUSEEVENTF_LEFTDOWN:MOUSEEVENTF_LEFTUP;
             if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Mouse button input was blocked by Windows");
+            if (down) primary_pressed_=GetTickCount64();
+            else { primary_pressed_.reset(); Sleep(mouse_interval); }
             return;
         }
         if (key==Key::select_all) {
@@ -219,9 +228,22 @@ public:
         if (width<=0 || height<=0) throw std::runtime_error("Could not read desktop bounds");
         INPUT input{}; input.type=INPUT_MOUSE;
         input.mi.dwFlags=MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-        input.mi.dx=static_cast<LONG>(std::clamp((point.x-left+.5)*65536/width,0.,65535.));
-        input.mi.dy=static_cast<LONG>(std::clamp((point.y-top+.5)*65536/height,0.,65535.));
-        if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Pointer movement was blocked by Windows");
+        const auto move=[&](Point target) {
+            input.mi.dx=static_cast<LONG>(std::clamp((target.x-left+.5)*65536/width,0.,65535.));
+            input.mi.dy=static_cast<LONG>(std::clamp((target.y-top+.5)*65536/height,0.,65535.));
+            if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Pointer movement was blocked by Windows");
+        };
+        if (primary_pressed_) { move(point); return; }
+        POINT from{};
+        if (!GetCursorPos(&from)) throw std::runtime_error("Could not read cursor position");
+        const auto started=GetTickCount64();
+        for (;;) {
+            Sleep(10);
+            const double part=std::min(1.,double(GetTickCount64()-started)/mouse_interval);
+            move({from.x+(point.x-from.x)*part,from.y+(point.y-from.y)*part});
+            if (part==1.) break;
+        }
+        Sleep(mouse_interval);
     }
     void scroll(int lines) override {
         if (lines<-8 || lines>8) throw std::invalid_argument("Invalid scroll distance");
