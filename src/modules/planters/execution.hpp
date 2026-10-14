@@ -73,6 +73,7 @@ struct ExecutionPlan {
     std::optional<HarvestConversion> conversion;
     bool walk_return{};
     automation::ProgramFactory death_recovery;
+    automation::ProgramFactory route_recovery;
     movement::Source movement;
 };
 enum class ExecutionStage { ready, planning, preparing, travelling, checking, acting, confirming, reconciling, looting, returning, checking_backpack, converting, finished, locating };

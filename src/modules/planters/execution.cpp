@@ -331,10 +331,11 @@ public:
         }
     }
     ProgramFactory recovery(Interruption reason,const View& view) override {
+        const auto recover=reason==Interruption::death?plan_.death_recovery:plan_.route_recovery;
         if ((reason!=Interruption::death && reason!=Interruption::lost_route && reason!=Interruption::lost_observations)
-            || !plan_.death_recovery || recoveries_>=3) return {};
+            || !recover || recoveries_>=3) return {};
         if (reason==Interruption::death && !selected_.field.empty()) failed_fields_.insert(selected_.field);
-        ++recoveries_; resume_after_reconnect(view); return plan_.death_recovery;
+        ++recoveries_; resume_after_reconnect(view); return recover;
     }
     bool resume_after_reconnect(const View& view) override {
         if (worker_.joinable()) { cancelled_=true; worker_.join(); }

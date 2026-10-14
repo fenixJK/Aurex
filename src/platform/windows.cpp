@@ -52,7 +52,7 @@ bool roblox_process(std::int64_t pid) {
     return process && roblox_process(process.get());
 }
 class WindowsDesktop final : public Desktop {
-    static constexpr DWORD mouse_interval=50;
+    static constexpr DWORD mouse_interval=100;
     std::optional<ULONGLONG> primary_pressed_;
 public:
     bool client_lifecycle_available() const override { return true; }
@@ -236,6 +236,7 @@ public:
         if (primary_pressed_) { move(point); return; }
         POINT from{};
         if (!GetCursorPos(&from)) throw std::runtime_error("Could not read cursor position");
+        if (std::abs(point.x-from.x)<.5 && std::abs(point.y-from.y)<.5) return;
         const auto started=GetTickCount64();
         for (;;) {
             Sleep(10);

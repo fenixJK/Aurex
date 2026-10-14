@@ -7,7 +7,7 @@ namespace hive::features::planters {
 ExecutionPlan walking_plan(const workflows::RouteCatalog& routes,double speed,automation::ProgramFactory return_to_hive,
     automation::FieldReturnOptions returns) {
     if (!std::isfinite(speed) || speed<8 || speed>200) throw std::invalid_argument("Walking Planters needs a valid movement speed");
-    ExecutionPlan plan; plan.config.speed=speed; plan.movement=returns.movement;
+    ExecutionPlan plan; plan.config.speed=speed; plan.movement=returns.movement; plan.route_recovery=return_to_hive;
     if (!routes.network().contains("hive.proximity")) return plan;
     plan.return_to="hive.proximity"; plan.walk_return=true;
     plan.preferences=default_preferences(); plan.preferences->fields.clear();

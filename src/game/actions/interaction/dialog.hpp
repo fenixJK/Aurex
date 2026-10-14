@@ -6,7 +6,7 @@ namespace hive::workflows {
 enum class DialogChoice { yes,no };
 struct DialogPlan { game::PromptLandmark question; DialogChoice choice{DialogChoice::yes}; Time timeout{10000}; bool read_question{true}; };
 void validate(const DialogPlan& plan);
-enum class DialogStage { idle,reading,clicking,closing,completed,failed };
+enum class DialogStage { idle,reading,clicking,closing,parking,completed,failed };
 class Dialog {
     DialogPlan plan_;
     ObservationContext started_;

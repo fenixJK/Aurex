@@ -255,13 +255,13 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         if (!tasks_.acquire(scope_)) { progress_.message="Waiting for game control"; return true; }
         owned_=true; progress_.message=control->label;
         Action move{control->label,{},Time(40),point};
-        Action input{control->label,control->scroll?std::vector<Key>{}:std::vector<Key>{Key::primary},Time(60),point,control->scroll};
+        Action input{control->label,control->scroll?std::vector<Key>{}:std::vector<Key>{Key::primary},Time(60),control->scroll?std::optional(point):std::nullopt,control->scroll};
         hold_left_=Time(100);
         std::vector<Action> actions{move,input};
         if (control->rest || !control->scroll) {
             actions.push_back({control->label,{},Time(40),control->rest.value_or(game::pointer_rest(c,s))}); hold_left_+=Time(40);
         }
-        pending_=tasks_.submit(scope_,TaskClass::interaction,std::move(actions),Time(500));
+        pending_=tasks_.submit(scope_,TaskClass::interaction,std::move(actions),Time(1000));
         return true;
     }
     if (const auto* answer=std::get_if<AnswerDialog>(&*step_)) {
