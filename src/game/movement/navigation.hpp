@@ -2,6 +2,7 @@
 #include "core/runtime/model.hpp"
 #include <map>
 #include <set>
+#include <memory>
 
 namespace hive::game {
 enum class PositionBasis { observed, route_execution };
@@ -40,6 +41,8 @@ struct Journey {
     Time estimate{};
 };
 class RouteNetwork {
+    struct Health;
+    std::shared_ptr<Health> health_;
     std::set<std::string> locations_;
     std::vector<Route> routes_;
 public:
@@ -48,9 +51,12 @@ public:
     const std::set<std::string>& locations() const { return locations_; }
     const std::vector<Route>& routes() const { return routes_; }
     const Route& route(const std::string& id) const;
+    void failed(const std::string& id,Time now) const;
+    void succeeded(const std::string& id) const;
+    std::set<std::string> unavailable(Time now) const;
     std::map<std::string,Journey> paths_from(const std::string& from,
-        const std::set<std::string>& available={},const std::set<std::string>& blocked={}) const;
+        const std::set<std::string>& available={},const std::set<std::string>& blocked={},Time now=monotonic_now()) const;
     std::optional<Journey> plan(const std::string& from,const std::string& to,
-        const std::set<std::string>& available={},const std::set<std::string>& blocked={}) const;
+        const std::set<std::string>& available={},const std::set<std::string>& blocked={},Time now=monotonic_now()) const;
 };
 }

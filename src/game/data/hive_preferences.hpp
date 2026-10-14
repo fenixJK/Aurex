@@ -12,6 +12,7 @@ struct ConversionPreference {
     bool balloon{};
     Time interval{};
     bool after_gather{};
+    bool with_backpack{};
 };
 class HiveConversion {
     mutable std::mutex mutex_;
@@ -27,6 +28,7 @@ public:
         return preference_.balloon && (!preference_.after_gather || gathered)
             && (!completed_ || context.now<*completed_ || context.now-*completed_>=preference_.interval);
     }
+    bool with_backpack() const { std::lock_guard lock(mutex_); return preference_.with_backpack; }
     void completed(const ObservationContext& context) { std::lock_guard lock(mutex_); completed_=context.now; }
 };
 }

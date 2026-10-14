@@ -41,18 +41,23 @@ class Account {
     AdaptivePlanner planner_;
     TravelTimes travel_;
     std::array<std::optional<Phase>,5> nectar_phases_;
-    std::array<std::pair<std::uint64_t,std::string>,5> last_fields_;
     mutable std::mutex snapshot_mutex_;
     std::vector<Plant> plants_;
+    MaterialHistory materials_;
+    std::optional<WallTime> offline_since_;
+    std::vector<std::pair<WallTime,WallTime>> offline_;
+    void apply_offline(Controller& controller);
 public:
     explicit Account(std::shared_ptr<Store> store);
     std::vector<Plant> plants() const;
+    MaterialHistory materials() const;
     Ledger saved() const;
     PlanningSnapshot forecast_state(std::vector<Group> groups,const Preferences& preferences,WallTime now,std::size_t capacity) const;
     bool busy() const { return busy_.load(); }
     std::uint64_t edit_revision() const { return edit_revision_.load(); }
     void remove_saved(std::uint64_t id);
     void set_saved(std::optional<std::uint64_t> id,const Stats& stats,double progress,WallTime now);
+    void connection(bool reconnecting,WallTime now);
 };
 struct FieldVisit {
     automation::ProgramFactory departure;

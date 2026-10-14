@@ -42,7 +42,7 @@ public:
     bool reserve(Time now);
 };
 std::unique_ptr<Program> whirligig_to_hive(unsigned slot,std::shared_ptr<WhirligigCooldown> cooldown,
-    std::shared_ptr<const game::LandmarkSource> proximity,ProgramFactory prepare,ProgramFactory reset);
+    std::shared_ptr<const game::LandmarkSource> proximity,ProgramFactory prepare,ProgramFactory return_method);
 std::unique_ptr<Program> acquire_hive(std::shared_ptr<const game::HiveSlotsSource> slots,
     std::shared_ptr<const game::LandmarkSource> spawn,std::shared_ptr<const game::LandmarkSource> reference,
     std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options={});

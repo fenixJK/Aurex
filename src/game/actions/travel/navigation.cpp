@@ -56,6 +56,7 @@ void Navigation::start(std::string destination,const ObservationContext& c,std::
     status_={TravelStage::locating,{},{},"Locating departure anchor"};
 }
 void Navigation::finish(TravelStage stage,std::string reason,TravelFailure failure) {
+    if (stage==TravelStage::failed && (failure==TravelFailure::location || failure==TravelFailure::timeout)) travel_.reject_route();
     status_.failure=failure;
     execution_.reset();
     if (stage!=TravelStage::arrived) travel_.stop();

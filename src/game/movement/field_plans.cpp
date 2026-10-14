@@ -28,7 +28,7 @@ FieldDecision choose_field(const RouteNetwork& network,const std::vector<FieldPr
     if (located && !network.contains(location)) throw std::invalid_argument("Unknown planning location");
     if (context.protection && (context.protection->field.empty() || context.protection->field.size()>80
         || !context.protection->generation || context.protection->until<Time::zero())) throw std::invalid_argument("Invalid field protection");
-    const auto paths=located?network.paths_from(location,context.available,context.blocked_routes):std::map<std::string,Journey>{};
+    const auto paths=located?network.paths_from(location,context.available,context.blocked_routes,observation.now):std::map<std::string,Journey>{};
     struct Candidate {
         std::string field;
         std::optional<Journey> journey;

@@ -3,6 +3,7 @@
 #include "core/runtime/guards.hpp"
 #include "game/data/stations.hpp"
 #include <algorithm>
+#include <utility>
 
 namespace hive::automation {
 bool Runner::observes_game() const {
@@ -162,6 +163,7 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
             child_->parent_menu_=[this] { return movement_menu(); };
             child_->start(c);
             child_->progress_.route_position=std::move(progress_.route_position); progress_.route_position.reset();
+            child_->progress_.estimated_heading=std::exchange(progress_.estimated_heading,{});
         }
         child_->update(c,s); const auto result=child_->progress(); progress_.message=result.message;
         progress_.route_execution=result.route_execution;
@@ -442,13 +444,14 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         if (!permissions_.contains(Permission::interact)) throw std::runtime_error("Conversion permission was not granted");
         if (!conversion_) {
             const auto& request=std::get<Convert>(*step_);
-            workflows::ConversionConfig config; config.balloon=hive_conversion_?hive_conversion_->due(c,request.after_gather):request.balloon; converting_balloon_=config.balloon;
+            workflows::ConversionConfig config; config.balloon=hive_conversion_?hive_conversion_->due(c,request.after_gather):request.balloon;
+            config.balloon_with_backpack=hive_conversion_ && hive_conversion_->with_backpack();
             if (config.balloon) config.total_timeout=std::chrono::minutes(15);
             conversion_.emplace(config); conversion_->start(c);
         }
         progress_.message="Converting at hive"; conversion_->update(c,s,tasks_,scope_);
         if (conversion_->stage()==workflows::ConversionStage::completed) {
-            if(hive_conversion_ && converting_balloon_) hive_conversion_->completed(c);
+            if(hive_conversion_ && conversion_->converts_balloon()) hive_conversion_->completed(c);
             complete_step(c,s);
         }
         else if (conversion_->stage()==workflows::ConversionStage::recovery_required)

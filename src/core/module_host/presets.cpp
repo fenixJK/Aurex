@@ -1,7 +1,39 @@
 #include "host.hpp"
 #include "configuration.hpp"
+#include <QJsonArray>
+#include <QStringList>
+#include <algorithm>
 
 namespace hive::extensions {
+std::vector<QJsonObject> Host::starter_presets() const {
+    struct Profile { QJsonObject modules; std::vector<std::pair<int,std::string>> order; QStringList details; };
+    std::map<std::string,Profile> profiles;
+    for (const auto& [id,entry]:entries_) if (entry.manifest.presets && entry.config_valid) {
+        for (const auto& setup:entry.manifest.setup_profiles) {
+            auto settings=entry.settings;
+            for (const auto& [key,value]:setup.settings) settings[key]=value;
+            validate_settings(entry.manifest,settings);
+            auto& profile=profiles[setup.name];
+            profile.modules[QString::fromStdString(id)]=QJsonObject{{"version",entry.manifest.settings_version},
+                {"enabled",entry.requested},{"settings",encode_settings(settings)}};
+            if (entry.requested) profile.order.emplace_back(setup.order,id);
+            for (const auto& setting:entry.manifest.settings) if (entry.requested && setup.settings.contains(setting.id)) {
+                const auto* value=std::get_if<bool>(&setup.settings.at(setting.id));
+                if (value) profile.details.push_back(QString::fromStdString(entry.manifest.name+": "+setting.label+(*value?" on":" off")));
+            }
+        }
+    }
+    std::vector<QJsonObject> result;
+    for (auto& [name,profile]:profiles) {
+        std::sort(profile.order.begin(),profile.order.end());
+        QJsonArray order; QStringList names;
+        for (const auto& [priority,id]:profile.order) { order.append(QString::fromStdString(id)); names.push_back(QString::fromStdString(entries_.at(id).manifest.name)); }
+        result.push_back({{"format","aurex-preset"},{"version",1},{"name",QString::fromStdString(name)},
+            {"modules",profile.modules},{"order",order},
+            {"description",names.join(" → ")+"\n"+profile.details.join(" · ")}});
+    }
+    return result;
+}
 QJsonObject Host::preset() const {
     QJsonObject modules;
     for (const auto& [id,entry]:entries_) if (entry.manifest.presets && entry.config_valid)

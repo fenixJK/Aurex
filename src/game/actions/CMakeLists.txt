@@ -11,6 +11,7 @@ target_link_libraries(hive_workflows PUBLIC hive_game)
 
 add_library(hive_automation
   inventory/hotbar.cpp
+  inventory/item_reserves.cpp
   recovery/respawn.cpp
   field/sprinklers.cpp
   travel/hive_routes.cpp

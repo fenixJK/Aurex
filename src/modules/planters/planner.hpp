@@ -18,7 +18,7 @@ struct Stats {
     double rate() const { return nectar_bonus*speed_bonus/864.0; }
 };
 struct Travel { double seconds{90}; bool learned{}; };
-struct Candidate { Stats stats; Travel travel; };
+struct Candidate { Stats stats; Travel travel; Time last_used{}; };
 struct Group {
     Nectar nectar{};
     double current{};
@@ -34,8 +34,9 @@ struct Assignment {
     Stats stats;
     Phase phase{};
     double growth{}, ready_in{}, useful{};
+    std::string material;
 };
-struct Active { std::string planter, field; };
+struct Active { std::string planter, field, material; };
 struct Selection { bool concentrated{}; std::optional<Nectar> omitted; };
 Bounds bounds(Target target);
 Phase phase(Phase previous,double current,Target target);

@@ -149,6 +149,7 @@ void Host::register_module(Manifest manifest,std::string unavailable,SettingsMig
             throw std::invalid_argument("Incompatible compiled module setting type");
     }
     validate_settings(manifest,defaults(manifest)); validate_page(manifest);
+    validate_setup_profiles(manifest);
     const auto id=manifest.id; builtins_.emplace(id,Builtin{std::move(manifest),std::move(unavailable),std::move(migration)});
 }
 std::vector<std::string> Host::order(const std::string& id) const {
@@ -330,6 +331,7 @@ void Host::update(const SessionView& view) {
             for (const auto& key:order(id)) if (updated.insert(key).second) update_order_.push_back(key);
         order_revision_=configuration_revision_;
     }
+    WorkSnapshot work; work.observed=view.now; work.generation=generation;
     for (const auto& key:update_order_) {
         auto& current=entries_.at(key);
         if (!current.instance_) continue;
@@ -352,11 +354,20 @@ void Host::update(const SessionView& view) {
                     }
                     requests_->replace_channels(*current.request_scope_,batch,view.now);
                 }
+                if (auto offer=current.instance_->next_work(supplied)) { validate(*offer); work.offers.push_back({key,std::move(*offer)}); }
+                if (auto window=current.instance_->protected_work(supplied);window && window->until>view.now) {
+                    validate(*window);
+                    if (window->until-view.now>std::chrono::hours(24)) throw std::invalid_argument("Work window exceeds one day");
+                    work.windows.push_back({key,std::move(*window)});
+                }
             }
         }
         catch (const std::exception& e) { stop_dependents(key,"Extension stopped: "+std::string(e.what())); }
         catch (...) { stop_dependents(key,"Extension stopped after an unexpected error"); }
     }
+    std::erase_if(work.offers,[&](const auto& offer) { return !entries_.at(offer.owner).active(); });
+    std::erase_if(work.windows,[&](const auto& window) { return !entries_.at(window.owner).active(); });
+    work_schedule_->publish(std::move(work));
 }
 std::vector<Metric> Host::metrics(const std::string& id) const {
     const auto& entry=entries_.at(id); return entry.instance_?entry.instance_->checked_metrics():std::vector<Metric>{};

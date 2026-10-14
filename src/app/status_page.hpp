@@ -1,5 +1,6 @@
 #pragma once
 #include "reporting/discord.hpp"
+#include "core/module_host/work_schedule.hpp"
 #include <QWidget>
 
 class QSettings;
@@ -16,6 +17,7 @@ public:
     void activity(const ActivityStatus& status);
     void event(const ActivityStatus& status,const QImage& screenshot={});
     void clear_activity();
+    void upcoming(const extensions::WorkSnapshot&,Time now,const std::vector<std::string>& order,const std::string& active={});
     QString recent_log(int lines=20) const;
     void add_remote(QWidget* page);
     void use_bot(std::optional<reporting::BotDestination> destination);
@@ -23,6 +25,7 @@ public:
 private:
     QPointer<reporting::Discord> discord_;
     QPlainTextEdit* log_;
+    QLabel* upcoming_{};
     QStringList buff_ids_;
     reporting::ReportAppearance appearance_;
     ActivityStatus activity_;

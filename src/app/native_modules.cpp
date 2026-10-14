@@ -83,10 +83,10 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
             hive.options(speed));
     };
     service.plan.route_recovery=return_to_hive;
-    if (return_to_hive) service.plan.whirligig_return=[hive,cooldown=modules.whirligig,reset=return_to_hive](unsigned slot) {
+    if (return_to_hive) service.plan.whirligig_return=[hive,cooldown=modules.whirligig](unsigned slot,automation::ProgramFactory return_method) {
         return automation::whirligig_to_hive(slot,cooldown,hive.proximity,[hive] {
             return automation::prepare_hive_view(hive.reference,hive.proximity,hive.result);
-        },reset);
+        },std::move(return_method));
     };
     if (modules.quests.conversation && service.plan.hive_setup && return_to_hive)
         modules.quests.cycle=features::quests::CyclePlan{{},service.plan.hive_setup,return_to_hive,modules.quests.conversation,*speed,modules.quests.cooldowns};
@@ -102,6 +102,7 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
     }
     modules.collection.plan=features::collection::routed_plan(*routes,*speed,return_to_hive,modules.collection.memory,modules.collection.daylight,modules.collection.item_menus);
     modules.collection.plan.inventory=modules.collection.inventory;
+    modules.collection.plan.items.stock=modules.stock; modules.collection.plan.items.inventory=modules.collection.inventory;
     modules.collection.plan.items.orders=modules.collection.item_orders;
     modules.collection.plan.items.ant_passes=modules.collection.ant_passes;
     modules.collection.plan.items.movement=modules.movement;
@@ -160,7 +161,9 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
         }
         Requirements requirements; requirements.navigation(navigation);
         auto manifest=features::boosting::module_manifest();
-        add(host,std::move(manifest),features::boosting::module_factory(modules.boosting,modules.field_boosts,boosters,fields),requirements,features::boosting::migrate_settings);
+        modules.boosting->scheduling(host.work_schedule(),manifest.id);
+        modules.boosting->supplies(modules.stock);
+        add(host,std::move(manifest),features::boosting::module_factory(modules.boosting,modules.field_boosts,boosters,fields,modules.stock,modules.collection.inventory),requirements,features::boosting::migrate_settings);
     }
     {
         auto service=modules.gathering;
@@ -220,13 +223,10 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
         requirements.need(bool(service.actions),"placement and harvest actions");
         requirements.need(bool(service.clock),"account clock");
         auto manifest=features::planters::module_manifest(service.plan,"hive.native-planters");
-        manifest.description="Build and maintain nectar using observed placement, growth and harvest outcomes. Select fields you can enter and planters you own. Choose Walk to keep carried pollen or Reset for a respawn return. Start with no planters placed by another macro; this profile tracks its own placements. Interrupted actions are checked before another attempt.";
+        manifest.description="Maintain nectar or grow material bonuses. Select fields you can enter and planters you own. Choose Walk to keep carried pollen or Reset for a respawn return. Start with no planters placed by another macro; this profile tracks its own placements. Interrupted actions are checked before another attempt.";
         add(host,std::move(manifest),[service,navigation](const auto& manifest) {
             return features::planters::module_factory(service.plan,navigation,service.account,service.observations,service.actions,service.clock,service.context)(manifest);
-        },requirements,[](int version,const Settings& previous) {
-            if (version!=1) throw std::invalid_argument("Unknown previous Planter settings version");
-            auto values=previous; values.erase("resolved-action"); return values;
-        });
+        },requirements,features::planters::migrate_settings);
     }
     {
         auto service=modules.collection;

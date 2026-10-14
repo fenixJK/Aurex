@@ -8,6 +8,7 @@ namespace hive::extensions {
 Manifest read_manifest(const QString& file);
 Settings defaults(const Manifest& manifest);
 void validate_page(const Manifest& manifest);
+void validate_setup_profiles(const Manifest& manifest);
 struct Entry {
     Manifest manifest;
     Settings settings;
@@ -70,6 +71,7 @@ public:
     void disable(const std::string& id);
     void configure(const std::string& id, Settings settings);
     QJsonObject preset() const;
+    std::vector<QJsonObject> starter_presets() const;
     void apply_preset(const QJsonObject& preset);
     void update(const SessionView& view);
     void fail_module(const std::string& id,const std::string& reason);
@@ -83,6 +85,7 @@ public:
     std::shared_ptr<const game::FieldGoalSource> field_goal_source() const { return requests_; }
     std::shared_ptr<const game::EnemyGoalSource> enemy_goal_source() const { return requests_; }
     std::shared_ptr<const game::RequestSource> request_source() const { return requests_; }
+    std::shared_ptr<const WorkSchedule> work_schedule() const { return work_schedule_; }
     const std::map<std::string, Entry>& entries() const { return entries_; }
     const std::vector<std::string>& diagnostics() const { return diagnostics_; }
     std::uint64_t configuration_revision() const { return configuration_revision_; }
@@ -106,6 +109,7 @@ private:
     std::map<std::string,game::RequestGrants> request_access_;
     game::RequestContracts request_contracts_{game::game_request_contracts()};
     std::shared_ptr<game::SharedRequests> requests_{std::make_shared<game::SharedRequests>()};
+    std::shared_ptr<WorkSchedule> work_schedule_{std::make_shared<WorkSchedule>()};
     struct Builtin { Manifest manifest; std::string unavailable; SettingsMigration migration; };
     std::map<std::string,Builtin> builtins_;
     std::map<std::string, Entry> entries_;

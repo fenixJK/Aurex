@@ -68,7 +68,6 @@ private:
     std::optional<workflows::Interaction> interaction_;
     std::optional<workflows::Conversion> conversion_;
     std::shared_ptr<game::HiveConversion> hive_conversion_;
-    bool converting_balloon_{};
     std::optional<workflows::Checkpoint> checkpoint_;
     std::optional<workflows::Sprinkler> sprinkler_;
     std::optional<workflows::InventoryDrag> inventory_;

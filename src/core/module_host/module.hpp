@@ -3,6 +3,7 @@
 #include "presentation.hpp"
 #include "core/runtime/program.hpp"
 #include "requests.hpp"
+#include "work_schedule.hpp"
 #include <functional>
 #include <map>
 #include <memory>
@@ -33,6 +34,7 @@ struct Setting {
     int checked_step{1};
     std::map<std::string,std::string> icons;
     std::vector<std::string> enabled_values;
+    std::map<std::string,std::string> dependent_labels;
 };
 struct Metric {
     std::string label, value;
@@ -71,6 +73,7 @@ struct RoutineParticipation {
     bool fallback{},reactive{},demand_only{};
     bool interrupt_gather{true};
 };
+struct SetupProfile { std::string name; int order{}; Settings settings; };
 void validate(const RoutineParticipation& participation);
 struct Manifest {
     std::string id, name, version, description, provider;
@@ -88,6 +91,7 @@ struct Manifest {
     std::vector<Command> commands;
     bool enabled_by_default{};
     bool presets{true};
+    std::vector<SetupProfile> setup_profiles;
 };
 struct SessionView {
     Status status;
@@ -98,6 +102,7 @@ struct SessionView {
     game::RequestInbox requests;
     std::uint64_t session_id{};
     game::ServerSession server;
+    bool reconnecting{};
 };
 void validate_settings(const Manifest& manifest,const Settings& settings);
 class Module {
@@ -133,6 +138,8 @@ public:
     virtual PlotProgress plot_progress() const { return {}; }
     virtual std::map<std::string,std::string> setting_summaries() const { return {}; }
     virtual bool pending_work(const SessionView&) const { return false; }
+    virtual std::optional<WorkEstimate> next_work(const SessionView&) const { return {}; }
+    virtual std::optional<WorkWindow> protected_work(const SessionView&) const { return {}; }
     virtual bool executable() const noexcept { return false; }
     virtual std::unique_ptr<automation::Program> program() const { return {}; }
 };

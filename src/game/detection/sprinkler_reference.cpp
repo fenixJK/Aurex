@@ -1,4 +1,5 @@
 #include "sprinkler_reference.hpp"
+#include "nearest_target.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -31,15 +32,19 @@ public:
     explicit ReferenceSource(std::shared_ptr<const DetectionSource> source):source_(std::move(source)) {
         if (!source_) throw std::invalid_argument("Missing sprinkler reference channel");
     }
-    Observation<Point> read(const ObservationContext& context) const override {
+    Observation<Point> read(const ObservationContext& context,std::optional<Point> expected) const override {
         const auto packet=source_->read();
         if (!packet || !packet->error.empty()) return {};
         const auto* value=dynamic_cast<const SprinklerReferences*>(packet->value.get());
-        if (!value || !value->complete || value->candidates.size()!=1 || value->image_width<=0 || value->image_height<=0) return {};
-        const auto& box=value->candidates.front();
-        if (!box.valid() || box.x<0 || box.y<0 || box.x+box.width>value->image_width || box.y+box.height>value->image_height
-            || box.width>value->image_width*.1 || box.height>value->image_height*.1) return {};
-        Observation<Point> result{Knowledge::present,{(box.x+box.width/2)/value->image_width,(box.y+box.height/2)/value->image_height},
+        if (!value || !value->complete || value->image_width<=0 || value->image_height<=0) return {};
+        const auto target=expected.value_or(Point{.5,.5});
+        const auto position=[&](const Rect& box) { return Point{(box.x+box.width/2)/value->image_width,(box.y+box.height/2)/value->image_height}; };
+        const auto* selected=nearest_target<Rect>(value->candidates,target,expected?.08:.43,.03,position,[&](const Rect& box) {
+            return box.valid() && box.x>=0 && box.y>=0 && box.x+box.width<=value->image_width && box.y+box.height<=value->image_height
+                && box.width<=value->image_width*.1 && box.height<=value->image_height*.1;
+        });
+        if (!selected) return {};
+        Observation<Point> result{Knowledge::present,position(*selected),
             packet->context.now,packet->context.window,packet->context.generation};
         return result.has_value(context,Time(750))?result:Observation<Point>{};
     }
@@ -54,7 +59,7 @@ SprinklerReferences find_sprinkler_references(const DetectionInput& input) {
     if (!std::isfinite(sx) || !std::isfinite(sy) || sx<.5 || sx>4 || sy<.5 || sy>4
         || std::abs(sx-sy)>std::max(sx,sy)*.05 || std::size_t(f.width)*f.height>16000000) return result;
     const int patch_w=std::max(1,int(std::ceil(11*sx))),patch_h=std::max(1,int(std::ceil(13*sy)));
-    const int left=int(std::ceil(f.width*.05)),right=int(std::floor(f.width*.95));
+    const int left=int(std::ceil(f.width*.2)),right=int(std::floor(f.width*.8));
     const int top=int(std::ceil(f.height*.2)),bottom=int(std::floor(f.height*.8));
     const int width=right-left;
     if (width<patch_w || bottom-top<patch_h) return result;
@@ -76,7 +81,7 @@ SprinklerReferences find_sprinkler_references(const DetectionInput& input) {
         for (int x=0;x<width;++x) {
             count+=columns[x];
             if (x>=patch_w) count-=columns[x-patch_w];
-            const bool match=x+1>=patch_w && count==unsigned(patch_w*patch_h);
+            const bool match=x+1>=patch_w && count*10>=unsigned(patch_w*patch_h)*9;
             if (match && run<0) run=x-patch_w+1;
             if (run>=0 && (!match || x+1==width)) {
                 const int end=match?x+1:x;

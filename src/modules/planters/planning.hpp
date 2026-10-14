@@ -1,5 +1,5 @@
 #pragma once
-#include "planner.hpp"
+#include "materials.hpp"
 #include <functional>
 
 namespace hive::features::planters {
@@ -8,12 +8,14 @@ struct Growing {
     Phase phase{};
     double age{}, due_in{};
     Travel travel;
+    std::string material;
 };
 struct PlanningSnapshot {
     std::vector<Group> groups;
     std::vector<Growing> growing;
     std::size_t capacity{3};
     double now{};
+    MaterialPlan materials;
 };
 struct Ledger;
 PlanningSnapshot planning_snapshot(const Ledger& ledger,std::vector<Group> groups,const TravelTimes& travel,

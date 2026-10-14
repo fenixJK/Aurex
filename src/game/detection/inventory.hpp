@@ -1,6 +1,7 @@
 #pragma once
 #include "detection.hpp"
 #include "state.hpp"
+#include "game/data/item_stock.hpp"
 
 namespace hive::game {
 struct InventoryRow { Rect bounds,title; Point grab; };
@@ -48,7 +49,7 @@ std::string inventory_name(const std::string& text);
 void validate(const InventoryView& view);
 Observation<InventoryView> read_inventory(const DetectionInput& input,const Observation<InventoryLayout>& layout);
 std::shared_ptr<const Detector> inventory_detector(std::shared_ptr<const InventoryLayoutSource> layout,std::shared_ptr<InventoryRequests> requests={});
-std::shared_ptr<const InventorySource> inventory_source(std::shared_ptr<const DetectionSource> channel,std::shared_ptr<InventoryRequests> requests={});
+std::shared_ptr<const InventorySource> inventory_source(std::shared_ptr<const DetectionSource> channel,std::shared_ptr<InventoryRequests> requests={},std::shared_ptr<ItemStock> stock={});
 Observation<InventoryLayout> locate_inventory(const DetectionInput& input);
 std::shared_ptr<const InventoryLayoutSource> inventory_layout();
 std::vector<InventoryRow> inventory_rows(const Frame& frame,Rect viewport);

@@ -21,6 +21,7 @@ struct FieldPlan {
     std::function<std::vector<automation::Step>()> prepare;
     std::vector<std::string> extend_while;
     Time extension_limit{std::chrono::minutes(5)};
+    std::function<std::unique_ptr<automation::Program>(automation::ProgramFactory)> return_item;
 };
 struct Snapshot {
     game::FieldContext field;
@@ -51,7 +52,7 @@ struct Plan {
     automation::ProgramFactory route_recovery;
     bool shift_lock{};
     std::shared_ptr<const game::DetectionSource> buffs,field_boosts;
-    std::function<std::unique_ptr<automation::Program>(unsigned)> whirligig_return;
+    std::function<std::unique_ptr<automation::Program>(unsigned,automation::ProgramFactory)> whirligig_return;
 };
 enum class Phase { waiting, travelling, preparing, gathering, returning, converting, finished, recovering };
 struct Report {

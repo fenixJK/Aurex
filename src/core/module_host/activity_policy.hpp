@@ -8,6 +8,8 @@ struct ActivityOption {
     std::string id;
     int priority{};
     Time due{};
+    Time duration{},now{};
+    std::optional<Time> latest_start;
 };
 class ActivityPolicy {
 public:

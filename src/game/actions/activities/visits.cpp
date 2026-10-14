@@ -49,6 +49,7 @@ class VisitProgram final : public Program {
     Time last_{},settle_until_{},loot_started_{};
     bool travelled_{};
     bool prepared_{};
+    bool yield_{};
     std::optional<Time> availability_since_;
     std::optional<Time> arrived_;
     Time departed_{};
@@ -140,7 +141,7 @@ class VisitProgram final : public Program {
         return next(view);
     }
     Step select(const View& view) {
-        while (index_<plan_.visits.size()) {
+        while (!yield_ && index_<plan_.visits.size()) {
             const auto readiness=available(view);
             const bool inspect=readiness==Availability::waiting && plan_.visits[index_].inspect_when_unknown;
             if (readiness==Availability::waiting && !inspect) return emit(Wait{Time(100),"Reading activity availability"});
@@ -227,6 +228,7 @@ public:
         }
     }
     RunConfig config() const override { return plan_.config; }
+    bool request_yield() override { yield_=true; return true; }
     std::vector<Rect> text_regions() const override {
         if (index_>=plan_.visits.size() || (phase_!=Phase::arriving && phase_!=Phase::action && phase_!=Phase::settling)) return {};
         auto regions=arrived_?availability_->text_regions(plan_.visits[index_].id):std::vector<Rect>{};

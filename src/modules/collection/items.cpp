@@ -1,4 +1,5 @@
 #include "items.hpp"
+#include "game/actions/inventory/item_reserves.hpp"
 #include <algorithm>
 
 namespace hive::features::collection {
@@ -15,6 +16,10 @@ class ItemActivity final : public Program {
     double speed_;
     std::shared_ptr<const movement::Recipes> movement_;
     std::shared_ptr<ItemOrders> orders_;
+    std::shared_ptr<game::ItemStock> stock_;
+    std::shared_ptr<const game::InventorySource> inventory_;
+    bool supplies_checked_{};
+    game::ItemAmounts cost() const { return kind_==ItemMenuKind::blender?game::blender_cost(item_,amount_):game::ItemAmounts{{item_,amount_}}; }
     std::optional<ItemOrder> order_;
     Time shrine_interval_;
     bool collect_only_{};
@@ -60,6 +65,10 @@ class ItemActivity final : public Program {
         if (*menu.quantity==amount_) {
             if (!menu.submit || !menu.enabled) return Wait{};
             if (!*menu.enabled) return missing(menu,packet);
+            if (stock_ && !stock_->spend(cost(),packet.context.now)) {
+                if (orders_) orders_->missing(kind_,item_);
+                result_->retry=std::chrono::minutes(5); return close(menu,packet);
+            }
             phase_=Phase::submitted;
             return click(*menu.submit,packet,kind_==ItemMenuKind::blender?"Start crafting":"Donate selected items");
         }
@@ -81,7 +90,7 @@ class ItemActivity final : public Program {
 public:
     ItemActivity(std::shared_ptr<const game::DetectionSource> source,ItemOptions options,std::shared_ptr<ItemResult> result,ItemMenuKind kind,double speed)
         :source_(std::move(source)),result_(std::move(result)),kind_(kind),item_(kind==ItemMenuKind::blender?options.recipe:options.donation),
-         amount_(kind==ItemMenuKind::blender?options.batches:options.quantity),speed_(speed),movement_(movement::snapshot(options.movement)),orders_(std::move(options.orders)),shrine_interval_(options.shrine_interval) {
+         amount_(kind==ItemMenuKind::blender?options.batches:options.quantity),speed_(speed),movement_(movement::snapshot(options.movement)),orders_(std::move(options.orders)),stock_(std::move(options.stock)),inventory_(std::move(options.inventory)),shrine_interval_(options.shrine_interval) {
         choose_order();
         const auto& catalog=kind==ItemMenuKind::blender?game::blender_recipes():game::shrine_items();
         if (!source_ || !result_ || std::find(catalog.begin(),catalog.end(),item_)==catalog.end() || amount_<1 || amount_>999
@@ -97,6 +106,18 @@ public:
         if (phase_==Phase::done) return Done{result_->retry?name()+" deferred":name()+" finished"};
         if (orders_ && collect_only_ && kind_==ItemMenuKind::wind_shrine && !began_) return Done{"Donation queue finished"};
         if (phase_==Phase::loot) { phase_=Phase::done; return loot(); }
+        if (!began_ && !collect_only_ && stock_ && !(orders_ && kind_==ItemMenuKind::blender && orders_->read().blender.crafting)) {
+            const auto spending=cost();
+            if (!supplies_checked_ && !stock_->unread(spending).empty()) {
+                supplies_checked_=true;
+                if (inventory_) return RunProgram{[stock=stock_,inventory=inventory_,spending] { return inspect_reserves(stock,inventory,spending); },true};
+            }
+            if (const auto item=stock_->blocked(spending)) {
+                result_->retry=std::chrono::minutes(5);
+                if (orders_) orders_->missing(kind_,item_);
+                return Defer{"Keeping the reserved "+*item};
+            }
+        }
         if (!began_) { began_=true; minimum_=c.now; deadline_=c.now+Time(10000); }
         if (c.now>=deadline_) throw ObservationUnavailable(name()+": menu did not respond");
         if (quantity_clicks_) {

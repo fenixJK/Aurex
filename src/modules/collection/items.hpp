@@ -10,6 +10,8 @@ struct ItemOptions {
     std::string recipe{"Red Extract"},donation{"Cloud Vial"};
     unsigned batches{1},quantity{1};
     std::shared_ptr<ItemOrders> orders;
+    std::shared_ptr<game::ItemStock> stock;
+    std::shared_ptr<const game::InventorySource> inventory;
     Time shrine_interval{std::chrono::hours(1)};
     movement::Source movement;
     std::string printer_egg{"Basic Egg"};

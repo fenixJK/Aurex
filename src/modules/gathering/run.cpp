@@ -54,6 +54,28 @@ automation::FollowPath offset_path(Point offset,double speed,bool reverse=false)
     movement.timeout=Time(static_cast<Time::rep>(std::ceil((std::abs(offset.x)+std::abs(offset.y))*4000/speed)))+Time(5000);
     workflows::validate(movement); return {std::move(movement)};
 }
+class FieldReturn final : public automation::Program {
+    Point offset_;
+    double speed_;
+    automation::ProgramFactory prepare_;
+    unsigned phase_{};
+public:
+    FieldReturn(Point offset,double speed,automation::ProgramFactory prepare)
+        :offset_(offset),speed_(speed),prepare_(std::move(prepare)) {}
+    automation::RunConfig config() const override { return {Time(300000),speed_,{},true,true}; }
+    std::string activity_label() const override { return "Returning to hive"; }
+    automation::Step next(const automation::View&) override {
+        if (!phase_) {
+            phase_=1;
+            if (offset_.x || offset_.y) return offset_path(offset_,speed_,true);
+        }
+        if (phase_==1) {
+            phase_=2;
+            if (prepare_) return automation::RunProgram{prepare_};
+        }
+        return automation::Done{"Return route completed"};
+    }
+};
 }
 Report Results::read() const { std::lock_guard lock(mutex_); return report_; }
 class Gathering final : public automation::Program {
@@ -288,7 +310,7 @@ public:
             if (field.strategy) {
                 const automation::RunConfig limits{field.pattern.duration,plan_.config.speed,field.pattern.backpack_limit,true};
                 return automation::RunProgram{[this,create=field.strategy,between_cycles=field.pattern.between_cycles,limits,hotbar,extend=extension(plan_,field)] {
-                    return bounded_pattern(create,limits,[this](unsigned heading) { pattern_heading_=heading; },between_cycles,[this] { return yielding_; },hotbar,extend);
+                    return bounded_pattern(create,limits,[this](unsigned heading) { pattern_heading_=heading; },between_cycles,[this] { return yielding_; },hotbar,extend,plan_.buffs);
                 }};
             }
             auto pattern=field.pattern; pattern.activity=WorkActivity::gathering; pattern.hotbar=hotbar; pattern.yield=[this] { return yielding_; }; return pattern;
@@ -316,6 +338,12 @@ public:
         if (stage_==Stage::restored) {
             stage_=Stage::position_restored;
             const auto& field=plan_.fields[selected_];
+            if (field.return_item) {
+                stage_=Stage::prepared_return;
+                return automation::RunProgram{[item=field.return_item,offset=field.reset_return?Point{}:field.start_offset,prepare=field.return_setup,speed=plan_.config.speed] {
+                    return item([offset,speed,prepare] { return std::make_unique<FieldReturn>(offset,speed,prepare); });
+                }};
+            }
             if (!field.reset_return && (field.start_offset.x || field.start_offset.y)) return offset_path(field.start_offset,plan_.config.speed,true);
         }
         if (stage_==Stage::position_restored) {

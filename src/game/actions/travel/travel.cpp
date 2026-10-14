@@ -19,7 +19,15 @@ void Travel::start(std::string destination,const ObservationContext& context) {
     active_.reset(); position_.reset(); failed_routes_.clear(); reason_.clear(); legs_=failures_=0;
     stage_=TravelStage::locating; failure_=TravelFailure::none;
 }
-void Travel::fail(TravelFailure failure,std::string reason) { failure_=failure; stage_=TravelStage::failed; reason_=std::move(reason); active_.reset(); position_.reset(); }
+void Travel::fail(TravelFailure failure,std::string reason) {
+    if (failure==TravelFailure::timeout || failure==TravelFailure::location) reject_route();
+    failure_=failure; stage_=TravelStage::failed; reason_=std::move(reason); active_.reset(); position_.reset();
+}
+void Travel::reject_route() {
+    if (active_ && failed_routes_.insert(active_->route.id).second) {
+        network_.failed(active_->route.id,last_); ++failures_;
+    }
+}
 void Travel::stop() { stage_=TravelStage::stopped; reason_="Travel stopped"; active_.reset(); position_.reset(); }
 bool Travel::valid_context(const ObservationContext& c) {
     if (c.now<last_ || c.generation!=started_.generation || c.window.id!=started_.window.id
@@ -31,6 +39,7 @@ bool Travel::valid_context(const ObservationContext& c) {
 bool Travel::finished(std::uint64_t ticket,const ObservationContext& c,bool executed,const Observation<std::string>& arrival) {
     if (stage_!=TravelStage::travelling || !active_ || active_->ticket!=ticket) return false;
     if (!valid_context(c)) return false;
+    if (!executed) reject_route();
     if (c.now-phase_started_>=std::min(limits_.leg_timeout,active_->route.timeout)) { fail(TravelFailure::timeout,"Travel leg timed out"); return false; }
     if (executed && arrival.value==active_->route.to && arrival.has_value(c,Time(2000),phase_started_))
         position_=TravelPosition{arrival.value,PositionBasis::observed,{arrival.window,arrival.generation,arrival.captured}};
@@ -64,15 +73,15 @@ std::optional<TravelLeg> Travel::update(const ObservationContext& c,const Observ
     const auto at=position_->location;
     if (stage_==TravelStage::confirming) {
         if (!executed_ || at!=active_->route.to) {
-            failed_routes_.insert(active_->route.id); ++failures_;
-        }
+            reject_route();
+        } else network_.succeeded(active_->route.id);
         active_.reset();
     }
     if (at==destination_) { stage_=TravelStage::arrived; reason_=position_->basis==PositionBasis::observed?"Destination confirmed":"Route completed; destination estimated"; return {}; }
     if (failures_>=limits_.failures || legs_>=limits_.legs) { fail(TravelFailure::exhausted,"Travel recovery limit reached"); return {}; }
     auto excluded=blocked; excluded.insert(failed_routes_.begin(),failed_routes_.end());
     std::optional<game::Journey> journey;
-    try { journey=network_.plan(at,destination_,available,excluded); }
+    try { journey=network_.plan(at,destination_,available,excluded,c.now); }
     catch (const std::invalid_argument& error) { fail(TravelFailure::unavailable,error.what()); return {}; }
     if (!journey) { fail(failures_?TravelFailure::exhausted:TravelFailure::unavailable,"No available route to destination"); return {}; }
     if (next_ticket_==std::numeric_limits<std::uint64_t>::max()) { fail(TravelFailure::exhausted,"Travel ticket limit reached"); return {}; }

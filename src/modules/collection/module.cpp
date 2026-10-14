@@ -123,6 +123,7 @@ public:
     std::unique_ptr<automation::Program> routine_program() const override { return delegate_->routine_program(); }
     bool executable() const noexcept override { return delegate_->executable(); }
     bool pending_work(const extensions::SessionView& view) const override { return delegate_->pending_work(view); }
+    std::optional<extensions::WorkEstimate> next_work(const extensions::SessionView& view) const override { return delegate_->next_work(view); }
     std::unique_ptr<automation::Program> program() const override { return delegate_->program(); }
 };
 }
@@ -144,6 +145,8 @@ Settings migrate_item_settings(Settings values) {
 }
 extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string provider,bool requests) {
     auto manifest=features::visits::manifest(visit_plan(plan),std::move(id),std::move(provider),"Collection",permissions);
+    manifest.setup_profiles={{"Honey farming",40,{{"interrupt-gather",false}}},
+        {"Quest progress",30,{{"interrupt-gather",true}}},{"Materials",20,{{"interrupt-gather",true}}}};
     manifest.enabled_by_default=true;
     if (requests) manifest.consumes.insert(extensions::RequestService::stations);
     for (const auto& station : plan.stations) for (auto& setting : manifest.settings)

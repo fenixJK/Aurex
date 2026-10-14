@@ -7,7 +7,7 @@ enum class ConversionStage { idle, waiting, confirming, converting, paused, comp
 struct ConversionConfig {
     Time reading_age{2000}, observation_timeout{10000}, confirmation_timeout{5000}, total_timeout{300000};
     int attempts{3};
-    bool balloon{};
+    bool balloon{},balloon_with_backpack{};
 };
 class Conversion {
 public:
@@ -20,6 +20,7 @@ public:
     ConversionStage stage() const { return stage_; }
     const std::string& reason() const { return reason_; }
     bool needs_prompt() const;
+    bool converts_balloon() const { return balloon_.value_or(false); }
 private:
     ConversionConfig config_;
     ConversionStage stage_{ConversionStage::idle};
@@ -27,6 +28,7 @@ private:
     Time last_tick_{},last_evidence_{},last_attempt_{},minimum_capture_{};
     Time backpack_capture_{Time(-1)},last_progress_{};
     std::optional<double> last_backpack_;
+    std::optional<bool> balloon_;
     std::string pending_,reason_;
     int attempts_{};
     bool control_{},confirmed_hive_{};

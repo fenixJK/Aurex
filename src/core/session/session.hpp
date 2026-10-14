@@ -24,6 +24,7 @@ struct SessionSnapshot {
     Window window;
     RecoveryCounts recovery;
     game::ServerSession server;
+    bool reconnecting{};
 };
 class Session : public TaskPort {
 public:

@@ -1,5 +1,6 @@
 #include "presentation.hpp"
 #include "simulation.hpp"
+#include "drops.hpp"
 #include <algorithm>
 #include <iomanip>
 #include <sstream>
@@ -13,19 +14,16 @@ std::shared_ptr<const extensions::Plot> simulation_plot(Preferences preferences,
     validate(preferences);
     SimulationConfig config;config.seconds=days*86400.;config.capacity=capacity;config.record_segments=true;
     config.cancelled=[cancelled] { return cancelled->load(); };
-    for(unsigned i=0;i<5;++i) {
-        Group group;group.nectar=static_cast<Nectar>(i);
-        for(const auto& stats:catalog()) if(stats.nectar==group.nectar) group.candidates.push_back({stats,{}});
-        config.groups.push_back(std::move(group));
-    }
-    apply_preferences(config.groups,preferences);
+    config.groups=candidate_groups();
+    apply_preferences(config.groups,preferences); apply_preferences(config.materials,preferences);
     AdaptivePlanner planner;
     config.choose=[&](const PlanningSnapshot& snapshot) { return planner.select(snapshot,{4096,config.cancelled}).selection; };
     const auto result=simulate(config);
-    auto plot=std::make_shared<extensions::Plot>(); plot->title="Nectar forecast";
+    auto plot=std::make_shared<extensions::Plot>(); plot->title=preferences.mode==Mode::items?"Items forecast":"Nectar forecast";
     plot->description="From zero nectar with the applied settings. Estimated travel: 90 seconds per trip. Weather, sipping and game delays are not predicted.";
+    if(preferences.mode==Mode::items && preferences.secondary) plot->description+=" Nectar uses spare slots; item routes take priority.";
     plot->x_label="Days";plot->y_label="Nectar (%)";plot->x_max=days;
-    for(unsigned i=0;i<5;++i) if(preferences.targets[i].minimum>0) {
+    for(unsigned i=0;i<5;++i) if(preferences.mode==Mode::items || preferences.targets[i].minimum>0) {
         extensions::PlotSeries series{nectar_names()[i],{},colors[i]};
         const auto append=[&](std::size_t index) {
             const auto& segment=result.segments[index];
@@ -40,9 +38,19 @@ std::shared_ptr<const extensions::Plot> simulation_plot(Preferences preferences,
             append(std::min(low,high));if(low!=high)append(std::max(low,high));
         }
         series.points.push_back({double(days),result.final[i]});plot->series.push_back(std::move(series));
-        plot->statistics.push_back({nectar_names()[i],decimal(result.coverage_seconds[i]/config.seconds*100)+"% coverage, "+(result.built_at[i]?decimal(*result.built_at[i]/3600)+"h to build":"not built")});
+        plot->statistics.push_back({nectar_names()[i],preferences.needs_nectar() && preferences.targets[i].minimum>0?
+            decimal(result.coverage_seconds[i]/config.seconds*100)+"% coverage, "+(result.built_at[i]?decimal(*result.built_at[i]/3600)+"h to build":"not built"):
+            decimal(result.final[i])+"% at end · maintenance off"});
     }
     plot->statistics.insert(plot->statistics.begin(),{{"Collections/day",decimal(double(result.harvests)/days)},{"Travel/day",decimal(result.travel_seconds/days/3600)+"h"}});
+    const auto count=[](const auto& values,const auto& id) {const auto found=values.find(id);return found==values.end()?0u:found->second;};
+    if(preferences.farms_items()) for(const auto& goal:preferences.materials) {
+        unsigned bonus=0;
+        for(const auto& route:material_routes()) if(route.goal==goal) bonus+=count(result.bonuses,route.id)*route.amount;
+        plot->statistics.push_back({item_label(goal),std::to_string(count(result.item_harvests,goal))+" harvests · "
+            +std::to_string(count(result.base_items,goal))+" base + ~"+std::to_string(bonus)+" bonus · random drops extra"});
+    }
+    if(preferences.farms_items() && !preferences.materials.empty()) plot->description+=" Item counts use documented full-growth base rewards and estimated bonus cooldowns, starting fresh. Random loot and consumable stock are not predicted.";
     return plot;
 }
 std::shared_ptr<const extensions::Plot> forecast_plot(PlanningSnapshot snapshot,unsigned hours) {
@@ -51,6 +59,7 @@ std::shared_ptr<const extensions::Plot> forecast_plot(PlanningSnapshot snapshot,
     if (snapshot.groups.size()!=5 || std::any_of(snapshot.groups.begin(),snapshot.groups.end(),[](const auto& group) { return !group.current_known; }))
         throw std::invalid_argument("All five nectar readings are needed for a prediction");
     SimulationConfig config; config.groups=snapshot.groups; config.growing=snapshot.growing;
+    config.materials=snapshot.materials;
     config.capacity=snapshot.capacity; config.seconds=hours*3600.; config.record_segments=true;
     const auto deadline=monotonic_now()+Time(30000);
     config.cancelled=[deadline] { return monotonic_now()>=deadline; };
@@ -69,10 +78,11 @@ std::shared_ptr<const extensions::Plot> forecast_plot(PlanningSnapshot snapshot,
         }
         series.points.push_back({double(hours),result.final[i]}); plot->series.push_back(std::move(series));
         auto value=decimal(group.current)+"% now → "+decimal(result.final[i])+"% at "+std::to_string(hours)+"h";
-        if (group.target.minimum>0) {
+        if (snapshot.materials.needs_nectar() && group.target.minimum>0) {
             const auto upper=bounds(group.target).upper;
             value+=" · "+decimal(upper)+"% target: ";
             value+=group.current>=upper?"already reached":result.built_at[i]?decimal(*result.built_at[i]/3600)+"h":"not reached in this window";
+            if(snapshot.materials.mode==Mode::items) value+=" · spare slots only";
         } else value+=" · maintenance off";
         plot->statistics.push_back({nectar_names()[i],std::move(value)});
     }

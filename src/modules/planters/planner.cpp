@@ -107,16 +107,16 @@ void validate_configuration(std::span<const Group> groups,std::span<const Active
         number(g.current,0,100); target(g.target); validate_events(g.pending);
         if (!g.current_known && g.current!=0) throw std::invalid_argument("Unknown nectar must use its conservative lower bound");
         if (g.nectar<Nectar::comforting || g.nectar>Nectar::invigorating || g.phase<Phase::build || g.phase>Phase::recover
-            || !nectars.insert(g.nectar).second || g.candidates.size()>204 || g.priority<0 || g.priority>100)
+            || !nectars.insert(g.nectar).second || g.candidates.size()>512 || g.priority<0 || g.priority>100)
             throw std::invalid_argument("Invalid nectar group");
         std::set<std::string> types;
         for (const auto& c : g.candidates) {
             const auto& s=c.stats;
-            if (s.planter.empty() || s.field.empty() || s.nectar!=g.nectar) throw std::invalid_argument("Invalid planter candidate");
+            if (s.planter.empty() || s.field.empty() || s.nectar!=g.nectar || c.last_used<Time{} || c.last_used>Time::max()-std::chrono::hours(24*31)) throw std::invalid_argument("Invalid planter candidate");
             number(s.nectar_bonus,0.01,10); number(s.speed_bonus,0.01,10); number(s.full_seconds,1,86400); number(c.travel.seconds,0,1800);
             types.insert(s.planter);
         }
-        if (types.size()>12) throw std::invalid_argument("Too many planter types");
+        if (types.size()>32) throw std::invalid_argument("Too many planter types");
     }
 }
 std::vector<Assignment> assign(std::span<const Group> groups,std::span<const Active> active,std::size_t capacity,Selection selection,bool at_destination) {
@@ -141,6 +141,7 @@ std::vector<Assignment> assign(std::span<const Group> groups,std::span<const Act
         }
         if (!sipping.empty()) eligible=std::move(sipping); else if (!rotated.empty()) eligible=std::move(rotated);
         if (eligible.empty() || selection.omitted==g.nectar) continue;
+        std::stable_sort(eligible.begin(),eligible.end(),[](const auto* a,const auto* b) { return a->last_used<b->last_used; });
         const auto ordered=sorted(g.pending);
         auto reserve=g.current; for (const auto& e : g.pending) reserve+=e.amount;
         const auto band=bounds(g.target); shortage=shortage || reserve<band.lower;
@@ -164,7 +165,7 @@ std::vector<Assignment> assign(std::span<const Group> groups,std::span<const Act
             if (same==need.options.end()) need.options.push_back(choice);
             else if (choice.useful/choice.growth>same->useful/same->growth+1e-12) *same=choice;
         }
-        if (need.options.size()>12) throw std::invalid_argument("Too many planter types");
+        if (need.options.size()>32) throw std::invalid_argument("Too many planter types");
         needs.push_back(std::move(need));
     }
     std::optional<Nectar> focus; int priority=101;

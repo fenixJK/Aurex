@@ -1,5 +1,7 @@
 add_library(hive_planters
   preferences.cpp
+  materials.cpp
+  drops.cpp
   planner.cpp
   catalog.cpp
   simulation.cpp

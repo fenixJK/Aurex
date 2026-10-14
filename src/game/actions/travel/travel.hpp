@@ -24,6 +24,7 @@ public:
         const std::optional<TravelPosition>& departure={});
     bool finished(std::uint64_t ticket,const ObservationContext& context,bool executed,const Observation<std::string>& arrival={});
     void stop();
+    void reject_route();
     TravelStage stage() const { return stage_; }
     const std::string& reason() const { return reason_; }
     TravelFailure failure() const { return failure_; }

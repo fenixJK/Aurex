@@ -1,4 +1,5 @@
 #include "host.hpp"
+#include "configuration.hpp"
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -38,7 +39,7 @@ Manifest read_manifest(const QString& path) {
     auto doc=QJsonDocument::fromJson(file.readAll(),&error);
     require(error.error==QJsonParseError::NoError && doc.isObject(),"Manifest must be a JSON object");
     const auto obj=doc.object();
-    keys(obj,{"id","name","version","description","api","settingsVersion","provider","dependencies","settings","bindings","scripts","permissions","requests","routine","consumes","page","commands","presets"});
+    keys(obj,{"id","name","version","description","api","settingsVersion","provider","dependencies","settings","bindings","scripts","permissions","requests","routine","consumes","page","commands","presets","setupProfiles"});
     Manifest m;
     require(!obj.contains("presets") || obj["presets"].isBool(),"Preset participation must be boolean");
     m.presets=obj["presets"].toBool(true);
@@ -154,7 +155,7 @@ Manifest read_manifest(const QString& path) {
     require(obj["settings"].isArray() && obj["settings"].toArray().size()<=static_cast<qsizetype>(maximum_settings),"Invalid settings"); seen.clear();
     for (const auto& value : obj["settings"].toArray()) {
         require(value.isObject(),"Setting must be an object"); auto s=value.toObject();
-        keys(s,{"id","label","type","default","min","max","choices","ordered","inline","help","hidden","suffix","decimals","groups","enabled_by","step","step_toggle","checked_step","icons","enabled_values"});
+        keys(s,{"id","label","type","default","min","max","choices","ordered","inline","help","hidden","suffix","decimals","groups","enabled_by","step","step_toggle","checked_step","icons","enabled_values","dependent_labels"});
         Setting field; field.id=text(s,"id",80); field.label=text(s,"label",80);
         require(identifier(field.id) && seen.insert(field.id).second,"Invalid or duplicate setting ID");
         const auto type=text(s,"type");
@@ -173,6 +174,12 @@ Manifest read_manifest(const QString& path) {
         if(s.contains("enabled_values")) {
             require(s["enabled_values"].isArray() && s["enabled_values"].toArray().size()<=64,"Invalid enabled values");
             for (const auto& value:s["enabled_values"].toArray()) { require(value.isString(),"Enabled values must be text"); field.enabled_values.push_back(value.toString().toStdString()); }
+        }
+        if(s.contains("dependent_labels")) {
+            require(s["dependent_labels"].isObject(),"Dependent labels must be an object");
+            const auto labels=s["dependent_labels"].toObject();
+            require(labels.size()<=maximum_setting_choices,"Too many dependent labels");
+            for(auto it=labels.begin();it!=labels.end();++it) field.dependent_labels[it.key().toStdString()]=text(labels,it.key().toStdString().c_str(),80);
         }
         if(s.contains("step")) field.step=integer(s["step"],1,1000000);
         if(s.contains("step_toggle")) field.step_toggle=text(s,"step_toggle",80);
@@ -246,7 +253,7 @@ Manifest read_manifest(const QString& path) {
             PageSection item; item.id=text(section,"id",80); item.title=text(section,"title",80);
             if(section.contains("tool")) item.tool=text(section,"tool",80);
             if(section.contains("tab")) item.tab=text(section,"tab",80);
-            if (section.contains("description")) item.description=text(section,"description",500);
+            if (section.contains("description")) item.description=text(section,"description",4096);
             if (section.contains("settings")) {
                 require(section["settings"].isArray() && section["settings"].toArray().size()<=24,"Invalid page setting references");
                 for (const auto& setting : section["settings"].toArray()) {
@@ -270,8 +277,27 @@ Manifest read_manifest(const QString& path) {
             m.page->sections.push_back(std::move(item));
         }
     }
-    validate_settings(m,defaults(m)); validate_page(m); return m;
+    if (obj.contains("setupProfiles")) {
+        require(obj["setupProfiles"].isArray() && obj["setupProfiles"].toArray().size()<=16,"Invalid setup profiles");
+        for (const auto& value:obj["setupProfiles"].toArray()) {
+            require(value.isObject(),"Invalid setup profile"); const auto profile=value.toObject();
+            keys(profile,{"name","order","settings"}); require(profile["settings"].isObject(),"Invalid setup settings");
+            m.setup_profiles.push_back({text(profile,"name",80),integer(profile["order"],0,100),decode_settings(profile["settings"].toObject())});
+        }
+    }
+    validate_settings(m,defaults(m)); validate_page(m); validate_setup_profiles(m); return m;
 
+}
+void validate_setup_profiles(const Manifest& manifest) {
+    if (manifest.setup_profiles.size()>16) throw std::invalid_argument("Too many module setup profiles");
+    std::set<std::string> names;
+    for (const auto& profile:manifest.setup_profiles) {
+        if (profile.name.empty() || profile.name.size()>80 || profile.order<0 || profile.order>100 || !names.insert(profile.name).second)
+            throw std::invalid_argument("Invalid module setup profile");
+        auto values=defaults(manifest);
+        for (const auto& [id,value]:profile.settings) values[id]=value;
+        validate_settings(manifest,values);
+    }
 }
 void validate_page(const Manifest& manifest) {
     for (const auto& setting:manifest.settings) if (!setting.icons.empty()) {
@@ -294,7 +320,8 @@ void validate_page(const Manifest& manifest) {
         }
     }
     for (const auto& setting:manifest.settings) {
-        require(!setting.enabled_by.empty() || setting.enabled_values.empty(),"Enabled values require a dependency");
+        require(!setting.enabled_by.empty() || (setting.enabled_values.empty() && setting.dependent_labels.empty()),"Choice metadata requires a dependency");
+        require(setting.dependent_labels.empty() || (std::holds_alternative<bool>(setting.initial) && !setting.enabled_values.empty()),"Dependent labels require a checkbox with a choice dependency");
         if (setting.enabled_by.empty()) continue;
         const auto source=std::find_if(manifest.settings.begin(),manifest.settings.end(),[&](const auto& field) { return field.id==setting.enabled_by; });
         require(source!=manifest.settings.end() && source->id!=setting.id && !source->hidden
@@ -303,6 +330,8 @@ void validate_page(const Manifest& manifest) {
         else {
             require(std::holds_alternative<std::string>(source->initial),"Choice dependency required");
             for (const auto& value:setting.enabled_values) require(std::find(source->choices.begin(),source->choices.end(),value)!=source->choices.end(),"Unknown dependency choice");
+            for(const auto& [value,label]:setting.dependent_labels) require(std::find(source->choices.begin(),source->choices.end(),value)!=source->choices.end()
+                && !label.empty() && label.size()<=80,"Invalid dependent label");
         }
     }
     for (const auto& setting:manifest.settings) if (!setting.groups.empty()) {
@@ -324,7 +353,7 @@ void validate_page(const Manifest& manifest) {
     unsigned metrics=0;
     for (const auto& section : sections) {
         require(identifier(section.id) && ids.insert(section.id).second && !section.title.empty() && section.title.size()<=80
-            && section.description.size()<=500 && section.columns>=1 && section.columns<=4,"Invalid page section");
+            && section.description.size()<=4096 && section.columns>=1 && section.columns<=4,"Invalid page section");
         require(section.tool.size()<=80 && section.tab.size()<=80
             && (section.collection.empty() || (section.tool.empty() && section.tab.empty())),"Invalid section destination");
         require(section.collection.empty()==section.choice.empty(),"Collection sections need a choice");

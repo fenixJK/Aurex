@@ -1,5 +1,5 @@
 #pragma once
-#include "planner.hpp"
+#include "materials.hpp"
 #include <memory>
 
 namespace hive::features::planters {
@@ -7,6 +7,7 @@ using WallTime = std::chrono::sys_time<Time>;
 struct GrowthSample {
     WallTime observed;
     double fraction{};
+    Time offline{};
     bool operator==(const GrowthSample&) const=default;
 };
 struct Plant {
@@ -15,6 +16,8 @@ struct Plant {
     Phase phase{};
     WallTime placed, due;
     std::optional<GrowthSample> growth;
+    Time offline{};
+    std::string material;
 };
 double harvest_fraction(const Plant& plant);
 double harvest_minimum_fraction(const Plant& plant);
@@ -31,8 +34,11 @@ struct Ledger {
     std::vector<Plant> plants;
     std::optional<Intent> pending;
     std::map<std::string,std::vector<double>> travel;
+    std::map<std::string,WallTime> fields;
+    MaterialHistory materials;
 };
 void validate(const Ledger& ledger);
+bool exclude_offline(Ledger& ledger,WallTime begin,WallTime end);
 std::string identity(const Stats& stats);
 class Store {
 public:
@@ -57,6 +63,7 @@ public:
     void placement_accepted(std::uint64_t ticket,const ObservationContext& context,WallTime wall);
     void interrupt() noexcept;
     void record_travel(const std::string& field,double seconds);
+    void exclude_offline(WallTime begin,WallTime end);
     void abandon_unstarted_placement(std::uint64_t ticket,WallTime wall);
     bool reconcile_returned(const ObservationContext& context,WallTime wall,const Observation<ReturnedPlanter>& returned);
     bool reconcile(const ObservationContext& context,WallTime wall,const Observation<Placements>& placements);

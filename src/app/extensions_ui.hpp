@@ -28,6 +28,7 @@ public:
     QString feature_name(const std::string& id) const;
     void apply_settings();
     const std::map<std::string,extensions::Entry>& entries() const { return host_.entries(); }
+    extensions::WorkSnapshot work_snapshot() const { return host_.work_schedule()->read(); }
     extensions::Settings module_settings(const std::string& id) const;
     void configure_module(const std::string& id,const extensions::Settings& values);
     void enable_module(const std::string& id,bool enabled);

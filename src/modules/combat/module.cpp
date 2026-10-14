@@ -197,6 +197,10 @@ public:
     std::unique_ptr<automation::Program> routine_program() const override { return program(); }
     bool executable() const noexcept override { return delegate_->executable(); }
     bool pending_work(const extensions::SessionView& view) const override { return trip_->active() || delegate_->pending_work(view); }
+    std::optional<extensions::WorkEstimate> next_work(const extensions::SessionView& view) const override {
+        if (trip_->active()) return extensions::WorkEstimate{"Finish server visit",{},Time{},view.now,view.now};
+        return delegate_->next_work(view);
+    }
     std::unique_ptr<automation::Program> program() const override { return trip_->active()?trip_->program([delegate=delegate_] { return delegate->program(); }):delegate_->program(); }
 };
 }
@@ -219,6 +223,8 @@ Settings migrate_settings(int version,const Settings& values,const Plan& plan) {
 }
 extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string provider,bool requests) {
     auto manifest=features::visits::manifest(visit_plan(plan),std::move(id),std::move(provider),"Combat",permissions);
+    manifest.setup_profiles={{"Honey farming",50,{{"interrupt-gather",false}}},
+        {"Quest progress",20,{{"interrupt-gather",true}}},{"Materials",10,{{"interrupt-gather",true}}}};
     manifest.enabled_by_default=true;
     manifest.requests.insert(extensions::RequestService::servers);
     if (requests) manifest.consumes.insert(extensions::RequestService::enemies);

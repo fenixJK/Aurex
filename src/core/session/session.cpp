@@ -139,6 +139,7 @@ SessionSnapshot Session::snapshot() {
     if (feature_) { result.feature=feature_->progress(); result.feature->module_id=feature_id_; }
     result.recovery=*recovery_counts_;
     result.server={rejoin_target_?rejoin_target_->uri():std::string{},joined_server_};
+    result.reconnecting=client_rejoin_.has_value() || reconnect_windows_.has_value() || window_recovery_.has_value() || recovery_counts_->disconnected;
     return result;
 }
 void Session::pause_between_features() {

@@ -2,6 +2,7 @@
 #include "shift_lock.hpp"
 #include "game/data/fields.hpp"
 #include "game/detection/menus.hpp"
+#include "game/detection/nearest_target.hpp"
 #include <algorithm>
 
 namespace hive::automation {
@@ -33,14 +34,10 @@ class Petals final : public Program {
     }
     Step walk(double tiles,Key key) { moved_=true; return Walk{{tiles,key,{}}}; }
     const game::Bloom* match(const game::Blooms& blooms,Point expected,double range) const {
-        const game::Bloom* found=nullptr; double best=range,next=range;
-        for (const auto& bloom:blooms.flowers) {
-            if (bloom.radius<target_.radius*.65 || bloom.radius>target_.radius*1.5) continue;
-            const auto error=distance(bloom.center,expected);
-            if (error<best) { next=best; best=error; found=&bloom; }
-            else next=std::min(next,error);
-        }
-        return found && next-best>.01?found:nullptr;
+        return game::nearest_target<game::Bloom>(blooms.flowers,expected,range,.01,
+            [](const auto& bloom) { return bloom.center; },[&](const auto& bloom) {
+                return bloom.radius>=target_.radius*.65 && bloom.radius<=target_.radius*1.5;
+            });
     }
     Point offset(Point point) const {
         const double x=.5-point.x,y=.5-point.y,det=forward_.x*right_.y-forward_.y*right_.x;

@@ -25,6 +25,7 @@
 #include "local_data.hpp"
 #include "modules/planters/ui/timers.hpp"
 #include "equipment_settings.hpp"
+#include "item_reserves.hpp"
 #include "status_page.hpp"
 #include "remote_settings.hpp"
 #include "modules/accounts/page.hpp"
@@ -273,6 +274,7 @@ public:
         native_modules_.accounts->suggested_server=[this] { return settings_.value("recovery/serverLink").toString(); };
         auto speed_card=new QVBoxLayout(card(player_page)); speed_card->setContentsMargins(10,10,10,10); speed_card->addWidget(player_speed);
         auto equipment=new hive::app::EquipmentSettings(settings_); player_page->addWidget(equipment);
+        player_page->addWidget(hive::app::item_reserves(settings_,native_modules_.stock,player_panel),0,Qt::AlignLeft);
         auto hotbar_warning=label({},"muted"); hotbar_warning->setWordWrap(true); hotbar_warning->hide(); player_page->addWidget(hotbar_warning);
         native_modules_.sprinklers=equipment->sprinklers();
         conversion_->configure(equipment->conversion()); session_.configure_conversion(conversion_);
@@ -446,7 +448,7 @@ public:
         native_modules_.buffs=channels.at("buff-upkeep");
         native_modules_.field_boosts=channels.at("field-boosts");
         session_.configure_hotbar(native_modules_.boosting);
-        native_modules_.planters.inventory=hive::game::inventory_source(channels.at("inventory"),inventory_requests);
+        native_modules_.planters.inventory=hive::game::inventory_source(channels.at("inventory"),inventory_requests,native_modules_.stock);
         native_modules_.planters.detection=hive::game::planter_source(channels.at("planters"));
         native_modules_.planters.observations=hive::features::planters::interaction_source(
             hive::game::nectar_source(channels.at("nectar")),native_modules_.planters.detection);
@@ -657,7 +659,7 @@ public:
                     last_outcome_=outcome;
                 }
             }
-            hive::extensions::SessionView view{snapshot.status,snapshot.now,snapshot.generation,snapshot.feature,snapshot.pause_requests,{},snapshot.session_id,snapshot.server};
+            hive::extensions::SessionView view{snapshot.status,snapshot.now,snapshot.generation,snapshot.feature,snapshot.pause_requests,{},snapshot.session_id,snapshot.server,snapshot.reconnecting};
             bool routine_failed=false;
             if (routine_ && !start_timer_.isActive()) {
                 view=routine_->tick(); extensions_->render();
@@ -675,6 +677,7 @@ public:
                 settings_.setValue("game/existingHive",static_cast<int>(*hive->claimed_slot));
             }
             const auto& status=view.status;
+            status_page_->upcoming(status.state==hive::RunState::running?extensions_->work_snapshot():hive::extensions::WorkSnapshot{},view.now,extensions_->run_order(),view.feature?view.feature->module_id:std::string{});
             QString activity="Other";
             if (view.feature) switch (view.feature->activity) {
             case hive::WorkActivity::gathering: activity="Gathering"; break;

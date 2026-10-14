@@ -1,5 +1,6 @@
 #include "visit_module.hpp"
 #include <algorithm>
+#include <tuple>
 
 namespace hive::features::visits {
 automation::ProgramFactory station_request(automation::VisitPlan plan,const std::string& id,std::shared_ptr<const game::RouteNetwork> network,
@@ -101,6 +102,7 @@ class RecheckSource final : public automation::AvailabilitySource {
 public:
     RecheckSource(std::shared_ptr<const automation::AvailabilitySource> source,std::map<std::string,Time> ready,std::uint64_t generation,Window window)
         :source_(std::move(source)),ready_(std::move(ready)),generation_(generation),window_(std::move(window)) {}
+    std::vector<Rect> text_regions(const std::string& id) const override { return source_->text_regions(id); }
     Observation<bool> read(const std::string& id,const automation::View& view) const override {
         if (cooling(id,view))
             return {Knowledge::present,false,view.context.now,view.context.window,view.context.generation};
@@ -120,6 +122,7 @@ class Selection final : public automation::AvailabilitySource {
 public:
     Selection(std::shared_ptr<const automation::AvailabilitySource> source,std::set<std::string> selected,Demand demand)
         :source_(std::move(source)),selected_(std::move(selected)),demand_(std::move(demand)) {}
+    std::vector<Rect> text_regions(const std::string& id) const override { return source_->text_regions(id); }
     Observation<bool> read(const std::string& id,const automation::View& view) const override {
         return selected(id,view)?source_->read(id,view):Observation<bool>{Knowledge::present,false,view.context.now,view.context.window,view.context.generation};
     }
@@ -145,6 +148,8 @@ class VisitModule final : public extensions::Module {
     mutable Window window_;
     mutable std::uint64_t accounted_run_{};
     mutable std::map<std::string,Time> retry_after_;
+    std::map<std::string,Time> travel_costs_;
+    mutable std::string planned_visit_;
     void remember_run(Time now=Time(-1)) const {
         if (!results_) return;
         const auto report=results_->read();
@@ -184,6 +189,19 @@ public:
                 || s.minimum!=it->minimum || s.maximum!=it->maximum) throw std::invalid_argument("Incompatible activity settings schema");
             if (const auto* value=std::get_if<int>(&s.initial); value && (*value<s.minimum || *value>s.maximum))
                 throw std::invalid_argument("Invalid activity default setting");
+        }
+        if (network_->contains("hive.proximity")) {
+            std::set<std::string> access;
+            for (const auto& route:network_->routes()) {
+                access.insert(route.requirements.begin(),route.requirements.end());
+                access.insert(route.departure_requirements.begin(),route.departure_requirements.end());
+            }
+            const auto paths=network_->paths_from("hive.proximity",access);
+            for (const auto& visit:defaults_.visits) if (const auto found=paths.find(visit.destination);found!=paths.end()) {
+                auto duration=found->second.estimate;
+                if (defaults_.finish_at) if (const auto back=network_->plan(visit.destination,*defaults_.finish_at,access)) duration+=back->estimate;
+                travel_costs_[visit.id]=duration;
+            }
         }
     }
     void start(const Settings& values) override {
@@ -259,19 +277,35 @@ public:
     void stop() noexcept override { started_=false; results_.reset(); detail_.clear(); }
     std::optional<extensions::RoutineParticipation> routine() const override { return extensions::RoutineParticipation{40,Time{},false,true,true,interrupt_}; }
     bool pending_work(const extensions::SessionView& view) const override {
-        if (!started_) return false;
+        const auto work=next_work(view); return work && work->ready<=view.now;
+    }
+    bool executable() const noexcept override { return true; }
+    std::optional<extensions::WorkEstimate> next_work(const extensions::SessionView& view) const override {
+        if (!started_) return {};
         remember_run(view.now);
         if (generation_ && generation_!=view.generation) { ready_.clear(); retry_after_.clear(); }
         const auto requested=demand_?demand_({{},view.generation,view.now}):std::set<std::string>{};
-        return std::any_of(plan_.visits.begin(),plan_.visits.end(),[&](const auto& visit) {
-            if (demand_ && !selected_.contains(visit.id) && !requested.contains(visit.id)) return false;
-            if (const auto retry=retry_after_.find(visit.id); retry!=retry_after_.end() && view.now<retry->second) return false;
-            if (saved_) { if (saved_->remaining(visit.id,visit.cooldown)>Time{}) return false; }
-            else if (const auto ready=ready_.find(visit.id); ready!=ready_.end() && view.now<ready->second) return false;
-            return !visit.scheduled || visit.scheduled({{},view.generation,view.now});
-        });
+        std::optional<extensions::WorkEstimate> next;
+        for (const auto& visit:plan_.visits) {
+            if (demand_ && !selected_.contains(visit.id) && !requested.contains(visit.id)) continue;
+            if (visit.scheduled && !visit.scheduled({{},view.generation,view.now})) continue;
+            auto ready=view.now;
+            if (saved_) ready+=std::max(Time{},saved_->remaining(visit.id,visit.cooldown));
+            else if (const auto found=ready_.find(visit.id);found!=ready_.end()) ready=std::max(ready,found->second);
+            if (const auto found=retry_after_.find(visit.id);found!=retry_after_.end()) ready=std::max(ready,found->second);
+            Time duration=visit.settle+visit.loot_duration;
+            if (const auto found=travel_costs_.find(visit.id);found!=travel_costs_.end()) duration+=found->second;
+            if (const auto* interaction=std::get_if<automation::UseStation>(&visit.action)) duration+=interaction->timeout;
+            else duration+=std::get<automation::Pattern>(visit.action).duration;
+            if (!visit.group.empty()) for (const auto& member:plan_.visits)
+                if (member.id!=visit.id && member.group==visit.group) duration+=std::get<automation::Pattern>(member.action).duration;
+            extensions::WorkEstimate work{visit.id,visit.destination,duration,ready,{}};
+            if (visit.scheduled) work.finish_by=ready+duration;
+            if (!next || std::tie(work.ready,work.duration,work.label)<std::tie(next->ready,next->duration,next->label)) next=std::move(work);
+        }
+        planned_visit_=next?next->label:std::string{};
+        return next;
     }
-    bool executable() const noexcept override { return true; }
     std::unique_ptr<automation::Program> program() const override {
         if (!started_) throw std::logic_error("Enable the activity module before starting it");
         remember_run();
@@ -281,7 +315,18 @@ public:
         auto delayed=saved_?std::map<std::string,Time>{}:ready_;
         for (const auto& [id,time]:retry_after_) delayed[id]=std::max(delayed[id],time);
         if (!delayed.empty()) source=std::make_shared<RecheckSource>(source,std::move(delayed),generation_,window_);
-        auto run=automation::visit_program(plan_,network_,std::move(source));
+        auto plan=plan_;
+        auto first=std::find_if(plan.visits.begin(),plan.visits.end(),[&](const auto& visit) { return visit.id==planned_visit_; });
+        if (first!=plan.visits.end()) {
+            auto last=first+1;
+            if (!first->group.empty()) {
+                const auto group=first->group;
+                while (first!=plan.visits.begin() && (first-1)->group==group) --first;
+                while (last!=plan.visits.end() && last->group==group) ++last;
+            }
+            std::rotate(plan.visits.begin(),first,last);
+        }
+        auto run=automation::visit_program(std::move(plan),network_,std::move(source));
         report_counters(); ++report_run_; results_=run.results;
         return saved_?save_cooldowns(std::move(run),saved_):std::move(run.program);
     }

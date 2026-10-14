@@ -15,6 +15,7 @@ struct SimulationConfig {
     std::size_t max_steps{100000};
     std::function<bool()> cancelled;
     NectarReading readings{NectarReading::hud};
+    MaterialPlan materials;
 };
 struct Segment { double begin{},end{}; std::array<double,5> levels{}; };
 struct SimulationResult {
@@ -24,6 +25,7 @@ struct SimulationResult {
     double travel_seconds{};
     std::vector<Segment> segments;
     std::vector<Growing> growing;
+    std::map<std::string,unsigned> bonuses,base_items,item_harvests;
 };
 SimulationResult simulate(SimulationConfig config);
 }

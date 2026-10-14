@@ -72,6 +72,7 @@ class Availability final : public automation::AvailabilitySource {
     std::shared_ptr<MondoTrip> trip_;
 public:
     Availability(std::shared_ptr<const automation::AvailabilitySource> source,std::shared_ptr<MondoTrip> trip):source_(std::move(source)),trip_(std::move(trip)) {}
+    std::vector<Rect> text_regions(const std::string& id) const override { return source_->text_regions(id); }
     Observation<bool> read(const std::string& id,const automation::View& view) const override {
         return trip_->allows(id)?source_->read(id,view):Observation<bool>{Knowledge::present,false,view.context.now,view.context.window,view.context.generation};
     }

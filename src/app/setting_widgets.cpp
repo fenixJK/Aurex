@@ -13,12 +13,61 @@
 #include <QListWidget>
 #include <QLabel>
 #include <QSignalBlocker>
+#include <QButtonGroup>
+#include <QComboBox>
+#include <QSpinBox>
 #include <algorithm>
 
 namespace hive {
 namespace {
 QString q(const std::string& value) { return QString::fromStdString(value); }
 QLabel* text(const QString& value,const char* role) { auto label=new QLabel(value);label->setObjectName(role);label->setTextFormat(Qt::PlainText);return label; }
+class ChoiceEditor final : public ChoiceControl {
+    std::vector<std::string> choices_;
+    QComboBox* menu_{};
+    QSpinBox* number_{};
+    QButtonGroup* buttons_{};
+    void notify() { if(!signalsBlocked() && changed) changed(); }
+public:
+    ChoiceEditor(const extensions::Setting& field,const std::string& selected,bool compact):choices_(field.choices) {
+        auto row=new QHBoxLayout(this); row->setContentsMargins(0,0,0,0); row->setSpacing(3);
+        bool numbered=choices_.size()>1 && !choices_.front().empty()
+            && !std::all_of(choices_.front().begin(),choices_.front().end(),[](unsigned char c) { return c>='0' && c<='9'; });
+        for(std::size_t i=1;i<choices_.size();++i) numbered&=choices_[i]==std::to_string(i);
+        int width=0; for(const auto& choice:choices_) width+=fontMetrics().horizontalAdvance(q(choice))+20;
+        if(numbered) {
+            number_=new QSpinBox; number_->setRange(0,int(choices_.size())-1); number_->setSpecialValueText(q(choices_.front()));
+            number_->setKeyboardTracking(false); number_->setAccessibleName(q(field.label)); row->addWidget(number_); setFocusProxy(number_);
+            connect(number_,&QSpinBox::valueChanged,this,[this] { notify(); });
+        } else if(choices_.size()<=3 && width<=260) {
+            buttons_=new QButtonGroup(this); buttons_->setExclusive(true);
+            for(std::size_t i=0;i<choices_.size();++i) {
+                auto button=new QPushButton(q(choices_[i])); button->setObjectName("choice-option"); button->setCheckable(true);
+                button->setAutoDefault(false); buttons_->addButton(button,int(i)); row->addWidget(button);
+                if(!i) setFocusProxy(button);
+            }
+            connect(buttons_,&QButtonGroup::idToggled,this,[this](int,bool checked) { if(checked) notify(); });
+        } else {
+            menu_=new QComboBox; for(const auto& choice:choices_) menu_->addItem(q(choice));
+            if (compact) { menu_->setMinimumContentsLength(8); menu_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon); }
+            menu_->setAccessibleName(q(field.label)); row->addWidget(menu_); setFocusProxy(menu_);
+            connect(menu_,&QComboBox::currentTextChanged,this,[this] { notify(); });
+        }
+        setValue(selected);
+    }
+    std::string value() const override {
+        if(menu_) return menu_->currentText().toStdString();
+        const int index=number_?number_->value():buttons_->checkedId();
+        return index>=0 && index<int(choices_.size())?choices_[index]:std::string{};
+    }
+    void setValue(const std::string& value) override {
+        const auto found=std::find(choices_.begin(),choices_.end(),value); if(found==choices_.end()) return;
+        const int index=int(found-choices_.begin());
+        if(menu_) menu_->setCurrentIndex(index);
+        else if(number_) number_->setValue(index);
+        else buttons_->button(index)->setChecked(true);
+    }
+};
 class CollectionControl final : public CollectionEditor {
     QTabBar* fields_;
     QPushButton* add_;
@@ -113,6 +162,7 @@ public:
                 tile->setFocusPolicy(Qt::StrongFocus); check=tile;
             } else {
                 check=new QCheckBox(q(choice)); check->setObjectName(ordered?"choice-tile":"compact-choice"); check->setProperty("compact",compact);
+                check->ensurePolished(); check->setMinimumSize(check->sizeHint());
             }
             target->addWidget(check,index/columns,index%columns); choices_.emplace_back(choice,check);
             connect(check,&QAbstractButton::toggled,this,[this,choice](bool enabled) {
@@ -122,7 +172,7 @@ public:
         };
         if (field.groups.empty()) {
             const int count=columns?int(columns):!field.icons.empty()?9:choices.size()>24 && std::all_of(choices.begin(),choices.end(),[](const auto& name) { return name.size()<=12; })?4:
-                choices.size()>=6 && std::all_of(choices.begin(),choices.end(),[](const auto& name) { return name.size()<=20; })?3:2;
+                choices.size()>=3 && std::all_of(choices.begin(),choices.end(),[](const auto& name) { return name.size()<=20; })?3:2;
             for (std::size_t i=0;i<choices.size();++i) add(choices[i],grid,int(i),count);
             if (field.icons.empty()) for (int column=0;column<count;++column) grid->setColumnStretch(column,1);
             else grid->setColumnStretch(count,1);
@@ -138,7 +188,7 @@ public:
             grid->setColumnStretch(0,1); grid->setColumnStretch(1,1);
         }
         layout->addWidget(content);
-        if(!ordered) {
+        if(!ordered && choices.size()>4) {
             auto buttons=new QHBoxLayout; buttons->setSpacing(8);
             auto all=new QToolButton; all->setText("All"); auto none=new QToolButton; none->setText("None"); buttons->addWidget(all); buttons->addWidget(none); buttons->addStretch(); layout->addLayout(buttons);
             connect(all,&QToolButton::clicked,this,[this,choices] { setValue(choices); });
@@ -235,6 +285,7 @@ public:
 };
 }
 CollectionEditor* collection_control(const std::vector<std::string>& choices,const SettingSelection& selected,const std::string& label) { return new CollectionControl(choices,selected,label); }
+ChoiceControl* choice_control(const extensions::Setting& field,const std::string& selected,bool compact) { return new ChoiceEditor(field,selected,compact); }
 QWidget* inline_selection(const extensions::Setting& field,const SettingSelection& selected,bool compact,unsigned columns) { return new InlineSelection(field,selected,compact,columns); }
 QWidget* selection_control(const std::vector<std::string>& choices,const SettingSelection& selected,bool ordered) { return new SelectionControl(choices,selected,ordered); }
 }

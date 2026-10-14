@@ -6,6 +6,6 @@ namespace hive::game {
 class ScreenReferenceSource {
 public:
     virtual ~ScreenReferenceSource()=default;
-    virtual Observation<Point> read(const ObservationContext& context) const=0;
+    virtual Observation<Point> read(const ObservationContext& context,std::optional<Point> expected={}) const=0;
 };
 }

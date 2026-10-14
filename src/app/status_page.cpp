@@ -17,12 +17,16 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
+#include <algorithm>
+#include <tuple>
 
 namespace hive::app {
 StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* parent,QString log_path):QWidget(parent),discord_(&discord),log_path_(std::move(log_path)) {
     auto layout=new QVBoxLayout(this); layout->setContentsMargins(0,0,0,0);
     auto tabs=new QTabWidget; tabs->setObjectName("status-tabs"); layout->addWidget(tabs);
     auto activity=new QWidget; auto activity_layout=new QVBoxLayout(activity); activity_layout->setContentsMargins(0,4,0,0);
+    upcoming_=new QLabel; upcoming_->setObjectName("upcoming-work"); upcoming_->setTextFormat(Qt::PlainText);
+    upcoming_->setWordWrap(true); upcoming_->hide(); activity_layout->addWidget(upcoming_);
     log_=new QPlainTextEdit; log_->setObjectName("activity-log"); log_->setReadOnly(true); log_->setMaximumBlockCount(100);
     if (!log_path_.isEmpty()) {
         QFile file(log_path_);
@@ -238,6 +242,35 @@ void StatusPage::event(const ActivityStatus& status,const QImage& screenshot) {
     activity_=status;
     log(QString::fromStdString(status.text()));
     if (discord_) discord_->activity_event(status,screenshot);
+}
+void StatusPage::upcoming(const extensions::WorkSnapshot& snapshot,Time now,const std::vector<std::string>& order,const std::string& active) {
+    auto offers=snapshot.offers;
+    std::erase_if(offers,[&](const auto& offer) { return offer.owner==active; });
+    const auto rank=[&](const auto& offer) {
+        const auto ready=snapshot.wait_until(offer.owner,now);
+        const auto latest=offer.work.finish_by.value_or(Time::max())-offer.work.duration;
+        return std::tuple(ready>now,ready,latest<=now?latest:Time::max(),
+            std::find(order.begin(),order.end(),offer.owner)-order.begin(),offer.work.duration);
+    };
+    std::stable_sort(offers.begin(),offers.end(),[&](const auto& a,const auto& b) { return rank(a)<rank(b); });
+    QStringList lines;
+    for (const auto& offer:offers) {
+        if (lines.size()==3) break;
+        const auto ready=snapshot.wait_until(offer.owner,now);
+        QString reason;
+        if (ready>now) {
+            const auto minutes=std::max<std::int64_t>(1,(ready-now).count()/60000);
+            reason=QString("in %1 min").arg(minutes);
+            if (ready>offer.work.ready) {
+                const auto window=std::max_element(snapshot.windows.begin(),snapshot.windows.end(),[](const auto& a,const auto& b) { return a.window.until<b.window.until; });
+                if (window!=snapshot.windows.end()) reason+=" · preserving "+QString::fromStdString(window->window.label);
+            }
+        } else reason="ready";
+        lines.append(QString::fromStdString(offer.work.label)+" — "+reason);
+    }
+    const auto text=lines.isEmpty()?QString{}:"Upcoming work\n"+lines.join('\n');
+    if (upcoming_->text()!=text) upcoming_->setText(text);
+    upcoming_->setVisible(!text.isEmpty());
 }
 QString StatusPage::recent_log(int count) const {
     const auto lines=log_->toPlainText().split('\n');

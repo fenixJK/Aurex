@@ -128,6 +128,7 @@ void Runner::finish(State state,std::string message,std::optional<Interruption> 
     catch (const std::exception& e) { state=State::failed; interruption.reset(); message+="; "+std::string(e.what()); }
     catch (...) { state=State::failed; interruption.reset(); message="Could not finalize feature state"; }
     if (state!=State::completed) progress_.route_position.reset();
+    else progress_.estimated_heading=current.estimated_heading;
     progress_.state=state; progress_.message=std::move(message);
     progress_.interruption=state==State::failed?interruption:std::nullopt;
 }
@@ -366,7 +367,8 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
                 && !std::holds_alternative<AwaitText>(*step_) && !std::holds_alternative<Navigate>(*step_)
                 && !std::holds_alternative<RunProgram>(*step_)) progress_.route_position.reset();
             if (!std::holds_alternative<MoveCamera>(*step_) && !std::holds_alternative<SetHeading>(*step_)
-                && !std::holds_alternative<Wait>(*step_) && !std::holds_alternative<Walk>(*step_) && !std::holds_alternative<EndCycle>(*step_)) progress_.estimated_heading.reset();
+                && !std::holds_alternative<Wait>(*step_) && !std::holds_alternative<Walk>(*step_) && !std::holds_alternative<EndCycle>(*step_)
+                && !std::holds_alternative<RunProgram>(*step_) && !std::holds_alternative<Done>(*step_)) progress_.estimated_heading.reset();
             if (auto* done=std::get_if<Done>(&*step_)) { finish(State::completed,done->reason); return; }
             if (auto* deferred=std::get_if<Defer>(&*step_)) { finish(State::deferred,deferred->reason); return; }
             if (auto* walk=std::get_if<Walk>(&*step_)) { speed_->observe(c,observations.movement_speed); }

@@ -14,14 +14,15 @@ Routine::Routine(std::vector<RoutineEntry> entries,std::unique_ptr<automation::A
             throw std::invalid_argument("Invalid routine participation");
     }
 }
-Routine::Readiness Routine::readiness(Host& host,const SessionView& view,std::size_t index) const {
+Routine::Readiness Routine::readiness(Host& host,const SessionView& view,const WorkSnapshot& schedule,std::size_t index) const {
     const auto& e=entries_[index];
     const auto& p=e.participation;
     if (deferred_until_[index]>view.now || after_work_[index]>completed_work_) return {};
     if (!p.fallback && !p.demand_only && !p.reactive && due_[index]>view.now) return {};
     const auto found=host.entries().find(e.id);
     if (found==host.entries().end() || !found->second.executable()) return {};
-    const bool pending=!p.fallback && host.pending_work(e.id,view);
+    const auto* work=schedule.find(e.id);
+    const bool pending=!p.fallback && (work?work->ready<=view.now:host.pending_work(e.id,view));
     if (!found->second.executable()) return {};
     return {pending,p.fallback || (p.demand_only?pending:(due_[index]<=view.now || (p.reactive && pending)))};
 }
@@ -29,10 +30,14 @@ bool Routine::should_yield(Host& host,const SessionView& view) const {
     if (!active_ || !view.feature || view.feature->state!=automation::State::running) return false;
     const bool gathering=entries_[*active_].participation.fallback;
     const auto priority=entries_[*active_].participation.priority;
-    for (std::size_t i=0;i<entries_.size();++i) if (i!=*active_ && !entries_[i].participation.fallback
-        && (gathering?entries_[i].participation.interrupt_gather:entries_[i].participation.priority>priority)) {
-        const auto work=readiness(host,view,i);
-        if (work.eligible && work.pending && (gathering || !entries_[i].participation.demand_only || !pending_at_dispatch_[i])) return true;
+    const auto schedule=host.work_schedule()->read();
+    for (std::size_t i=0;i<entries_.size();++i) if (i!=*active_ && !entries_[i].participation.fallback) {
+        const auto* estimate=schedule.find(entries_[i].id);
+        const bool urgent=estimate && estimate->finish_by && *estimate->finish_by-estimate->duration<=view.now;
+        if (gathering?!entries_[i].participation.interrupt_gather:(!urgent && entries_[i].participation.priority<=priority)) continue;
+        const auto work=readiness(host,view,schedule,i);
+        if (work.eligible && work.pending && schedule.wait_until(entries_[i].id,view.now)<=view.now
+            && (gathering || urgent || !entries_[i].participation.demand_only || !pending_at_dispatch_[i])) return true;
     }
     return false;
 }
@@ -68,14 +73,16 @@ std::optional<automation::Launch> Routine::next(Host& host,const SessionView& vi
     } else if (view.feature && view.feature->state==automation::State::running) throw std::runtime_error("Another feature owns the session");
     if (!allow_launch) return {};
     std::vector<automation::ActivityOption> options;
+    const auto schedule=host.work_schedule()->read();
     std::fill(pending_at_dispatch_.begin(),pending_at_dispatch_.end(),false);
     std::optional<std::size_t> fallback;
     bool interrupt_gather=false;
     for (std::size_t i=0;i<entries_.size();++i) {
         const auto& e=entries_[i];
-        const auto work=readiness(host,view,i);
+        const auto work=readiness(host,view,schedule,i);
         pending_at_dispatch_[i]=work.pending;
         if (!work.eligible) continue;
+        if (!e.participation.fallback && schedule.wait_until(e.id,view.now)>view.now) continue;
         if (e.participation.fallback) {
             fallback=i;
             if (e.participation.priority>0 && due_[i]<=view.now)
@@ -84,6 +91,13 @@ std::optional<automation::Launch> Routine::next(Host& host,const SessionView& vi
         else {
             options.push_back({e.id,e.participation.priority,std::min(due_[i],view.now)});
             interrupt_gather=interrupt_gather || (e.participation.interrupt_gather && work.pending);
+        }
+    }
+    for (auto& option:options) {
+        option.now=view.now;
+        if (const auto* work=schedule.find(option.id)) {
+            option.duration=work->duration;
+            if (work->finish_by) option.latest_start=*work->finish_by-work->duration;
         }
     }
     if (interrupt_gather && fallback) {

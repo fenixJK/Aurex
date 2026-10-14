@@ -169,10 +169,11 @@ public:
     }
 };
 class Source final : public InventorySource {
+    std::shared_ptr<ItemStock> stock_;
     std::shared_ptr<const DetectionSource> source_;
     std::shared_ptr<InventoryRequests> requests_;
 public:
-    Source(std::shared_ptr<const DetectionSource> source,std::shared_ptr<InventoryRequests> requests):source_(std::move(source)),requests_(std::move(requests)) {}
+    Source(std::shared_ptr<const DetectionSource> source,std::shared_ptr<InventoryRequests> requests,std::shared_ptr<ItemStock> stock):stock_(std::move(stock)),source_(std::move(source)),requests_(std::move(requests)) {}
     void request_quantities(const ObservationContext& c,std::span<const std::string> names) const override {
         if (requests_) requests_->quantities(c,names);
     }
@@ -185,6 +186,11 @@ public:
         auto result=source_->read(); if (!result || !result->error.empty()) return {};
         const auto inventory=std::dynamic_pointer_cast<const InventoryDetection>(result->value);
         if (!inventory || !inventory->view.has_value(result->context,Time(0))) return {};
+        if (stock_ && inventory->view.has_value(c,Time(2000))) {
+            const auto reserves=stock_->read().reserves;
+            for (const auto& item:inventory->view.value.items) if (item.quantity)
+                for (const auto& [name,count]:reserves) if (inventory_name(name)==inventory_name(item.name)) stock_->observe(name,item.quantity->count,inventory->view.captured);
+        }
         return inventory->view;
     }
 };
@@ -260,8 +266,8 @@ std::vector<std::string> InventoryRequests::quantities(const ObservationContext&
 std::shared_ptr<const Detector> inventory_detector(std::shared_ptr<const InventoryLayoutSource> layout,std::shared_ptr<InventoryRequests> requests) {
     if (!layout) throw std::invalid_argument("Inventory detection needs an observed layout"); return std::make_shared<Reader>(std::move(layout),std::move(requests));
 }
-std::shared_ptr<const InventorySource> inventory_source(std::shared_ptr<const DetectionSource> channel,std::shared_ptr<InventoryRequests> requests) {
-    if (!channel) throw std::invalid_argument("Inventory detection channel is missing"); return std::make_shared<Source>(std::move(channel),std::move(requests));
+std::shared_ptr<const InventorySource> inventory_source(std::shared_ptr<const DetectionSource> channel,std::shared_ptr<InventoryRequests> requests,std::shared_ptr<ItemStock> stock) {
+    if (!channel) throw std::invalid_argument("Inventory detection channel is missing"); return std::make_shared<Source>(std::move(channel),std::move(requests),std::move(stock));
 }
 std::vector<InventoryRow> inventory_rows(const Frame& frame,Rect viewport) {
     if (!frame.valid() || !region(viewport)) throw std::invalid_argument("Invalid inventory row scan");

@@ -103,4 +103,11 @@ std::span<const BuffType> tracked_buffs() {
     return types;
 }
 std::shared_ptr<const Detector> buff_detector() { return std::make_shared<BuffDetector>(); }
+std::optional<BuffSnapshot> buff_snapshot(const std::shared_ptr<const DetectionSource>& source,const ObservationContext& context) {
+    const auto result=source?source->read():std::nullopt;
+    if (!result || !result->error.empty()
+        || !Observation<bool>{Knowledge::present,true,result->context.now,result->context.window,result->context.generation}.has_value(context,Time(7000))) return {};
+    if (auto value=std::dynamic_pointer_cast<const BuffDetection>(result->value)) return BuffSnapshot{std::move(value),result->context.now};
+    return {};
+}
 }

@@ -23,7 +23,6 @@
 #include <QCheckBox>
 #include <QSpinBox>
 #include <QDoubleSpinBox>
-#include <QComboBox>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QFileDialog>
@@ -90,8 +89,14 @@ struct ExtensionsUi::Page {
             bool active;
             if (field.enabled_values.empty()) active=checked(field.enabled_by);
             else {
-                const auto value=controls.contains(field.enabled_by)?static_cast<QComboBox*>(controls.at(field.enabled_by))->currentText().toStdString():std::get<std::string>(baseline.at(field.enabled_by));
+                const auto value=controls.contains(field.enabled_by)?static_cast<ChoiceControl*>(controls.at(field.enabled_by))->value():std::get<std::string>(baseline.at(field.enabled_by));
                 active=std::find(field.enabled_values.begin(),field.enabled_values.end(),value)!=field.enabled_values.end();
+                if(!field.dependent_labels.empty()) {
+                    const auto label=field.dependent_labels.find(value);
+                    auto* check=static_cast<QCheckBox*>(controls.at(field.id));
+                    check->setText(q(label==field.dependent_labels.end()?field.label:label->second));
+                    check->setAccessibleName(check->text());
+                }
             }
             controls.at(field.id)->setEnabled(!busy && active);
         }
@@ -116,7 +121,7 @@ struct ExtensionsUi::Page {
             auto* control=controls.at(field.id);
             if (std::holds_alternative<bool>(field.initial)) result[field.id]=static_cast<QCheckBox*>(control)->isChecked();
             else if (std::holds_alternative<int>(field.initial)) result[field.id]=read_number(control,field);
-            else if (std::holds_alternative<std::string>(field.initial)) result[field.id]=static_cast<QComboBox*>(control)->currentText().toStdString();
+            else if (std::holds_alternative<std::string>(field.initial)) result[field.id]=static_cast<ChoiceControl*>(control)->value();
             else result[field.id]=dynamic_cast<SelectionValue*>(control)->value();
         }
         return result;
@@ -161,7 +166,7 @@ ExtensionsUi::ExtensionsUi(Navigation* navigation,QStackedWidget* pages,QString 
             const auto available=run_order();
             std::erase_if(order,[&](const auto& id) { return std::find(available.begin(),available.end(),id)==available.end(); });
             set_run_order(std::move(order));
-        },busy_);
+        },busy_,host_.starter_presets());
     });
     layout->addLayout(heading);
     layout->addWidget(text("Enabled modules appear in the sidebar and run together.","muted"));
@@ -426,7 +431,7 @@ void ExtensionsUi::build_page(const std::string& id) {
                     auto* control=controls.at(key);
                     if(const auto* v=std::get_if<bool>(&field.initial)) static_cast<QCheckBox*>(control)->setChecked(*v);
                     else if(const auto* v=std::get_if<int>(&field.initial)) set_number(control,*v,field);
-                    else if(const auto* v=std::get_if<std::string>(&field.initial)) static_cast<QComboBox*>(control)->setCurrentText(q(*v));
+                    else if(const auto* v=std::get_if<std::string>(&field.initial)) static_cast<ChoiceControl*>(control)->setValue(*v);
                     else dynamic_cast<SelectionValue*>(control)->setValue(std::get<SettingSelection>(field.initial));
                 }
         };
@@ -494,11 +499,15 @@ void ExtensionsUi::build_page(const std::string& id) {
         if (!section.tool.empty() && section.settings.empty() && section.description.empty() && !section.metrics) {
             tool_panel(section.tool,false,section.tab.empty()?nullptr:tab_actions.at(section.tab)); continue;
         }
-        const bool compact=section.settings.size()==1 && !section.collapsed && section.collection.empty()
-            && std::holds_alternative<bool>(saved_values.at(section.settings.front()));
+        const bool compact=!section.settings.empty() && !section.collapsed && section.collection.empty()
+            && ((section.settings.size()==1 && std::holds_alternative<bool>(saved_values.at(section.settings.front())))
+                || std::any_of(entry.manifest.settings.begin(),entry.manifest.settings.end(),[&](const auto& field) {
+                    return field.id==section.settings.front() && field.label==section.title && !std::holds_alternative<SettingSelection>(field.initial)
+                        && (section.settings.size()==1 || std::holds_alternative<bool>(field.initial));
+                }));
         const bool selection_only=section.settings.size()==1 && std::any_of(entry.manifest.settings.begin(),entry.manifest.settings.end(),[&](const auto& field) { return field.id==section.settings.front() && field.inline_choices; });
         auto group=new QWidget; group->setObjectName("module-section-"+q(section.id)); group->setAccessibleName(q(section.title));
-        group->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Maximum);
+        group->setSizePolicy(QSizePolicy::Preferred,section.tool.empty()?QSizePolicy::Maximum:QSizePolicy::Preferred);
         OrderedRows* ordered{};
         QSpinBox* priority{};
         if(!section.order_group.empty()) {
@@ -582,7 +591,7 @@ void ExtensionsUi::build_page(const std::string& id) {
                     }
                     set_number(control,*v,field);
                 }
-                else if (const auto* v=std::get_if<std::string>(&value)) { auto c=new QComboBox; for (const auto& choice : field.choices) c->addItem(q(choice)); c->setCurrentText(q(*v)); control=c; }
+                else if (const auto* v=std::get_if<std::string>(&value)) control=choice_control(field,*v,section.row);
                 else if(collections.contains(field.id)) control=collections.at(field.id);
                 else if(field.inline_choices) control=inline_selection(field,std::get<SettingSelection>(value),dense,selection_only && section.columns>1?section.columns:0);
                 else control=selection_control(field.choices,std::get<SettingSelection>(value),field.ordered);
@@ -591,10 +600,7 @@ void ExtensionsUi::build_page(const std::string& id) {
                 if(scalar) {
                     control->ensurePolished();
                     control->setSizePolicy(QSizePolicy::Maximum,QSizePolicy::Fixed);
-                    if(auto* choice=qobject_cast<QComboBox*>(control)) {
-                        int width=0; for(const auto& option:field.choices) width=std::max(width,choice->fontMetrics().horizontalAdvance(q(option)));
-                        choice->setFixedWidth(std::max(80,width+32));
-                    } else control->setFixedWidth(std::max(64,control->sizeHint().width()));
+                    control->setFixedWidth(std::max(64,control->sizeHint().width()));
                 }
                 page->controls[field.id]=control;
                 const int column=section.row?position+1:position%columns;
@@ -614,7 +620,8 @@ void ExtensionsUi::build_page(const std::string& id) {
                         cell->addWidget(label);
                     }
                     cell->addWidget(control); if(!field.inline_choices && !collections.contains(field.id)) cell->addStretch();
-                    form->addLayout(cell,row,column);
+                    const int span=packed && !column && position+1==section.settings.size()?int(columns):1;
+                    form->addLayout(cell,row,column,1,span);
                 } else form->addWidget(control,section.row?first_row:row+1,column,Qt::AlignVCenter);
                 ++position;
             }
@@ -676,6 +683,22 @@ void ExtensionsUi::build_page(const std::string& id) {
         body->addWidget(tool,1);
     }
     for(const auto& [name,body]:tools) {
+        auto dialog=static_cast<QDialog*>(body->parentWidget());
+        if ((!page->plot || !dialog->isAncestorOf(page->plot)) && (!page->tool || !dialog->isAncestorOf(page->tool))) {
+            auto contents=new QWidget; auto content_layout=new QVBoxLayout(contents);
+            content_layout->setContentsMargins(0,0,0,0); content_layout->setSpacing(body->spacing());
+            content_layout->setSizeConstraint(QLayout::SetMinimumSize);
+            while(auto item=body->takeAt(0)) {
+                if(auto widget=item->widget()) {content_layout->addWidget(widget,0,item->alignment());delete item;}
+                else if(auto child=item->layout()) {child->setParent(nullptr);content_layout->addLayout(child);}
+                else content_layout->addItem(item);
+            }
+            content_layout->addStretch();
+            auto scroll=new QScrollArea; scroll->setWidgetResizable(true); scroll->setFrameShape(QFrame::NoFrame); scroll->setWidget(contents);
+            body->addWidget(scroll,1);
+            const auto hint=contents->sizeHint().expandedTo(contents->minimumSizeHint());
+            dialog->setFixedSize(std::clamp(hint.width()+48,480,760),std::clamp(hint.height()+80,260,600));
+        }
         auto close=new QPushButton("Close"); close->setProperty("live-tool",true); close->setAutoDefault(false); body->addWidget(close,0,Qt::AlignRight);
         connect(close,&QPushButton::clicked,static_cast<QDialog*>(body->parentWidget()),&QDialog::reject);
         body->parentWidget()->setFixedHeight(std::max(body->parentWidget()->height(),body->minimumSize().height()));
@@ -711,7 +734,7 @@ void ExtensionsUi::build_page(const std::string& id) {
         else if(auto* check=qobject_cast<QCheckBox*>(control)) connect(check,&QCheckBox::toggled,save,changed);
         else if(auto* number=qobject_cast<QSpinBox*>(control)) connect(number,&QSpinBox::valueChanged,save,changed);
         else if(auto* number=qobject_cast<QDoubleSpinBox*>(control)) connect(number,&QDoubleSpinBox::valueChanged,save,changed);
-        else if(auto* choice=qobject_cast<QComboBox*>(control)) connect(choice,&QComboBox::currentTextChanged,save,changed);
+        else if(auto* choice=dynamic_cast<ChoiceControl*>(control)) choice->changed=changed;
     }
     if (!page_tabs) layout->addStretch();
     page->error->setText(q(entry.issue));
@@ -780,7 +803,7 @@ void ExtensionsUi::configure_module(const std::string& id,const extensions::Sett
             } else static_cast<QSpinBox*>(control)->setRange(field.minimum,field.maximum);
             set_number(control,*v,field);
         }
-        else if (const auto* v=std::get_if<std::string>(&value)) static_cast<QComboBox*>(control)->setCurrentText(q(*v));
+        else if (const auto* v=std::get_if<std::string>(&value)) static_cast<ChoiceControl*>(control)->setValue(*v);
         else dynamic_cast<SelectionValue*>(control)->setValue(std::get<SettingSelection>(value));
     }
     page.update_conditions(host_.entries().at(id).manifest,busy_());

@@ -11,6 +11,7 @@ extern "C" {
 #include <cstdlib>
 #include <cstring>
 #include <set>
+#include <algorithm>
 
 namespace hive::scripting {
 using namespace automation;
@@ -382,6 +383,7 @@ class Script final : public Program,public Contributor {
     View view_;
     ContributorView contributor_view_;
     ScriptMode mode_;
+    std::vector<std::string> buffs_;
     int module_{LUA_NOREF};
     static int initialize(lua_State* state) {
         auto& self=*static_cast<Script*>(lua_touserdata(state,1));
@@ -439,6 +441,18 @@ class Script final : public Program,public Contributor {
         lua_pushinteger(state,static_cast<lua_Integer>(self.view_.completed_steps)); lua_setfield(state,-2,"completed_steps");
         if (self.view_.backpack_percent) lua_pushnumber(state,*self.view_.backpack_percent); else lua_pushnil(state);
         lua_setfield(state,-2,"backpack_percent");
+        if (self.view_.buffs && self.view_.buffs->value) {
+            lua_newtable(state);
+            for (const auto& buff:self.view_.buffs->value->buffs) {
+                if (std::find(self.buffs_.begin(),self.buffs_.end(),buff.name)==self.buffs_.end()) continue;
+                lua_newtable(state);
+                if (buff.active) { lua_pushboolean(state,*buff.active); lua_setfield(state,-2,"active"); }
+                if (buff.stacks) { lua_pushinteger(state,*buff.stacks); lua_setfield(state,-2,"stacks"); }
+                lua_setfield(state,-2,buff.name.c_str());
+            }
+            lua_setfield(state,-2,"buffs");
+            lua_pushinteger(state,(self.view_.context.now-self.view_.buffs->captured).count()); lua_setfield(state,-2,"buffs_age_ms");
+        }
         if (self.view_.route_position && self.view_.route_position->usable(self.view_.context)) {
             const auto& position=*self.view_.route_position;
             lua_newtable(state);
@@ -513,7 +527,19 @@ public:
             if (!lua_isfunction(vm_.state,-1)) throw std::runtime_error("Contributor needs a requests function");
             lua_settop(vm_.state,0); return;
         }
-        if (mode_==ScriptMode::pattern) { lua_settop(vm_.state,0); return; }
+        if (mode_==ScriptMode::pattern) {
+            if (has_field(vm_.state,-1,"buffs")) {
+                raw_field(vm_.state,-1,"buffs");
+                const auto size=dense_list(vm_.state,-1,game::tracked_buffs().size());
+                for (std::size_t i=1;i<=size;++i) {
+                    lua_rawgeti(vm_.state,-1,static_cast<lua_Integer>(i)); auto name=request_text(vm_.state,-1,80); lua_pop(vm_.state,1);
+                    if (std::none_of(game::tracked_buffs().begin(),game::tracked_buffs().end(),[&](const auto& type) { return type.name==name; })
+                        || std::find(buffs_.begin(),buffs_.end(),name)!=buffs_.end()) throw std::invalid_argument("Unknown or repeated pattern buff: "+name);
+                    buffs_.push_back(std::move(name));
+                }
+            }
+            lua_settop(vm_.state,0); return;
+        }
         config_={Time(static_cast<Time::rep>(number_field(vm_.state,-1,"duration_ms",1000,28800000))),number_field(vm_.state,-1,"speed",1,200)};
         raw_field(vm_.state,-1,"backpack_limit"); const bool observed=!lua_isnil(vm_.state,-1); lua_pop(vm_.state,1);
         if (observed) config_.backpack_limit=number_field(vm_.state,-1,"backpack_limit",1,100);
@@ -532,6 +558,7 @@ public:
         return config_;
     }
     void observe(const View& view) override { if (routine_) routine_->observe(view); }
+    std::span<const std::string> requested_buffs() const override { return buffs_; }
     Step next(const View& view) override {
         if (mode_==ScriptMode::contributor) throw std::logic_error("Contributors cannot execute programs");
         if (routine_) return routine_->next(view);

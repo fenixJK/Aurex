@@ -1,4 +1,5 @@
 #include "module.hpp"
+#include "drops.hpp"
 #include <algorithm>
 #include <future>
 #include "presentation.hpp"
@@ -53,6 +54,7 @@ class PlanterModule final : public extensions::Module {
     bool started_{},gather_fields_{},other_running_{},interrupt_gather_{true};
     mutable bool check_requested_{true};
     mutable std::uint64_t timer_revision_{};
+    mutable Time material_checked_{};
     std::uint64_t generation_{};
     std::string id_;
     game::Requests requests_;
@@ -61,6 +63,12 @@ class PlanterModule final : public extensions::Module {
     std::future<std::shared_ptr<const extensions::Plot>> preview_;
     std::shared_ptr<const extensions::Plot> plot_;
     std::string preview_status_;
+    std::optional<Time> material_ready(std::size_t growing) const {
+        if (!plan_.preferences || plan_.preferences->materials.empty() || growing>=plan_.capacity) return {};
+        MaterialPlan materials; materials.history=account_->materials();
+        apply_preferences(materials,*plan_.preferences);
+        return next_material_ready(materials,material_checked_);
+    }
 public:
     PlanterModule(const extensions::Manifest& manifest,ExecutionPlan defaults,std::shared_ptr<const game::RouteNetwork> network,
         std::shared_ptr<Account> account,std::shared_ptr<const Source> source,std::shared_ptr<const Actions> actions,WallClock clock,std::function<ObservationContext()> context)
@@ -88,7 +96,8 @@ public:
     void start(const Settings& saved) override {
         cancel_preview_->store(true); if(preview_.valid()) preview_.wait();
         plot_.reset(); preview_status_.clear();
-        auto values=saved; values.try_emplace("interrupt-gather",true);
+        auto values=saved; values.try_emplace("materials",SettingSelection{}); values.try_emplace("interrupt-gather",true);
+        values.try_emplace("mode",std::string("Nectar")); values.try_emplace("secondary",false);
         if(!std::holds_alternative<bool>(values.at("interrupt-gather"))) throw std::invalid_argument("Invalid gather interrupt setting");
         interrupt_gather_=std::get<bool>(values.at("interrupt-gather")); values.try_emplace("simulation-days",7); simulation_days_=integer(values,"simulation-days",30,3);
         values.try_emplace("gather-planter-fields",false);
@@ -118,11 +127,15 @@ public:
             plan.conversion->threshold=integer(values,"conversion-threshold",100);
         }
         auto preferences=defaults_.preferences.value_or(default_preferences());
+        const auto* mode=std::get_if<std::string>(&values.at("mode"));
+        const auto* secondary=std::get_if<bool>(&values.at("secondary"));
+        if (!mode || (*mode!="Nectar" && *mode!="Items") || !secondary) throw std::invalid_argument("Invalid planter priority");
+        preferences.mode=*mode=="Items"?Mode::items:Mode::nectar; preferences.secondary=*secondary;
         const auto selection=[&](const char* id) -> const SettingSelection& {
             const auto it=values.find(id);
             if (it==values.end() || !std::holds_alternative<SettingSelection>(it->second)) throw std::invalid_argument("Missing planter selection");
             const auto& items=std::get<SettingSelection>(it->second);
-            if (items.size()>20 || std::set<std::string>(items.begin(),items.end()).size()!=items.size()) throw std::invalid_argument("Invalid planter selection");
+            if (items.size()>std::max<std::size_t>(20,item_goals().size()) || std::set<std::string>(items.begin(),items.end()).size()!=items.size()) throw std::invalid_argument("Invalid planter selection");
             return items;
         };
         preferences.planters.clear();
@@ -137,10 +150,17 @@ public:
             preferences.targets[i]={double(integer(values,"target-"+std::to_string(i),100,0)),double(integer(values,"buffer-"+std::to_string(i),20,0))};
             preferences.priorities[i]=integer(values,"priority-"+std::to_string(i),100,0);
         }
+        preferences.materials.clear();
+        for(const auto& label:selection("materials")) {
+            const auto goals=item_goals();const auto item=std::find_if(goals.begin(),goals.end(),[&](const auto& goal) {return goal.label==label;});
+            if(item==goals.end()) throw std::invalid_argument("Unknown material goal");
+            preferences.materials.push_back(item->id);
+        }
         validate(preferences); plan.preferences=std::move(preferences);
-        planters::program(plan,network_,account_,source_,actions_,clock_); plan_=std::move(plan); results_.reset(); started_=true;
+        planters::program(plan,network_,account_,source_,actions_,clock_); plan_=std::move(plan); results_.reset(); started_=true; check_requested_=true;
     }
     void update(const extensions::SessionView& view) override {
+        account_->connection(view.reconnecting,clock_());
         if (generation_!=view.generation || view.status.state!=RunState::running) {
             generation_=view.generation; check_requested_=true; other_running_=false;
         }
@@ -215,8 +235,37 @@ public:
         for (std::size_t i=0;i<5;++i) {
             const auto& target=plan_.preferences->targets[i];
             const auto band=bounds(target);
-            result["nectar-"+std::to_string(i)]=target.minimum==0?"Not maintained":"Band "+std::to_string(int(std::lround(band.lower)))+"–"+std::to_string(int(std::lround(band.upper)))+"%";
+            result["nectar-"+std::to_string(i)]=!plan_.preferences->needs_nectar() || target.minimum==0?"Not maintained":
+                (plan_.preferences->mode==Mode::items?"Spare slots · ":"Band ")+std::to_string(int(std::lround(band.lower)))+"–"+std::to_string(int(std::lround(band.upper)))+"%";
         }
+        if(plan_.preferences && !plan_.preferences->materials.empty()) {
+            std::string detail;
+            MaterialPlan material;apply_preferences(material,*plan_.preferences);material.history=account_->materials();
+            const auto now=clock_().time_since_epoch();
+            for(const auto& goal:plan_.preferences->materials) {
+                if(!detail.empty()) detail+="\n";
+                detail+=item_label(goal)+": ";
+                std::string next;bool completed=false;std::optional<Time> ready;
+                for(const auto& route:material_routes()) if(route.goal==goal && !material.excluded_routes.contains(route.id)) {
+                    const auto found=material.history.find(route.id);const auto progress=found==material.history.end()?MaterialProgress{}:found->second;
+                    if(progress.complete) {completed=true;continue;}
+                    if(progress.ready>now) {if(!ready || progress.ready<*ready) ready=progress.ready;continue;}
+                    next=route.fields[progress.step]+" ("+std::to_string(progress.step+1)+"/"+std::to_string(route.fields.size())+")";
+                    if(progress.step) break;
+                }
+                if(!next.empty()) detail+="bonus: "+next;
+                else if(completed) detail+="completed";
+                else {
+                    bool available=false;
+                    for(const auto& stats:catalog()) if(plan_.preferences->planters.contains(stats.planter) && plan_.preferences->fields.contains(stats.field)
+                        && item_source(goal,stats).preference) {available=true;break;}
+                    detail+=available?"regular drops":"no available source";
+                    if(ready) detail+=" · bonus in ~"+std::to_string(std::max<Time::rep>(1,(*ready-now).count()/3600000))+"h";
+                }
+            }
+            result["material-progress"]=std::move(detail);
+            result["mode"]=plan_.preferences->farms_items()?std::to_string(plan_.preferences->materials.size())+" item goals selected":"Item farming off";
+        } else if(plan_.preferences && plan_.preferences->farms_items()) result["mode"]="Choose item goals to farm.";
         return result;
     }
     void invoke(const std::string& command) override {
@@ -252,7 +301,7 @@ public:
     }
     std::vector<Threshold> report_thresholds() const override {
         std::vector<Threshold> result;
-        if (plan_.preferences) for (std::size_t i=0;i<5;++i) {
+        if (plan_.preferences && plan_.preferences->mode==Mode::nectar) for (std::size_t i=0;i<5;++i) {
             const auto target=plan_.preferences->targets[i];
             if (target.minimum>0) result.push_back({"nectar/"+nectar_names()[i],bounds(target).lower});
         }
@@ -291,20 +340,49 @@ public:
     bool pending_work(const extensions::SessionView&) const override {
         if (!started_) return false;
         if (check_requested_ || timer_revision_!=account_->edit_revision()) return true;
-        const auto plants=account_->plants();
-        if (plants.empty()) return false;
         const auto now=clock_();
+        const auto plants=account_->plants();
+        if (const auto ready=material_ready(plants.size());ready && *ready<=now.time_since_epoch()) return true;
+        if (plants.empty()) return false;
         return std::any_of(plants.begin(),plants.end(),[&](const auto& plant) { return ready_at(plant)<=now; });
+    }
+    std::optional<extensions::WorkEstimate> next_work(const extensions::SessionView& view) const override {
+        if (!started_) return {};
+        if (check_requested_ || timer_revision_!=account_->edit_revision())
+            return extensions::WorkEstimate{"Check planter slots",{},Time{},view.now,view.now};
+        const auto plants=account_->plants();
+        const auto material=material_ready(plants.size());
+        const auto wall=clock_();
+        if (material && (plants.empty() || std::all_of(plants.begin(),plants.end(),[&](const auto& plant) { return *material<ready_at(plant).time_since_epoch(); })))
+            return extensions::WorkEstimate{"Planter bonus ready",{},Time{},view.now+std::max(Time{},*material-wall.time_since_epoch()),{}};
+        if (plants.empty()) return {};
+        const auto next=std::min_element(plants.begin(),plants.end(),[](const auto& a,const auto& b) { return ready_at(a)<ready_at(b); });
+        const auto ready=view.now+std::max(Time{},ready_at(*next)-clock_());
+        auto name=next->stats.planter;
+        for (const auto& item:equipment()) if (item.id==name) { name=item.label; break; }
+        const auto destination=plan_.destinations.find(next->stats.field);
+        return extensions::WorkEstimate{"Harvest "+name+" in "+next->stats.field,destination!=plan_.destinations.end()?destination->second:std::string{},Time{},ready,ready};
     }
     bool executable() const noexcept override { return true; }
     std::unique_ptr<automation::Program> program() const override {
         if (!started_) throw std::logic_error("Enable Planters before starting it");
         check_requested_=false;
+        material_checked_=clock_().time_since_epoch();
         timer_revision_=account_->edit_revision();
         auto run=planters::program(plan_,network_,account_,source_,actions_,clock_);
         report_counters(); ++report_run_; results_=run.results; return std::move(run.program);
     }
 };
+}
+Settings migrate_settings(int version,const Settings& previous) {
+    if(version<1 || version>2) throw std::invalid_argument("Unknown previous Planter settings version");
+    auto values=previous; values.erase("resolved-action");
+    const auto mode=values.find("mode"),maintain=values.find("maintain-nectar"),goals=values.find("materials");
+    const bool items=mode!=values.end() && std::get<std::string>(mode->second)=="Items";
+    const bool guarded=maintain!=values.end() && std::get<bool>(maintain->second);
+    values["mode"]=std::string(items && !guarded?"Items":"Nectar");
+    values["secondary"]=items?guarded:goals!=values.end() && !std::get<SettingSelection>(goals->second).empty();
+    values.erase("maintain-nectar"); return values;
 }
 extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,std::string provider) {
     if (plan.config.duration<Time(1000) || plan.config.duration>std::chrono::hours(8) || plan.config.duration.count()%1000
@@ -315,12 +393,19 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
     extensions::Manifest result;
     result.requests={extensions::RequestService::fields};
     result.id=std::move(id); result.provider=std::move(provider); result.name="Planters"; result.version="0.2.0";
-    result.settings_version=2;
+    result.settings_version=3;
     result.enabled_by_default=true;
-    result.description="Build and maintain nectar with observed placement, growth and harvest outcomes."; result.permissions=permissions;
+    result.setup_profiles={{"Honey farming",10,{{"interrupt-gather",true}}},
+        {"Quest progress",40,{{"interrupt-gather",true}}},{"Materials",30,{{"interrupt-gather",true}}}};
+    result.description="Prioritize nectar or item drops, with optional work in spare capacity."; result.permissions=permissions;
     result.settings={{"run-seconds","Run limit (seconds)",static_cast<int>(plan.config.duration.count()/1000),1,28800,{}},
         {"capacity","Slots",static_cast<int>(plan.capacity),1,3,{}},{"max-actions","Actions per run",static_cast<int>(plan.max_actions),1,32,{}}};
     const auto preferences=plan.preferences.value_or(default_preferences()); validate(preferences);
+    result.settings.push_back({"mode","Priority",std::string(preferences.mode==Mode::items?"Items":"Nectar"),0,0,{"Nectar","Items"}});
+    result.settings.push_back({"secondary","Also farm items",preferences.secondary});
+    result.settings.back().enabled_by="mode"; result.settings.back().enabled_values={"Nectar","Items"};
+    result.settings.back().dependent_labels={{"Nectar","Also farm items"},{"Items","Use spare slots for nectar"}};
+    result.settings.back().help="Nectar first: fit items around your nectar bands. Items first: use remaining slots for nectar without delaying item routes.";
     SettingSelection labels,selected,fields;
     for (const auto& item : equipment()) { labels.push_back(item.label); if (preferences.planters.contains(item.id)) selected.push_back(item.label); }
     const auto all=default_preferences();
@@ -335,6 +420,17 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
             return item.field==field && static_cast<std::size_t>(item.nectar)==i;
         })) group.choices.push_back(field);
         if (!group.choices.empty()) result.settings.back().groups.push_back(std::move(group));
+    }
+    SettingSelection material_labels,selected_materials;
+    for (const auto& goal:item_goals()) { material_labels.push_back(goal.label); if (std::find(preferences.materials.begin(),preferences.materials.end(),goal.id)!=preferences.materials.end()) selected_materials.push_back(goal.label); }
+    result.settings.push_back({"materials","Material goals",selected_materials,0,0,material_labels});
+    result.settings.back().inline_choices=true;
+    result.settings.back().help="Selected items include bonus routes and regular drops. Item planters grow fully. Cooldowns are estimates; manual harvests are not tracked.";
+    for(const auto& goal:item_goals()) {
+        auto& groups=result.settings.back().groups;
+        auto group=std::find_if(groups.begin(),groups.end(),[&](const auto& g) {return g.label==goal.category;});
+        if(group==groups.end()) {groups.push_back({goal.category,{}});group=std::prev(groups.end());}
+        group->choices.push_back(goal.label);
     }
     const auto returns=return_choices(plan);
     if (!returns.empty()) result.settings.push_back({"return-method","Return to hive",std::string(plan.walk_return?"Walk":"Reset"),0,0,returns});
@@ -363,11 +459,26 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
     run.settings.push_back("gather-planter-fields"); run.settings.push_back("interrupt-gather");
     if (plan.conversion) { run.settings.push_back("convert-after-harvest"); run.settings.push_back("conversion-threshold"); }
     result.page->sections.push_back(std::move(run));
+    result.page->sections.push_back({"materials","Item goals",{},{"materials"},false,1});
+    result.page->sections.back().tool="Item goals";
+    result.page->sections.push_back({"material-progress","Progress","Next steps for the selected items.",{},false,1,true});
+    result.page->sections.back().tool="Item goals";
+    result.page->sections.push_back({"drop-reference","Drops","Full-growth rewards from the wiki. Random drops have no predicted quantity. Monthly bonuses use a conservative 36-day estimate because published cooldowns disagree. Single-use planters are consumed and stay disabled until you select them.",{},false,1});
+    result.page->sections.back().tool="Drops";
+    for(const auto& drops:planter_drops()) {
+        const auto gear=std::find_if(equipment().begin(),equipment().end(),[&](const auto& e) {return e.id==drops.planter;});
+        result.page->sections.push_back({"drops-"+std::to_string(std::distance(equipment().begin(),gear)),gear->label,drop_description(drops),{},false,1});
+        result.page->sections.back().tool="Drops"; result.page->sections.back().collapsed=true;
+    }
     result.page->sections.push_back({"simulation","Simulation",{},{"simulation-days"},false,1});
     result.page->sections.back().tool="Simulation";
     for(auto& section:result.page->sections) if(section.tool.empty() && !section.metrics)
         section.tab=section.id=="fields"?"Fields":"Setup";
     std::stable_partition(result.page->sections.begin(),result.page->sections.end(),[](const auto& section) { return !section.order_group.empty(); });
+    const auto materials=std::find_if(result.page->sections.begin(),result.page->sections.end(),[](const auto& section) { return section.id=="materials"; });
+    std::rotate(result.page->sections.begin(),materials,materials+1);
+    result.page->sections.insert(result.page->sections.begin(),{"mode","Setup",{},{"mode","secondary"},false,2});
+    result.page->sections.front().tab="Setup";
     for (auto& section:result.page->sections) {
         section.inline_labels=true;
         if(!section.order_group.empty()) section.panel="targets";

@@ -2,7 +2,8 @@
 
 namespace hive::features::planters {
 std::span<const Stats> catalog() {
-    static const Stats values[]{
+    static const std::vector<Stats> values=[] {
+        std::vector<Stats> result{
         {"HydroponicPlanter","Bamboo",Nectar::comforting,1.4,1.375,8.73*3600},
         {"PetalPlanter","Bamboo",Nectar::comforting,1.5,1.125,12.45*3600},
         {"PesticidePlanter","Bamboo",Nectar::comforting,1,1.6,6.25*3600},
@@ -207,7 +208,15 @@ std::span<const Stats> catalog() {
         {"CandyPlanter","Sunflower",Nectar::satisfying,1,1,4*3600},
         {"PaperPlanter","Sunflower",Nectar::satisfying,.75,1,1*3600},
         {"TicketPlanter","Sunflower",Nectar::satisfying,2,1,2*3600},
-    };
+        };
+        const auto count=result.size();result.reserve(count+34);
+        for(std::size_t i=0;i<count;++i) if(result[i].planter=="PaperPlanter") {
+            const auto field=result[i].field;const auto nectar=result[i].nectar;
+            result.push_back({"StickerPlanter",field,nectar,2,1,3*3600});
+            result.push_back({"FestivePlanter",field,nectar,3,1,4*3600});
+        }
+        return result;
+    }();
     return values;
 }
 }

@@ -9,7 +9,7 @@ namespace hive::features::planters {
 namespace {
 std::vector<Active> active(const PlanningSnapshot& snapshot) {
     std::vector<Active> result;
-    for (const auto& p : snapshot.growing) result.push_back({p.stats.planter,p.stats.field});
+    for (const auto& p : snapshot.growing) result.push_back({p.stats.planter,p.stats.field,p.material});
     return result;
 }
 std::size_t support_limit(std::span<const Group> groups,std::size_t capacity) {
@@ -81,12 +81,22 @@ PlanningSnapshot planning_snapshot(const Ledger& ledger,std::vector<Group> group
     if (ledger.pending) throw std::logic_error("Resolve the pending planter action before planning another");
     if (wall.time_since_epoch()<Time::zero()) throw std::invalid_argument("Invalid planter planning wall clock");
     PlanningSnapshot snapshot{std::move(groups),{},capacity,session_seconds};
+    snapshot.materials.history=ledger.materials; snapshot.materials.now=wall.time_since_epoch();
+    for (auto& group:snapshot.groups) {
+        Time latest{};
+        for (auto& candidate:group.candidates) {
+            const auto used=ledger.fields.find(candidate.stats.field);
+            if (used==ledger.fields.end()) continue;
+            candidate.last_used=used->second.time_since_epoch();
+            if (candidate.last_used>latest) { latest=candidate.last_used; group.last_field=candidate.stats.field; }
+        }
+    }
     for (const auto& plant : ledger.plants) {
         if (wall<plant.placed) throw std::invalid_argument("Saved planter placement is in the future");
         const auto age=estimated_age(plant,wall);
         const auto due=plant.growth?std::max(harvest_fraction(plant),plant.growth->fraction)*plant.stats.full_seconds-age
-            :(plant.due-wall).count()/1000.0;
-        snapshot.growing.push_back({plant.stats,plant.phase,age,due,travel.estimate(plant.stats.field)});
+            :(ready_at(plant)-wall).count()/1000.0;
+        snapshot.growing.push_back({plant.stats,plant.phase,age,due,travel.estimate(plant.stats.field),plant.material});
     }
     std::stable_sort(snapshot.growing.begin(),snapshot.growing.end(),[](const Growing& a,const Growing& b) { return a.due_in<b.due_in; });
     for (auto& plant : snapshot.growing) if (plant.due_in<=0) {
@@ -106,6 +116,21 @@ PlanDecision AdaptivePlanner::select(const PlanningSnapshot& snapshot,PlanningLi
     if (limits.cancelled && limits.cancelled()) throw std::runtime_error("Planter planning cancelled");
     const auto groups=planning_groups(snapshot);
     if (now_ && snapshot.now<*now_) throw std::invalid_argument("Planter planning clock moved backwards");
+    if (snapshot.materials.mode==Mode::items) {
+        reset(); now_=snapshot.now;
+        PlanDecision decision;
+        decision.assignments=placement_choices(groups,active(snapshot),snapshot.capacity,{},snapshot.materials);
+        decision.reason=snapshot.growing.size()>=snapshot.capacity?PlanReason::no_capacity:
+            decision.assignments.empty()?PlanReason::unavailable:PlanReason::covered;
+        return decision;
+    }
+    if (snapshot.materials.farms_items()) {
+        auto items=material_choices(groups,active(snapshot),snapshot.capacity,{},snapshot.materials);
+        if (!items.empty()) {
+            reset(); now_=snapshot.now;
+            return {std::move(items),{},PlanReason::covered,0};
+        }
+    }
     auto next=*this; next.now_=snapshot.now; next.gaps_={};
     for (const auto& group : groups) if (group.target.minimum>0 && group.current_known) {
         const auto index=static_cast<std::size_t>(group.nectar); const auto floor=bounds(group.target).lower;
@@ -122,6 +147,7 @@ PlanDecision AdaptivePlanner::select(const PlanningSnapshot& snapshot,PlanningLi
     if (decision.assignments.empty()) { decision.selection={}; decision.assignments=assign(groups,occupied,snapshot.capacity); }
     auto finish=[&] {
         if (limits.cancelled && limits.cancelled()) throw std::runtime_error("Planter planning cancelled");
+        if (auto materials=material_choices(groups,occupied,snapshot.capacity,decision.selection,snapshot.materials);!materials.empty()) decision.assignments=std::move(materials);
         next.previous_=decision.selection; *this=std::move(next); return decision;
     };
     if (decision.assignments.empty()) { decision.reason=snapshot.growing.size()>=snapshot.capacity?PlanReason::no_capacity:PlanReason::unavailable; return finish(); }

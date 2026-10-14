@@ -1,5 +1,6 @@
 #include "inventory.hpp"
 #include "menus.hpp"
+#include "text.hpp"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -22,7 +23,7 @@ bool title(const TextLine& line,const Frame& frame) {
     const auto r=line.pixels;
     if (!r.valid() || r.x<0 || r.y<0 || r.x+r.width>=frame.width || r.y+r.height>=frame.height || r.height<7 || r.height>frame.height/8.0
         || line.text.empty() || line.text.size()>100 || (line.confidence && (!std::isfinite(*line.confidence) || *line.confidence<0.65f))) return false;
-    if (!std::isupper(static_cast<unsigned char>(line.text[0]))) return false;
+    if (!std::isalpha(static_cast<unsigned char>(line.text[0]))) return false;
     for (unsigned char c : line.text) if (c>=128 || (!std::isalnum(c) && c!=' ' && c!='-' && c!='\'')) return false;
     return true;
 }
@@ -108,7 +109,7 @@ std::optional<InventoryLayout> panel(const Pixels& pixels,const std::vector<Card
     layout.at_top=scroll_known && top==track_top && thumbs[0].first-top<=width*0.045;
     layout.at_bottom=scroll_known && bottom==track_bottom && bottom-thumbs[0].second<=width*0.045;
     layout.rows=inventory_rows(pixels.frame,layout.viewport);
-    if (layout.rows.size()<3) return {};
+    if (layout.rows.size()<2) return {};
     return layout;
 }
 class LayoutReader final : public InventoryLayoutSource {
@@ -132,7 +133,7 @@ Observation<InventoryLayout> locate_inventory(const DetectionInput& input) {
     if (!input.frame.valid() || !input.frame.window.id || !input.generation || input.text.size()>2048) throw std::invalid_argument("Invalid inventory layout input");
     if (input.cancelled && input.cancelled()) return {};
     const Pixels pixels{input.frame}; std::vector<std::vector<Card>> groups;
-    for (const auto& line : input.text) {
+    for (const auto& line : text_candidates(input.text,1)) {
         if (input.cancelled && input.cancelled()) return {};
         if (!title(line,input.frame)) continue;
         const auto found=card(pixels,line); if (!found) continue;
@@ -144,7 +145,7 @@ Observation<InventoryLayout> locate_inventory(const DetectionInput& input) {
         else if (std::none_of(group->begin(),group->end(),[&](const auto& c) { return std::abs(c.top-found->top)<(c.bottom-c.top)/2; })) group->push_back(*found);
     }
     std::optional<InventoryLayout> chosen;
-    for (const auto& group : groups) if (group.size()>=3) {
+    for (const auto& group : groups) {
         if (input.cancelled && input.cancelled()) return {};
         if (auto candidate=panel(pixels,group)) {
             if (chosen) return {};

@@ -18,6 +18,7 @@ add_library(hive_game
   detection/perception.cpp
   detection/detection.cpp
   data/cooldowns.cpp
+  data/item_stock.cpp
   detection/feeding.cpp
   detection/backpack.cpp
   detection/honey.cpp

@@ -34,6 +34,8 @@ inline void apply_theme(QApplication& app) {
         QPushButton { background:#233238; border:1px solid #3a4d52; border-radius:6px; padding:5px 9px; }
         QPushButton:hover { background:#30474c; }
         QPushButton:checked { background:#263e35; border-color:#6a9874; color:#c8f3cd; }
+        QPushButton#choice-option { padding:3px 7px; border-radius:4px; }
+        QPushButton#choice-option:pressed { padding-top:4px; padding-bottom:2px; }
         QPushButton:pressed { background:#14221d; border-color:#9ccdb0; padding-top:7px; padding-bottom:3px; }
         QToolButton:pressed { background:#263e35; border-radius:4px; padding-top:7px; padding-bottom:3px; }
         QToolButton#image-choice { background:#19252c; border:2px solid #34444d; border-radius:6px; padding:4px; }

@@ -13,6 +13,7 @@ public:
         :source_(std::move(source)),saved_(std::move(saved)) {
         for (const auto& visit : plan.visits) durations_.emplace(visit.id,visit.cooldown);
     }
+    std::vector<Rect> text_regions(const std::string& id) const override { return source_->text_regions(id); }
     Observation<bool> read(const std::string& id,const automation::View& view) const override {
         auto live=source_->read(id,view);
         if (live.has_value(view.context,Time(2000)) && live.value) return live;

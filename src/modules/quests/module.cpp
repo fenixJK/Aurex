@@ -171,6 +171,11 @@ public:
         return started_ && browser_ && (!cycle_ || !cycle_->givers.empty())
             && view.status.state==RunState::running && (scan_requested_ || due_visit(view.now) || pending_action());
     }
+    std::optional<extensions::WorkEstimate> next_work(const extensions::SessionView& view) const override {
+        if (!pending_work(view)) return {};
+        if (scan_requested_) return extensions::WorkEstimate{"Read quests",{},Time{},view.now,view.now};
+        return extensions::WorkEstimate{pending_action()?"Complete quest objective":"Talk to quest giver",{},Time{},view.now,{}};
+    }
     bool pending_action() const {
         if (!cycle_) return false;
         for (const auto& [giver,card]:tracker_.observed_cards()) for (const auto& row:card.value.objectives) {
@@ -192,11 +197,6 @@ public:
     }
     bool executable() const noexcept override { return bool(browser_); }
     std::unique_ptr<automation::Program> program() const override {
-        if (!browser_) return {};
-        acknowledge_scan();
-        auto results=std::make_shared<ScanResults>(); auto run=cycle_?cycle_program(*cycle_,browser_,results,cycle_results_):browser_program(browser_,results,false); scan_=std::move(results); return run;
-    }
-    std::unique_ptr<automation::Program> routine_program() const override {
         if (!browser_) return {};
         acknowledge_scan();
         auto results=std::make_shared<ScanResults>(); auto run=cycle_?cycle_program(*cycle_,browser_,results,cycle_results_):browser_program(browser_,results,false); scan_=std::move(results); return run;
@@ -224,6 +224,8 @@ extensions::Manifest module_manifest(std::string id,std::string provider,bool br
     result.requests={extensions::RequestService::fields,extensions::RequestService::enemies,extensions::RequestService::stations};
     if (browser) result.permissions={automation::Permission::interact};
     if (cycle) {
+        result.setup_profiles={{"Honey farming",30,{{"interrupt-gather",false}}},
+            {"Quest progress",10,{{"interrupt-gather",true}}},{"Materials",40,{{"interrupt-gather",false}}}};
         result.permissions.insert(automation::Permission::tool); result.permissions.insert(automation::Permission::movement); result.permissions.insert(automation::Permission::interact);
         result.settings_version=4;
         extensions::Setting givers{"givers","Quest givers",SettingSelection{"Polar Bear"}};

@@ -7,7 +7,7 @@
 
 namespace hive::features::boosting {
 enum class UseWhen { off, gathering, boosted, field_start, converting, backpack, boosted_conversion, fighting };
-struct ItemRule { UseWhen when{}; Time interval{600000}; unsigned limit{1}; unsigned backpack{90}; };
+struct ItemRule { UseWhen when{}; Time interval{600000}; unsigned limit{1}; unsigned backpack{90}; std::string item; };
 struct BoostItems {
     std::string field;
     unsigned dice_slot{},glitter_slot{},dice_limit{25},glitter_limit{1};
@@ -15,6 +15,7 @@ struct BoostItems {
     unsigned target_stacks{1};
     Time duration{};
     bool maintain{};
+    std::string dice_item{"Field Dice"};
 };
 struct Preferences {
     bool follow{true},interrupt{true},during_boosts{},pre_glitter{};
@@ -45,10 +46,18 @@ class Controller final : public automation::HotbarSource {
     std::optional<Time> blue_remaining_;
     bool enabled_{},running_{},readable_{};
     std::map<std::string,Time> attempted_;
+    std::shared_ptr<const extensions::WorkSchedule> schedule_;
+    std::string owner_;
+    std::shared_ptr<game::ItemStock> stock_;
+    std::string reserve_reason_;
+    bool spend(const std::string& item,Time now);
     bool fresh(Time now) const;
     bool can_roll() const;
     unsigned take_boost(const automation::HotbarContext& context);
 public:
+    void supplies(std::shared_ptr<game::ItemStock> stock);
+    void scheduling(std::shared_ptr<const extensions::WorkSchedule> schedule,std::string owner);
+    std::optional<extensions::WorkWindow> protected_work(Time now) const;
     void configure(Preferences preferences);
     void stop();
     void update(const extensions::SessionView& view,const std::optional<game::DetectionResult>& reading,std::optional<Time> blue_remaining={});
@@ -63,5 +72,6 @@ public:
 extensions::Manifest module_manifest();
 Settings migrate_settings(int version,Settings settings);
 extensions::Factory module_factory(std::shared_ptr<Controller> controller,
-    std::shared_ptr<const game::DetectionSource> observations,std::vector<Booster> boosters,std::vector<std::string> fields);
+    std::shared_ptr<const game::DetectionSource> observations,std::vector<Booster> boosters,std::vector<std::string> fields,
+    std::shared_ptr<game::ItemStock> stock={},std::shared_ptr<const game::InventorySource> inventory={});
 }

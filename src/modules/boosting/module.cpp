@@ -1,6 +1,8 @@
 #include "module.hpp"
 #include "game/data/stations.hpp"
 #include "game/data/fields.hpp"
+#include "game/detection/item_menu.hpp"
+#include "game/actions/inventory/item_reserves.hpp"
 #include <algorithm>
 
 namespace hive::features::boosting {
@@ -17,10 +19,21 @@ class Boosting final : public extensions::Module {
     Preferences preferences_;
     std::set<std::string> requested_;
     bool connected_{};
+    std::shared_ptr<game::ItemStock> stock_;
+    std::shared_ptr<const game::InventorySource> inventory_;
+    mutable Time stock_retry_{};
+    game::ItemAmounts costs() const {
+        game::ItemAmounts result;
+        if (preferences_.boost.dice_slot) result[preferences_.boost.dice_item]=1;
+        if (preferences_.boost.glitter_slot) result["Glitter"]=1;
+        for (const auto& rule:preferences_.items) if (rule.when!=UseWhen::off && !rule.item.empty()) result[rule.item]=1;
+        return result;
+    }
+    bool needs_supplies(Time now) const { return stock_ && inventory_ && now>=stock_retry_ && !stock_->unread(costs()).empty(); }
 public:
     Boosting(extensions::Manifest manifest,std::shared_ptr<Controller> controller,
-        std::shared_ptr<const game::DetectionSource> source,std::vector<Booster> boosters,std::vector<std::string> fields)
-        :manifest_(std::move(manifest)),controller_(std::move(controller)),source_(std::move(source)),boosters_(std::move(boosters)),fields_(std::move(fields)) {}
+        std::shared_ptr<const game::DetectionSource> source,std::vector<Booster> boosters,std::vector<std::string> fields,std::shared_ptr<game::ItemStock> stock,std::shared_ptr<const game::InventorySource> inventory)
+        :manifest_(std::move(manifest)),controller_(std::move(controller)),source_(std::move(source)),boosters_(std::move(boosters)),fields_(std::move(fields)),stock_(std::move(stock)),inventory_(std::move(inventory)) {}
     void start(const Settings& settings) override {
         extensions::validate_settings(manifest_,settings);
         Preferences preferences;
@@ -33,12 +46,14 @@ public:
             const auto mode=std::get<std::string>(settings.at(prefix+"when"));
             preferences.items[i]={UseWhen(std::find(conditions.begin(),conditions.end(),mode)-conditions.begin()),
                 std::chrono::seconds(std::get<int>(settings.at(prefix+"seconds"))),unsigned(std::get<int>(settings.at(prefix+"limit"))),
-                unsigned(std::get<int>(settings.at(prefix+"bag")))};
+                unsigned(std::get<int>(settings.at(prefix+"bag"))),std::get<std::string>(settings.at(prefix+"item"))};
+            if (preferences.items[i].item=="Unspecified") preferences.items[i].item.clear();
         }
         const auto slot=[&](const char* id) { const auto& value=std::get<std::string>(settings.at(id)); return value=="Off"?0u:unsigned(std::stoi(value)); };
         preferences.boost={std::get<std::string>(settings.at("boost-field")),slot("dice-slot"),slot("glitter-slot"),
             unsigned(std::get<int>(settings.at("dice-limit"))),unsigned(std::get<int>(settings.at("glitter-limit"))),
             std::chrono::seconds(std::get<int>(settings.at("dice-interval"))),std::chrono::minutes(std::get<int>(settings.at("glitter-after")))};
+        preferences.boost.dice_item=std::get<std::string>(settings.at("dice-item"));
         preferences.boost.target_stacks=unsigned(std::get<int>(settings.at("target-stacks")));
         preferences.boost.duration=std::chrono::minutes(std::get<int>(settings.at("boost-minutes")));
         preferences.boost.maintain=std::get<bool>(settings.at("maintain-boost"));
@@ -72,9 +87,16 @@ public:
     std::optional<extensions::RoutineParticipation> routine() const override {
         return extensions::RoutineParticipation{75,Time{},false,true,true,preferences_.interrupt};
     }
-    bool pending_work(const extensions::SessionView& view) const override { return controller_->next_booster(view.now,boosters_,requested_).has_value(); }
+    bool pending_work(const extensions::SessionView& view) const override { return needs_supplies(view.now) || controller_->next_booster(view.now,boosters_,requested_).has_value(); }
+    std::optional<extensions::WorkWindow> protected_work(const extensions::SessionView& view) const override { return controller_->protected_work(view.now); }
+    std::optional<extensions::WorkEstimate> next_work(const extensions::SessionView& view) const override {
+        if (needs_supplies(view.now)) return extensions::WorkEstimate{"Check boost supplies",{},Time{},view.now,view.now};
+        if (auto name=controller_->next_booster(view.now,boosters_,requested_)) return extensions::WorkEstimate{*name,{},Time{},view.now,{}};
+        return {};
+    }
     bool executable() const noexcept override { return true; }
     std::unique_ptr<automation::Program> program() const override {
+        if (needs_supplies(now_)) { stock_retry_=now_+std::chrono::minutes(5); return automation::inspect_reserves(stock_,inventory_,costs()); }
         const auto name=controller_->next_booster(now_,boosters_,requested_); if (!name) return {};
         const auto found=std::find_if(boosters_.begin(),boosters_.end(),[&](const auto& booster) { return booster.name==*name; });
         auto run=found->visit(); if (run) controller_->attempted(*name,now_); return run;
@@ -111,6 +133,7 @@ extensions::Manifest module_manifest() {
     manifest.settings.push_back({"boost-field","Field",std::string("Pine Tree"),0,0,fields});
     manifest.settings.push_back({"dice-slot","Dice slot",std::string("Off"),0,0,slots});
     manifest.settings.back().help="Field, Smooth or Loaded Dice. Stops after hitting this field; another dice replaces its boost. Higher targets need glitter or another boost source. Unreadable stacks do not trigger more rolls.";
+    manifest.settings.push_back({"dice-item","Dice type",std::string("Field Dice"),0,0,{"Field Dice","Smooth Dice","Loaded Dice"}});
     manifest.settings.push_back({"target-stacks","Target stacks",1,1,4});
     manifest.settings.push_back({"maintain-boost","Maintain boost",false});
     manifest.settings.back().help="Refresh with eligible dice and glitter near expiry. Uses the visible boost timer; item and time limits still apply.";
@@ -123,11 +146,13 @@ extensions::Manifest module_manifest() {
     manifest.settings.back().help="Extends near expiry when off cooldown. A new boost cycle is recognized from its timer or increased stacks. Without dice, uses the selected follow fields.";
     manifest.settings.push_back({"glitter-limit","Use limit",1,1,1000}); manifest.settings.back().help="Maximum glitter presses per macro session.";
     manifest.settings.push_back({"glitter-after","Extend after",13,10,14}); manifest.settings.back().suffix=" min";
-    sections.push_back({"dice","Dice",{},{"boost-field","dice-slot","target-stacks","dice-limit","dice-interval","boost-minutes","maintain-boost"},false,2}); sections.back().tab="Dice && glitter";
+    sections.push_back({"dice","Dice",{},{"boost-field","dice-slot","dice-item","target-stacks","dice-limit","dice-interval","boost-minutes","maintain-boost"},false,2}); sections.back().tab="Dice && glitter";
     sections.push_back({"glitter","Glitter",{},{"glitter-slot","glitter-limit","glitter-after","pre-glitter"},false,2}); sections.back().tab="Dice && glitter";
     sections.push_back({"hotbar-help","Hotbar","Use items from the game hotbar. Limits count presses per session; 0 is unlimited.",{},false,1}); sections.back().tab="Hotbar";
     for (unsigned slot=1;slot<=7;++slot) {
         const auto prefix="slot-"+std::to_string(slot)+"-";
+        auto items=game::shrine_items(); items.insert(items.begin(),"Unspecified"); items.push_back("Super Smoothie");
+        manifest.settings.push_back({prefix+"item","Item",std::string("Unspecified"),0,0,items});
         manifest.settings.push_back({prefix+"when","When",std::string("Off"),0,0,conditions});
         manifest.settings.back().help="Boosted conversion requires a boost still active in the last gathered field.";
         manifest.settings.push_back({prefix+"seconds","Interval",600,1,86400}); manifest.settings.back().suffix=" sec";
@@ -135,7 +160,7 @@ extensions::Manifest module_manifest() {
         manifest.settings.push_back({prefix+"bag","Bag %",90,1,100}); manifest.settings.back().suffix="%";
         manifest.settings.back().help="Used only by Bag limit rules. Set below Gathering's bag limit to use an item before returning.";
         sections.push_back({prefix+"rule","Slot "+std::to_string(slot),{},
-            {prefix+"when",prefix+"seconds",prefix+"limit",prefix+"bag"},false,4}); sections.back().tab="Hotbar"; sections.back().row=true;
+            {prefix+"item",prefix+"when",prefix+"seconds",prefix+"limit",prefix+"bag"},false,4}); sections.back().tab="Hotbar"; sections.back().row=true;
     }
     sections.push_back({"progress","Current boosts",{},{},true,2}); sections.back().tab="Boosts"; sections.back().collapsed=true;
     for (auto& field:manifest.settings) {
@@ -159,10 +184,10 @@ Settings migrate_settings(int version,Settings settings) {
     return settings;
 }
 extensions::Factory module_factory(std::shared_ptr<Controller> controller,
-    std::shared_ptr<const game::DetectionSource> observations,std::vector<Booster> boosters,std::vector<std::string> fields) {
+    std::shared_ptr<const game::DetectionSource> observations,std::vector<Booster> boosters,std::vector<std::string> fields,std::shared_ptr<game::ItemStock> stock,std::shared_ptr<const game::InventorySource> inventory) {
     if (!controller || !observations) throw std::invalid_argument("Boosting needs buff readings and item control");
-    return [controller=std::move(controller),observations=std::move(observations),boosters=std::move(boosters),fields=std::move(fields)](const extensions::Manifest& manifest) {
-        return std::make_unique<Boosting>(manifest,controller,observations,boosters,fields);
+    return [controller=std::move(controller),observations=std::move(observations),boosters=std::move(boosters),fields=std::move(fields),stock=std::move(stock),inventory=std::move(inventory)](const extensions::Manifest& manifest) {
+        return std::make_unique<Boosting>(manifest,controller,observations,boosters,fields,stock,inventory);
     };
 }
 }

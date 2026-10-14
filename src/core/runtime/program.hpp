@@ -9,6 +9,7 @@
 #include "game/detection/landmarks.hpp"
 #include "game/detection/localization.hpp"
 #include "game/detection/state.hpp"
+#include "game/detection/buffs.hpp"
 #include "game/actions/travel/checkpoint.hpp"
 #include "game/actions/field/sprinkler_placement.hpp"
 #include "game/actions/inventory/inventory.hpp"
@@ -45,6 +46,7 @@ struct View {
     std::optional<game::RoutePosition> route_position;
     std::optional<game::RouteExecution> route_execution;
     const Progress* completed{};
+    std::optional<game::BuffSnapshot> buffs;
 };
 enum class GuardState { ready, waiting, completed, failed };
 struct GuardDecision { GuardState state{GuardState::ready}; std::string message; std::optional<Interruption> interruption; };
@@ -113,6 +115,7 @@ public:
     virtual ~Program() = default;
     virtual RunConfig config() const = 0;
     virtual std::vector<Rect> text_regions() const { return {}; }
+    virtual std::span<const std::string> requested_buffs() const { return {}; }
     virtual WorkActivity activity() const noexcept { return WorkActivity::other; }
     virtual std::string field() const { return {}; }
     virtual std::optional<SharedActivity> shared_activity() const { return {}; }

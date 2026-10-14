@@ -13,6 +13,7 @@ void Conversion::start(const game::Context& context) {
     started_=context; last_tick_=last_evidence_=last_progress_=context.now;
     minimum_capture_=std::max(Time{},context.now-config_.reading_age);
     confirmed_hive_=false;
+    balloon_=config_.balloon && config_.balloon_with_backpack?std::nullopt:std::optional(config_.balloon);
     last_backpack_.reset(); backpack_capture_=Time(-1);
     last_attempt_=Time{}; attempts_=0; reason_.clear(); stage_=ConversionStage::waiting;
 }
@@ -41,7 +42,7 @@ void Conversion::resume(const game::Context& context) {
 bool Conversion::needs_prompt() const {
     if (stage_==ConversionStage::converting)
         return !last_backpack_ || last_tick_-backpack_capture_>config_.reading_age
-            || (config_.balloon && *last_backpack_==0) || last_tick_-last_progress_>=config_.confirmation_timeout;
+            || (converts_balloon() && *last_backpack_==0) || last_tick_-last_progress_>=config_.confirmation_timeout;
     return stage_==ConversionStage::waiting || stage_==ConversionStage::confirming;
 }
 void Conversion::update(const game::Context& context,const game::State& s,TaskPort& tasks,ModuleScope scope) {
@@ -76,6 +77,7 @@ void Conversion::update(const game::Context& context,const game::State& s,TaskPo
             ?std::optional<double>{s.backpack_percent.value}:std::nullopt;
         if (pack && (!std::isfinite(*pack) || *pack<0 || *pack>100)) { fail("Invalid backpack reading"); return; }
         if (confirmed_hive_ && pack) {
+            if (!balloon_) balloon_=*pack>0;
             if (s.backpack_percent.captured>backpack_capture_) {
                 if ((stage_==ConversionStage::converting || (stage_==ConversionStage::confirming && pending_.empty()))
                     && last_backpack_ && *pack<*last_backpack_) {
@@ -84,14 +86,14 @@ void Conversion::update(const game::Context& context,const game::State& s,TaskPo
                 }
                 last_backpack_=pack; backpack_capture_=s.backpack_percent.captured;
             }
-            if (stage_==ConversionStage::converting && (!config_.balloon || *pack>0)) last_evidence_=now;
+            if (stage_==ConversionStage::converting && (!converts_balloon() || *pack>0)) last_evidence_=now;
         }
         if (confirmed_hive_ && pending_.empty() && ((observed && s.hive_prompt.value==game::HivePrompt::collect_pollen)
-            || (pack==0 && !config_.balloon))) {
+            || (pack==0 && !converts_balloon()))) {
             finish(ConversionStage::completed,"Backpack confirmed empty",tasks,scope);
             return;
         }
-        if (config_.balloon && confirmed_hive_ && pending_.empty()
+        if (converts_balloon() && confirmed_hive_ && pending_.empty()
             && s.hive_prompt.knowledge==Knowledge::absent && s.hive_prompt.usable(context,config_.reading_age,minimum_capture_)
             && pack==0) {
             finish(ConversionStage::completed,"Backpack empty and conversion prompt gone",tasks,scope);

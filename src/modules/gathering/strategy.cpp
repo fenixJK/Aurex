@@ -47,11 +47,16 @@ class PatternStrategy final : public Program {
     bool correcting_{},using_slot_{};
     Time used_slot_{Time(-2000)};
     std::size_t source_steps_{};
-    View source_view(View view) const { view.completed_steps=source_steps_; return view; }
+    std::shared_ptr<const game::DetectionSource> buffs_;
+    View source_view(View view) const {
+        view.completed_steps=source_steps_;
+        if (!source_->requested_buffs().empty()) view.buffs=game::buff_snapshot(buffs_,view.context);
+        return view;
+    }
     std::function<unsigned(const View&)> hotbar_;
 public:
-    PatternStrategy(ProgramFactory create,RunConfig limits,std::function<void(unsigned)> completed,ProgramFactory between_cycles,std::function<bool()> yield,std::function<unsigned(const automation::View&)> hotbar,TimeExtension extension)
-        :limits_(limits),extension_(std::move(extension)),completed_(std::move(completed)),between_cycles_(std::move(between_cycles)),hotbar_(std::move(hotbar)) {
+    PatternStrategy(ProgramFactory create,RunConfig limits,std::function<void(unsigned)> completed,ProgramFactory between_cycles,std::function<bool()> yield,std::function<unsigned(const automation::View&)> hotbar,TimeExtension extension,std::shared_ptr<const game::DetectionSource> buffs)
+        :limits_(limits),extension_(std::move(extension)),completed_(std::move(completed)),between_cycles_(std::move(between_cycles)),buffs_(std::move(buffs)),hotbar_(std::move(hotbar)) {
         if (!create || !completed_ || !limits.observe || !limits.backpack_limit
             || extension_.limit<Time{} || extension_.limit>std::chrono::minutes(30)
             || limits.duration<Time(1000) || limits.duration+extension_.limit>std::chrono::hours(8)
@@ -125,7 +130,7 @@ public:
 };
 }
 std::unique_ptr<automation::Program> bounded_pattern(automation::ProgramFactory create,
-    automation::RunConfig limits,std::function<void(unsigned)> completed,automation::ProgramFactory between_cycles,std::function<bool()> yield,std::function<unsigned(const automation::View&)> hotbar,TimeExtension extension) {
-    return std::make_unique<PatternStrategy>(std::move(create),limits,std::move(completed),std::move(between_cycles),std::move(yield),std::move(hotbar),std::move(extension));
+    automation::RunConfig limits,std::function<void(unsigned)> completed,automation::ProgramFactory between_cycles,std::function<bool()> yield,std::function<unsigned(const automation::View&)> hotbar,TimeExtension extension,std::shared_ptr<const game::DetectionSource> buffs) {
+    return std::make_unique<PatternStrategy>(std::move(create),limits,std::move(completed),std::move(between_cycles),std::move(yield),std::move(hotbar),std::move(extension),std::move(buffs));
 }
 }

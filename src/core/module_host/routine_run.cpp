@@ -25,7 +25,7 @@ RoutineRun::~RoutineRun() {
 }
 SessionView RoutineRun::view() {
     auto snapshot=session_.snapshot();
-    return {std::move(snapshot.status),snapshot.now,snapshot.generation,std::move(snapshot.feature),snapshot.pause_requests,{},snapshot.session_id,std::move(snapshot.server)};
+    return {std::move(snapshot.status),snapshot.now,snapshot.generation,std::move(snapshot.feature),snapshot.pause_requests,{},snapshot.session_id,std::move(snapshot.server),snapshot.reconnecting};
 }
 void RoutineRun::start(Window window) {
     if (state_!=RoutineState::ready) throw std::logic_error("Create a new routine before starting again");

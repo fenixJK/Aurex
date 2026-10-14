@@ -52,6 +52,7 @@ struct CombatServices {
     std::optional<features::combat::Plan> configuration;
 };
 struct NativeModules {
+    std::shared_ptr<game::ItemStock> stock{std::make_shared<game::ItemStock>()};
     automation::TravelAccess travel_access;
     movement::Source movement;
     game::SprinklerPreference sprinklers;

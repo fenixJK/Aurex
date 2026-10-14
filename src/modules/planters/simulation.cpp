@@ -1,4 +1,5 @@
 #include "simulation.hpp"
+#include "drops.hpp"
 #include <algorithm>
 
 namespace hive::features::planters {
@@ -8,7 +9,7 @@ void bounded(double value,double low,double high) {
 }
 std::vector<Active> occupied(std::span<const Growing> growing) {
     std::vector<Active> active;
-    for (const auto& plant : growing) active.push_back({plant.stats.planter,plant.stats.field});
+    for (const auto& plant : growing) active.push_back({plant.stats.planter,plant.stats.field,plant.material});
     return active;
 }
 }
@@ -47,6 +48,12 @@ SimulationResult simulate(SimulationConfig config) {
     std::vector<Job> jobs;
     for (const auto& plant : config.growing) jobs.push_back({plant,-plant.age,plant.due_in});
     SimulationResult result; double now=0;
+    Time history_origin{};
+    for (const auto& group:config.groups) for (const auto& candidate:group.candidates) history_origin=std::max(history_origin,candidate.last_used);
+    const auto used=[&](const std::string& field) {
+        for (auto& group:config.groups) for (auto& candidate:group.candidates)
+            if (candidate.stats.field==field) candidate.last_used=history_origin+Time(static_cast<Time::rep>(now*1000));
+    };
     auto observed=[&](double level) { return config.readings==NectarReading::exact?level:std::round(std::floor(level*38/100+1e-9)*100/38); };
     auto update_phases=[&] {
         for (auto& group : config.groups) {
@@ -85,7 +92,17 @@ SimulationResult simulate(SimulationConfig config) {
             if (arrival>config.seconds) break;
             auto group=std::find_if(config.groups.begin(),config.groups.end(),[&](const Group& g) { return g.nectar==job.plant.stats.nectar; });
             if (group!=config.groups.end()) group->current=std::min(100.0,group->current+job.plant.stats.rate()*std::min(job.plant.stats.full_seconds,now-job.start));
-            jobs.erase(jobs.begin()); ++result.harvests; update_phases(); continue;
+            const auto previous=config.materials.history;
+            material_harvest(config.materials.history,job.plant.stats,now-job.start+1e-7>=job.plant.stats.full_seconds,config.materials.now+Time(static_cast<Time::rep>(now*1000)),job.plant.material);
+            for (const auto& [id,progress]:config.materials.history) {
+                const auto old=previous.find(id);
+                if (!id.starts_with("item:") && (progress.ready>(old==previous.end()?Time{}:old->second.ready) || (progress.complete && (old==previous.end() || !old->second.complete)))) ++result.bonuses[id];
+            }
+            if(now-job.start+1e-7>=job.plant.stats.full_seconds) {
+                for(const auto& item:item_goals()) result.base_items[item.id]+=item_source(item.id,job.plant.stats).minimum;
+                const auto goal=material_goal(job.plant.material);if(!goal.empty()) ++result.item_harvests[goal];
+            }
+            used(job.plant.stats.field); jobs.erase(jobs.begin()); ++result.harvests; update_phases(); continue;
         }
         if (now>=config.seconds) break;
         if (jobs.size()<config.capacity) {
@@ -94,9 +111,10 @@ SimulationResult simulate(SimulationConfig config) {
             for (const auto& job : jobs) {
                 auto plant=job.plant; plant.age=now-job.start; plant.due_in=job.due-now; snapshot.growing.push_back(plant);
             }
-            const auto selection=config.choose?config.choose(snapshot):config.selection;
+            snapshot.materials=config.materials; snapshot.materials.now+=Time(static_cast<Time::rep>(now*1000));
+            const auto selection=config.choose && snapshot.materials.needs_nectar()?config.choose(snapshot):config.selection;
             const auto groups=planning_groups(snapshot);
-            const auto choices=assign(groups,occupied(snapshot.growing),config.capacity,selection);
+            auto choices=placement_choices(groups,occupied(snapshot.growing),config.capacity,selection,snapshot.materials);
             if (!choices.empty()) {
                 const auto& choice=choices.front();
                 const auto group=std::find_if(config.groups.begin(),config.groups.end(),[&](const Group& g) { return g.nectar==choice.stats.nectar; });
@@ -107,11 +125,14 @@ SimulationResult simulate(SimulationConfig config) {
                 if (now+travel.seconds>departure) { advance(departure,false); continue; }
                 const auto arrival=now+travel.seconds;
                 advance(arrival,true); if (arrival>=config.seconds) break;
-                jobs.push_back({{choice.stats,choice.phase,0,choice.growth,travel},now,now+choice.growth});
-                group->last_field=choice.stats.field; ++result.placements; continue;
+                jobs.push_back({{choice.stats,choice.phase,0,choice.growth,travel,choice.material},now,now+choice.growth});
+                group->last_field=choice.stats.field; used(choice.stats.field); ++result.placements; continue;
             }
         }
-        advance(std::min(config.seconds,departure),false);
+        auto wake=std::min(config.seconds,departure);
+        if (jobs.size()<config.capacity) if (const auto ready=next_material_ready(config.materials,config.materials.now+Time(static_cast<Time::rep>(now*1000))))
+            wake=std::min(wake,(*ready-config.materials.now).count()/1000.);
+        advance(wake,false);
     }
     for (const auto& g : config.groups) result.final[static_cast<std::size_t>(g.nectar)]=g.current;
     for (const auto& job : jobs) {
