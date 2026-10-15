@@ -399,6 +399,7 @@ void ExtensionsUi::build_page(const std::string& id) {
     const bool dense=entry.manifest.page && entry.manifest.page->compact;
     QLabel measure; measure.setObjectName("muted"); measure.ensurePolished();
     const auto font_metrics=measure.fontMetrics();
+    auto commands=entry.commands();
     auto sections=entry.manifest.page?entry.manifest.page->sections:std::vector<extensions::PageSection>{};
     if (!entry.manifest.page) {
         sections.push_back({"overview","",{},{},true,3});
@@ -547,7 +548,7 @@ void ExtensionsUi::build_page(const std::string& id) {
                 body->setVisible(open); toggle->setArrowType(open?Qt::DownArrow:Qt::RightArrow);
             });
             section_layout=new QVBoxLayout(body); section_layout->setContentsMargins(0,0,0,0); section_layout->setSpacing(8);
-        } else if (!compact && !section.title.empty() && section.title!=section.tab && !section.row && !(section.settings.size()==1 && collections.contains(section.settings.front()))) section_layout->addWidget(text(q(section.title),"section-heading"));
+        } else if (!compact && !std::any_of(commands.begin(),commands.end(),[&](const auto& command) {return command.plot && command.tool==section.tool;}) && !section.title.empty() && section.title!=section.tab && !section.row && !(section.settings.size()==1 && collections.contains(section.settings.front()))) section_layout->addWidget(text(q(section.title),"section-heading"));
         if (!section.description.empty() && !(section.settings.size()==1 && collections.contains(section.settings.front()))) section_layout->addWidget(text(q(section.description),"muted"));
         if (!section.settings.empty()) {
             auto settings=new QWidget; auto settings_layout=new QVBoxLayout(settings);
@@ -636,7 +637,6 @@ void ExtensionsUi::build_page(const std::string& id) {
         else if(!section.tool.empty()) tool_panel(section.tool,false,section.tab.empty()?nullptr:tab_actions.at(section.tab))->addWidget(group);
         else destination(section)->addWidget(group);
     }
-    auto commands=entry.commands();
     std::map<std::string,int> command_positions;
     for (const auto& command:commands) if (command.visible && !command.plot) {
         auto button=new QPushButton(q(command.label));
@@ -663,7 +663,7 @@ void ExtensionsUi::build_page(const std::string& id) {
                 invoke_module(id,command.id);
             }); });
         }
-        tools_layout->parentWidget()->setFixedSize(720,520);
+        tools_layout->parentWidget()->setFixedSize(760,650);
         page->plot_status=text("Choose a duration, then run the simulation.","muted"); tools_layout->addWidget(page->plot_status);
         auto chart=new ModulePlot; page->plot=chart; tools_layout->addWidget(chart,1);
         for(const auto& kind:{QString("PNG"),QString("CSV")}) {
@@ -891,6 +891,7 @@ void ExtensionsUi::render_page(const std::string& id) {
     if (page->plot) {
         const auto state=entry.plot_progress();
         page->plot_status->setText(state.message.empty()?"Choose a duration, then run the simulation.":q(state.message));
+        page->plot_status->setVisible(!page->plot->hasData() || state.running || (!state.message.empty() && state.message!="Ready"));
         for (auto* button:page->plot_commands) button->setEnabled(!busy && !state.running);
         for (auto* button:page->plot_exports) button->setEnabled(!state.running && page->plot->hasData());
     }

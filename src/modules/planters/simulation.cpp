@@ -96,7 +96,7 @@ SimulationResult simulate(SimulationConfig config) {
             material_harvest(config.materials.history,job.plant.stats,now-job.start+1e-7>=job.plant.stats.full_seconds,config.materials.now+Time(static_cast<Time::rep>(now*1000)),job.plant.material);
             for (const auto& [id,progress]:config.materials.history) {
                 const auto old=previous.find(id);
-                if (!id.starts_with("item:") && (progress.ready>(old==previous.end()?Time{}:old->second.ready) || (progress.complete && (old==previous.end() || !old->second.complete)))) ++result.bonuses[id];
+                if (!id.starts_with("item:") && progress.ready>(old==previous.end()?Time{}:old->second.ready)) ++result.bonuses[id];
             }
             if(now-job.start+1e-7>=job.plant.stats.full_seconds) {
                 for(const auto& item:item_goals()) result.base_items[item.id]+=item_source(item.id,job.plant.stats).minimum;

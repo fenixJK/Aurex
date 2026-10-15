@@ -20,9 +20,9 @@ std::shared_ptr<const extensions::Plot> simulation_plot(Preferences preferences,
     config.choose=[&](const PlanningSnapshot& snapshot) { return planner.select(snapshot,{4096,config.cancelled}).selection; };
     const auto result=simulate(config);
     auto plot=std::make_shared<extensions::Plot>(); plot->title=preferences.mode==Mode::items?"Items forecast":"Nectar forecast";
-    plot->description="From zero nectar with the applied settings. Estimated travel: 90 seconds per trip. Weather, sipping and game delays are not predicted.";
-    if(preferences.mode==Mode::items && preferences.secondary) plot->description+=" Nectar uses spare slots; item routes take priority.";
+    plot->description=std::to_string(days)+" days · starts empty · 90s per trip · current settings";
     plot->x_label="Days";plot->y_label="Nectar (%)";plot->x_max=days;
+    extensions::PlotTable nectars{"Nectar",{"Nectar","Above floor","Time to build","At end"},{},"Weather, sipping and game delays are not simulated.",true};
     for(unsigned i=0;i<5;++i) if(preferences.mode==Mode::items || preferences.targets[i].minimum>0) {
         extensions::PlotSeries series{nectar_names()[i],{},colors[i]};
         const auto append=[&](std::size_t index) {
@@ -38,19 +38,23 @@ std::shared_ptr<const extensions::Plot> simulation_plot(Preferences preferences,
             append(std::min(low,high));if(low!=high)append(std::max(low,high));
         }
         series.points.push_back({double(days),result.final[i]});plot->series.push_back(std::move(series));
-        plot->statistics.push_back({nectar_names()[i],preferences.needs_nectar() && preferences.targets[i].minimum>0?
-            decimal(result.coverage_seconds[i]/config.seconds*100)+"% coverage, "+(result.built_at[i]?decimal(*result.built_at[i]/3600)+"h to build":"not built"):
-            decimal(result.final[i])+"% at end · maintenance off"});
+        const bool maintained=preferences.needs_nectar() && preferences.targets[i].minimum>0;
+        nectars.rows.push_back({nectar_names()[i],maintained?decimal(result.coverage_seconds[i]/config.seconds*100)+"%":"Off",
+            maintained?(result.built_at[i]?decimal(*result.built_at[i]/3600)+"h":"Not reached"):"—",decimal(result.final[i])+"%"});
     }
-    plot->statistics.insert(plot->statistics.begin(),{{"Collections/day",decimal(double(result.harvests)/days)},{"Travel/day",decimal(result.travel_seconds/days/3600)+"h"}});
+    plot->tables.push_back(std::move(nectars));
+    plot->statistics={{"Collections",std::to_string(result.harvests)},{"Per day",decimal(double(result.harvests)/days)},
+        {"Travel / day",decimal(result.travel_seconds/days/60)+" min"}};
+    extensions::PlotTable items{"Items",{"Item","Base","Bonus est.","Total est."},{},
+        "Full-growth base rewards and estimated bonuses over the whole run. Random drops are not counted."};
     const auto count=[](const auto& values,const auto& id) {const auto found=values.find(id);return found==values.end()?0u:found->second;};
     if(preferences.farms_items()) for(const auto& goal:preferences.materials) {
         unsigned bonus=0;
         for(const auto& route:material_routes()) if(route.goal==goal) bonus+=count(result.bonuses,route.id)*route.amount;
-        plot->statistics.push_back({item_label(goal),std::to_string(count(result.item_harvests,goal))+" harvests · "
-            +std::to_string(count(result.base_items,goal))+" base + ~"+std::to_string(bonus)+" bonus · random drops extra"});
+        items.rows.push_back({item_label(goal),std::to_string(count(result.base_items,goal)),
+            std::to_string(bonus),std::to_string(count(result.base_items,goal)+bonus)});
     }
-    if(preferences.farms_items() && !preferences.materials.empty()) plot->description+=" Item counts use documented full-growth base rewards and estimated bonus cooldowns, starting fresh. Random loot and consumable stock are not predicted.";
+    if(!items.rows.empty()) plot->tables.push_back(std::move(items));
     return plot;
 }
 std::shared_ptr<const extensions::Plot> forecast_plot(PlanningSnapshot snapshot,unsigned hours) {
@@ -69,6 +73,8 @@ std::shared_ptr<const extensions::Plot> forecast_plot(PlanningSnapshot snapshot,
     auto plot=std::make_shared<extensions::Plot>(); plot->title="Nectar prediction · next "+std::to_string(hours)+" hours";
     plot->description="Current nectar, saved planters and your settings. Uses recorded travel times (90 seconds where unknown). Weather, sipping and time spent on other work can change the result.";
     plot->x_label="Hours from now"; plot->y_label="Nectar (%)"; plot->x_max=hours;
+    extensions::PlotTable nectars{"Nectar",{"Nectar","Now","At end","To target"},{},
+        snapshot.materials.mode==Mode::items?"Nectar uses spare slots; item routes take priority.":"Targets use your current nectar limits and buffer.",true};
     for (const auto& group:snapshot.groups) {
         const auto i=static_cast<std::size_t>(group.nectar);
         extensions::PlotSeries series{nectar_names()[i],{},colors[i]};
@@ -77,15 +83,12 @@ std::shared_ptr<const extensions::Plot> forecast_plot(PlanningSnapshot snapshot,
             series.points.push_back({segment.end/3600.,std::max(0.,segment.levels[i]-(segment.end-segment.begin)/864)});
         }
         series.points.push_back({double(hours),result.final[i]}); plot->series.push_back(std::move(series));
-        auto value=decimal(group.current)+"% now → "+decimal(result.final[i])+"% at "+std::to_string(hours)+"h";
-        if (snapshot.materials.needs_nectar() && group.target.minimum>0) {
-            const auto upper=bounds(group.target).upper;
-            value+=" · "+decimal(upper)+"% target: ";
-            value+=group.current>=upper?"already reached":result.built_at[i]?decimal(*result.built_at[i]/3600)+"h":"not reached in this window";
-            if(snapshot.materials.mode==Mode::items) value+=" · spare slots only";
-        } else value+=" · maintenance off";
-        plot->statistics.push_back({nectar_names()[i],std::move(value)});
+        std::string target="Off";
+        if(snapshot.materials.needs_nectar() && group.target.minimum>0)
+            target=group.current>=bounds(group.target).upper?"Reached":result.built_at[i]?decimal(*result.built_at[i]/3600)+"h":"Not reached";
+        nectars.rows.push_back({nectar_names()[i],decimal(group.current)+"%",decimal(result.final[i])+"%",std::move(target)});
     }
+    plot->tables.push_back(std::move(nectars));
     return plot;
 }
 }

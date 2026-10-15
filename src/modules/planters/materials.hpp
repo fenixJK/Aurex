@@ -3,14 +3,13 @@
 
 namespace hive::features::planters {
 struct MaterialRoute {
-    std::string id,item,planter;
+    std::string id,planter;
     std::vector<std::string> fields;
     unsigned amount{};
     Time cooldown;
     std::string goal;
-    bool once{};
 };
-struct MaterialProgress { unsigned step{}; Time ready{}; bool complete{}; bool operator==(const MaterialProgress&) const=default; };
+struct MaterialProgress { unsigned step{}; Time ready{}; bool operator==(const MaterialProgress&) const=default; };
 using MaterialHistory=std::map<std::string,MaterialProgress>;
 enum class Mode { nectar, items };
 struct MaterialPlan {
