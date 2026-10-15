@@ -229,6 +229,8 @@ public:
         const int left=GetSystemMetrics(SM_XVIRTUALSCREEN),top=GetSystemMetrics(SM_YVIRTUALSCREEN);
         const int width=GetSystemMetrics(SM_CXVIRTUALSCREEN),height=GetSystemMetrics(SM_CYVIRTUALSCREEN);
         if (width<=0 || height<=0) throw std::runtime_error("Could not read desktop bounds");
+        point.x=std::clamp(std::round(point.x),double(left),double(left+width-1));
+        point.y=std::clamp(std::round(point.y),double(top),double(top+height-1));
         INPUT input{}; input.type=INPUT_MOUSE;
         input.mi.dwFlags=MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
         const auto move=[&](Point target) {
@@ -239,7 +241,7 @@ public:
         if (primary_pressed_) { move(point); return; }
         POINT from{};
         if (!GetCursorPos(&from)) throw std::runtime_error("Could not read cursor position");
-        if (std::abs(point.x-from.x)<.5 && std::abs(point.y-from.y)<.5) return;
+        if (point.x==from.x && point.y==from.y) return;
         if (!pointer_timer_) {
             pointer_timer_=winrt::handle{CreateWaitableTimerExW(nullptr,nullptr,CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,TIMER_MODIFY_STATE | SYNCHRONIZE)};
             if (!pointer_timer_) throw std::runtime_error("Could not create pointer timer");

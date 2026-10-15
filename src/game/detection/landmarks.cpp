@@ -1,6 +1,7 @@
 #include "landmarks.hpp"
 #include "perception.hpp"
 #include "text.hpp"
+#include "prompt_labels.hpp"
 #include <algorithm>
 #include <cctype>
 #include <opencv2/imgproc.hpp>
@@ -106,15 +107,44 @@ Frame interaction_text_image(const Frame& frame,Rect region) {
     const int left=int(std::floor(region.x*frame.width)),top=int(std::floor(region.y*frame.height));
     const int right=std::min(frame.width,int(std::ceil((region.x+region.width)*frame.width)));
     const int bottom=std::min(frame.height,int(std::ceil((region.y+region.height)*frame.height)));
-    Frame crop{frame.window,frame.captured,right-left,bottom-top,{}};
-    crop.rgba.resize(std::size_t(crop.width)*crop.height*4);
-    for (int y=0;y<crop.height;++y) for (int x=0;x<crop.width;++x) {
-        const auto from=(std::size_t(y+top)*frame.width+x+left)*4,to=(std::size_t(y)*crop.width+x)*4;
+    Frame crop{frame.window,frame.captured,right-left+2*interaction_text_padding,bottom-top+2*interaction_text_padding,{}};
+    crop.rgba.assign(std::size_t(crop.width)*crop.height*4,255);
+    for (int y=0;y<bottom-top;++y) for (int x=0;x<right-left;++x) {
+        const auto from=(std::size_t(y+top)*frame.width+x+left)*4;
+        const auto to=(std::size_t(y+interaction_text_padding)*crop.width+x+interaction_text_padding)*4;
         const int r=frame.rgba[from],g=frame.rgba[from+1],b=frame.rgba[from+2];
         const auto value=std::min({r,g,b})>180 && std::max({r,g,b})-std::min({r,g,b})<50?0:255;
         crop.rgba[to]=crop.rgba[to+1]=crop.rgba[to+2]=value; crop.rgba[to+3]=255;
     }
     return crop;
+}
+std::optional<TextLine> interaction_label(const Frame& image) {
+    if (!image.valid() || image.width>2048 || image.height>512) return {};
+    cv::Mat rgba(image.height,image.width,CV_8UC4,const_cast<std::uint8_t*>(image.rgba.data())),ink;
+    cv::inRange(rgba,cv::Scalar(0,0,0,255),cv::Scalar(127,127,127,255),ink);
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(ink,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
+    int height=0;
+    for (const auto& contour:contours) height=std::max(height,cv::boundingRect(contour).height);
+    for (const auto& contour:contours) if (cv::boundingRect(contour).height<height*.45)
+        cv::drawContours(ink,std::vector{contour},0,cv::Scalar(0),cv::FILLED);
+    const auto bounds=cv::boundingRect(ink);
+    if (bounds.height<12 || std::abs(double(bounds.width)/bounds.height-double(detail::make_honey_width)/detail::make_honey_height)>.45) return {};
+    static const cv::Mat reference=[] {
+        cv::Mat result(detail::make_honey_height,detail::make_honey_width,CV_8UC1);
+        constexpr int stride=(detail::make_honey_width+63)/64;
+        for (int y=0;y<result.rows;++y) for (int x=0;x<result.cols;++x)
+            result.at<unsigned char>(y,x)=detail::make_honey[y*stride+x/64]&(1ULL<<(x%64))?255:0;
+        cv::GaussianBlur(result,result,{3,3},.6);
+        return result;
+    }();
+    cv::Mat scaled,score;
+    cv::resize(ink(bounds),scaled,reference.size(),0,0,cv::INTER_AREA);
+    cv::GaussianBlur(scaled,scaled,{3,3},.6);
+    cv::matchTemplate(scaled,reference,score,cv::TM_CCOEFF_NORMED);
+    if (score.at<float>(0,0)<.9f) return {};
+    return TextLine{"Make Honey",{double(bounds.x),double(bounds.y),double(bounds.width),double(bounds.height)},
+        std::clamp(score.at<float>(0,0),0.f,1.f)};
 }
 void validate(const PromptLandmark& p) {
     const auto& r=p.region;
@@ -166,6 +196,6 @@ Reading<bool> read_prompt_landmark(const Context& c,const Reading<TextSnapshot>&
     return result;
 }
 PromptLandmark hive_proximity_prompt() { return {{"Make Honey","Stop Making Honey","Collect Pollen","Flower Fields"},
-    {.2,0,.6,.3},hive_prompt_confidence,PromptMatch::phrase,true}; }
-PromptLandmark hive_claim_prompt() { return {{"Claim Hive"},{.2,0,.6,.3},hive_prompt_confidence,PromptMatch::exact,true}; }
+    interaction_prompt_search_region,hive_prompt_confidence,PromptMatch::phrase,true}; }
+PromptLandmark hive_claim_prompt() { return {{"Claim Hive"},interaction_prompt_search_region,hive_prompt_confidence,PromptMatch::exact,true}; }
 }

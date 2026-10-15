@@ -76,7 +76,7 @@ class AcquireHive final : public Program {
             if (guard.state==GuardState::waiting) {
                 if (!child_running_ && view.context.now-child_started_>=Time(10000)) {
                     if (stage_==Stage::prepare) return recover(view);
-                    throw std::runtime_error("Hive setup prerequisite was not confirmed");
+                    throw ObservationUnavailable("Hive setup prerequisite was not confirmed");
                 }
                 return Wait{Time(50),guard.message};
             }
@@ -85,7 +85,8 @@ class AcquireHive final : public Program {
         if (!child_running_) child_running_=view.context.now;
         if (local.elapsed>=child_->config().duration) {
             if (stage_==Stage::prepare) return recover(view);
-            throw std::runtime_error("Hive setup phase timed out");
+            if (stage_==Stage::recover) throw ClientRejoinRequired("Hive reset timed out; rejoining Bee Swarm");
+            throw ObservationUnavailable("Hive setup phase timed out");
         }
         Step step;
         try { step=child_->next(local); }
@@ -125,13 +126,18 @@ public:
     }
     bool expects_respawn() const noexcept override { return child_ && child_->expects_respawn(); }
     ProgramFactory recovery(Interruption reason,const View&) override {
-        if (reason!=Interruption::death || !options_.recovery) return {};
+        if (!options_.recovery || (reason!=Interruption::death && reason!=Interruption::lost_observations
+            && reason!=Interruption::lost_route)) return {};
+        if (reason!=Interruption::death && recovered_)
+            throw ClientRejoinRequired("Hive could not be confirmed after resetting; rejoining Bee Swarm");
         if (child_) child_->finished(State::stopped);
         child_.reset(); child_guard_.reset(); child_running_.reset();
         if (options_.result) options_.result->invalidate_camera();
         stage_=Stage::locate; started_=turned_=issued_=false; recovered_=true;
         seen_=Time(-1);
-        return [source=options_.recovery] { return wait_for_respawn(source); };
+        return [source=options_.recovery,reason] {
+            return reason==Interruption::death?wait_for_respawn(source):request_respawn(source);
+        };
     }
     void begin_recovery(const View& view) {
         if (!options_.recovery) throw ObservationUnavailable("Hive position could not be found");

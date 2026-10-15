@@ -1,5 +1,7 @@
 #include "respawn.hpp"
 #include "dialog.hpp"
+#include "perception.hpp"
+#include "connection.hpp"
 #include <algorithm>
 #include <set>
 #include <cctype>
@@ -49,13 +51,29 @@ std::string normalized(const std::string& text) {
     return result;
 }
 struct Packet final : Detection { Observation<RespawnView> view; };
+bool visible_game(const DetectionInput& input) {
+    const auto inspected=input.hud?HudFeatures{}:inspect_hud(input.frame,input.generation);
+    const auto& hud=input.hud?*input.hud:inspected;
+    return (game_hud_visible(hud) || interaction_prompt_region(input.frame).has_value())
+        && connection_text_regions(input.frame,true).empty();
+}
 class RespawnDetector final : public Detector {
 public:
+    std::vector<Rect> text_regions(const DetectionInput& input) const override {
+        if (!input.frame.valid() || visible_game(input)) return {};
+        return {{.05,.05,.9,.91}};
+    }
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         const auto& f=input.frame;
         if (!f.valid() || !f.window.id || !input.generation || input.text.size()>2048 || (input.cancelled && input.cancelled())) return {};
         auto packet=std::make_shared<Packet>();
         packet->view={Knowledge::unknown,{},f.captured,f.window,input.generation};
+        if (visible_game(input)) {
+            const auto health=read_empty_health_bar(f,input.generation);
+            packet->view.knowledge=Knowledge::present;
+            packet->view.value={health.value?RespawnScreen::respawning:RespawnScreen::game,{}};
+            return packet;
+        }
         const ObservationContext context{f.window,input.generation,f.captured};
         const Reading<TextSnapshot> text{Knowledge::present,{f.width,f.height,{input.text.begin(),input.text.end()}},f.captured,f.window,input.generation};
         const PromptLandmark question{{"reset your character","want to respawn"},{.05,.05,.9,.9},.65f,PromptMatch::phrase,true};

@@ -244,6 +244,10 @@ void Runner::interrupt(Interruption interruption,const ObservationContext& c,con
         }
         if (!recovered) finish(State::failed,std::move(message),interruption);
     }
+    catch (const ClientRejoinRequired& e) {
+        if (interruption==Interruption::client_rejoin) finish(State::failed,e.what(),interruption);
+        else interrupt(Interruption::client_rejoin,c,observations,e.what());
+    }
     catch (const std::exception& e) { finish(State::failed,e.what()); }
     catch (...) { finish(State::failed,"Feature recovery failed unexpectedly"); }
 }

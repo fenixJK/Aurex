@@ -1,6 +1,7 @@
 #include "planters.hpp"
 #include "nectar.hpp"
 #include "menus.hpp"
+#include "perception.hpp"
 #include <algorithm>
 #include <cctype>
 #include <regex>
@@ -244,7 +245,7 @@ Observation<std::vector<PlanterReward>> read_planter_rewards(const DetectionInpu
     if (!f.valid() || !input.generation || f.width>8192 || f.height>8192 || input.text.size()>4096
         || (input.cancelled && input.cancelled())) return {};
     Observation<std::vector<PlanterReward>> result{Knowledge::present,{},f.captured,f.window,input.generation};
-    bool hud=false;
+    const bool hud=game_hud_visible(input.hud?*input.hud:inspect_hud(f,input.generation));
     static const std::regex reward(R"(^\+([0-9]{1,2}h)?([0-9]{1,2}m)?([0-9]{1,2}s)? of (comforting|refreshing|satisfying|motivating|invigorating) nectar \(from ([a-z -]+)\)$)");
     constexpr std::array names{"comforting","refreshing","satisfying","motivating","invigorating"};
     for (const auto& line : input.text) {
@@ -258,7 +259,6 @@ Observation<std::vector<PlanterReward>> read_planter_rewards(const DetectionInpu
         }
         if (!text.empty() && text.back()==' ') text.pop_back();
         const bool confident=!line.confidence || (std::isfinite(*line.confidence) && *line.confidence>=.8f && *line.confidence<=1);
-        if (confident && b.y+b.height<f.height*.3 && (text=="pollen" || text.starts_with("pollen "))) hud=true;
         if (b.x<f.width*.5 || b.y<f.height*.4) continue;
         if (text.find("nectar")==std::string::npos || text.find("planter")==std::string::npos) continue;
         std::smatch match;
@@ -277,7 +277,7 @@ Observation<std::vector<PlanterReward>> read_planter_rewards(const DetectionInpu
         if (std::find(result.value.begin(),result.value.end(),value)==result.value.end()) result.value.push_back(std::move(value));
         if (result.value.size()>8) return {};
     }
-    if (result.value.empty() && (!hud || menu_controls(input).size()<2)) return {};
+    if (result.value.empty() && !hud) return {};
     if (input.cancelled && input.cancelled()) return {};
     return result;
 }

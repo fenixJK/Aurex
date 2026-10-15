@@ -537,7 +537,7 @@ void ExtensionsUi::build_page(const std::string& id) {
             priority=new QSpinBox(group); priority->setObjectName(q(field.id)); priority->setRange(field.minimum,field.maximum); priority->setValue(std::get<int>(saved_values.at(field.id))); priority->hide();
             page->controls[field.id]=priority;
         }
-        auto section_layout=new QVBoxLayout(group); section_layout->setContentsMargins(0,0,0,0); section_layout->setSpacing(5);
+        auto section_layout=new QVBoxLayout(group); section_layout->setContentsMargins(0,0,0,0); section_layout->setSpacing(ordered?1:5);
         if (section.collapsed) {
             auto toggle=new QToolButton;
             toggle->setObjectName("module-toggle-"+q(section.id)); toggle->setText(q(section.title));

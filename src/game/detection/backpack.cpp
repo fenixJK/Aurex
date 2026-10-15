@@ -118,6 +118,10 @@ HudFeatures HudInspector::inspect(const Frame& frame,std::uint64_t generation) {
     }
     return result;
 }
+bool game_hud_visible(const HudFeatures& hud) {
+    return hud.backpack.knowledge==Knowledge::present || std::count_if(hud.menus.begin(),hud.menus.end(),
+        [](const auto& menu) { return menu.selected.has_value(); })>=2;
+}
 State read_game_text(const Frame& frame,const std::vector<TextLine>& lines,std::uint64_t generation) {
     State state;
     if (!frame.valid()) return state;

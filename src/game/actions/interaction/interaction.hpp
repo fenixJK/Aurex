@@ -9,7 +9,7 @@ enum class InteractionStage { idle, waiting, pressing, confirming, completed, fa
 class Interaction {
 public:
     Interaction(game::TextTarget prompt,game::TextTarget result,Time timeout);
-    Interaction(game::PromptLandmark prompt,game::PromptLandmark result,Time timeout);
+    Interaction(game::PromptLandmark prompt,game::PromptLandmark result,Time timeout,bool accept_existing_result=false);
     void start(const ObservationContext& context);
     void update(const ObservationContext& context,const game::State& state,TaskPort& tasks,ModuleScope scope);
     void stop(TaskPort& tasks,ModuleScope scope);
@@ -24,6 +24,7 @@ private:
     std::string pending_,reason_;
     bool prompt_seen_{};
     bool owned_{};
+    bool accept_existing_result_{};
     unsigned attempts_{};
     Time pressed_{};
     game::Reading<bool> read(const Target& target,const ObservationContext& context,const game::State& state) const;

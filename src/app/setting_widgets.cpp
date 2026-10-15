@@ -83,22 +83,22 @@ class CollectionControl final : public CollectionEditor {
         close->setAccessibleName("Remove "+q(choice)); close->setToolTip(close->accessibleName());
         fields_->setTabButton(index,QTabBar::RightSide,close);
         connect(close,&QToolButton::clicked,this,[this,close] {
-            for(int i=0;i<fields_->count();++i) if(fields_->tabButton(i,QTabBar::RightSide)==close) { fields_->removeTab(i); refresh(); break; }
+            for(int i=0;i<fields_->count();++i) if(fields_->tabButton(i,QTabBar::RightSide)==close) { fields_->removeTab(i); refresh(true); break; }
         });
         return index;
     }
-    void refresh() {
+    void refresh(bool edited=false) {
         const auto selected=value(); available_->clear();
         for(const auto& choice:choices_) if(std::find(selected.begin(),selected.end(),choice)==selected.end()) {
             auto action=available_->addAction(q(choice));
             connect(action,&QAction::triggered,this,[this,choice] {
-                fields_->setCurrentIndex(addField(choice)); refresh();
+                fields_->setCurrentIndex(addField(choice)); refresh(true);
             });
         }
         add_->setEnabled(!available_->isEmpty());
         if(fields_->currentIndex()>=0) pages_->setCurrentWidget(editors_.at(fields_->tabText(fields_->currentIndex()).toStdString()));
         pages_->setVisible(fields_->count()>0); empty_->setVisible(fields_->count()==0); defaults_->setEnabled(fields_->count()>0);
-        if(changed) changed();
+        if(edited && !signalsBlocked() && changed) changed();
     }
 public:
     CollectionControl(const std::vector<std::string>& choices,const SettingSelection& selected,const std::string& label):choices_(choices) {
@@ -118,8 +118,8 @@ public:
             editors_[choice]=panel; pages_->addWidget(panel);
         }
         connect(fields_,&QTabBar::currentChanged,this,[this] { refresh(); if(this->selected) this->selected(); });
-        connect(fields_,&QTabBar::tabMoved,this,[this] { refresh(); });
-        connect(fields_,&QTabBar::tabCloseRequested,this,[this](int index) { fields_->removeTab(index); refresh(); });
+        connect(fields_,&QTabBar::tabMoved,this,[this] { refresh(true); });
+        connect(fields_,&QTabBar::tabCloseRequested,this,[this](int index) { fields_->removeTab(index); refresh(true); });
         connect(reset,&QPushButton::clicked,this,[this] { if(fields_->currentIndex()>=0 && restore) restore(fields_->tabText(fields_->currentIndex()).toStdString()); });
         setValue(selected);
     }
@@ -135,9 +135,10 @@ public:
         SettingSelection result; for(int i=0;i<fields_->count();++i) result.push_back(fields_->tabText(i).toStdString()); return result;
     }
     void setValue(const SettingSelection& selected) override {
+        const auto before=value();
         QSignalBlocker block(fields_); while(fields_->count()) fields_->removeTab(0);
         for(const auto& choice:selected) if(editors_.contains(choice)) addField(choice);
-        if(fields_->count()) fields_->setCurrentIndex(0); refresh();
+        if(fields_->count()) fields_->setCurrentIndex(0); refresh(value()!=before);
         if(this->selected) this->selected();
     }
 };

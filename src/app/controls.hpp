@@ -1,5 +1,11 @@
 #pragma once
 #include <QCheckBox>
+#include <QAbstractSpinBox>
+#include <QAbstractScrollArea>
+#include <QApplication>
+#include <QComboBox>
+#include <QEvent>
+#include <QWheelEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QProxyStyle>
@@ -11,8 +17,35 @@ namespace hive::app {
 class ControlsStyle final : public QProxyStyle {
 public:
     ControlsStyle():QProxyStyle(QStyleFactory::create("Fusion")) {}
+    void polish(QWidget* widget) override {
+        QProxyStyle::polish(widget);
+        if (qobject_cast<QAbstractSpinBox*>(widget) || qobject_cast<QComboBox*>(widget)) {
+            widget->setFocusPolicy(Qt::StrongFocus);
+            widget->installEventFilter(this);
+        }
+    }
+    void unpolish(QWidget* widget) override {
+        widget->removeEventFilter(this);
+        QProxyStyle::unpolish(widget);
+    }
+    bool eventFilter(QObject* object,QEvent* event) override {
+        if (event->type()==QEvent::Wheel && !static_cast<QWidget*>(object)->hasFocus()) {
+            auto* wheel=static_cast<QWheelEvent*>(event);
+            for(auto* parent=static_cast<QWidget*>(object)->parentWidget();parent;parent=parent->parentWidget())
+                if(auto* area=qobject_cast<QAbstractScrollArea*>(parent)) {
+                    auto* viewport=area->viewport();
+                    QWheelEvent forwarded(viewport->mapFromGlobal(wheel->globalPosition()),wheel->globalPosition(),
+                        wheel->pixelDelta(),wheel->angleDelta(),wheel->buttons(),wheel->modifiers(),wheel->phase(),wheel->inverted(),wheel->source(),wheel->pointingDevice());
+                    QApplication::sendEvent(viewport,&forwarded);
+                    event->setAccepted(forwarded.isAccepted()); return true;
+                }
+            event->ignore(); return true;
+        }
+        return QProxyStyle::eventFilter(object,event);
+    }
     int pixelMetric(PixelMetric metric,const QStyleOption* option=nullptr,const QWidget* widget=nullptr) const override {
         if (metric==PM_IndicatorWidth || metric==PM_IndicatorHeight) return 18;
+        if (metric==PM_TabBarScrollButtonWidth) return 24;
         return QProxyStyle::pixelMetric(metric,option,widget);
     }
     QRect subElementRect(SubElement element,const QStyleOption* option,const QWidget* widget=nullptr) const override {

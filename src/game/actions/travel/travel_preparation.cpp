@@ -23,6 +23,10 @@ public:
         ++conversion_retries_;
         return hive_;
     }
+    bool resume_after_reconnect(const View&) override {
+        phase_=Phase::hive; conversion_retries_=0;
+        return true;
+    }
     Step next(const View&) override {
         if (phase_==Phase::movement) {
             if (movement_) return RunProgram{movement_};

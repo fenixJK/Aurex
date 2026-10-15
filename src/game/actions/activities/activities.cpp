@@ -421,7 +421,7 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
     if (auto* prompt=std::get_if<UsePrompt>(&*step_)) {
         if (!permissions_.contains(Permission::interact)) throw std::runtime_error("Prompt interaction permission was not granted");
         if (!interaction_) {
-            interaction_.emplace(prompt->prompt,prompt->result,prompt->timeout);
+            interaction_.emplace(prompt->prompt,prompt->result,prompt->timeout,prompt->accept_existing_result);
             interaction_->start(c);
         }
         progress_.message="Confirming interaction"; interaction_->update(c,s,tasks_,scope_);

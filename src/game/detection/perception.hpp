@@ -10,6 +10,7 @@ struct HudFeatures {
     std::optional<std::array<Rect,2>> resources;
 };
 HudFeatures inspect_hud(const Frame& frame,std::uint64_t generation);
+bool game_hud_visible(const HudFeatures& hud);
 class HudInspector {
     std::optional<Rect> menu_region_;
     std::vector<MenuControl> menu_hints_;

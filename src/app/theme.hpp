@@ -48,6 +48,7 @@ inline void apply_theme(QApplication& app) {
         QTabBar::tab { background:transparent; color:#9cacae; padding:5px 9px; margin:0 4px 5px 0; border-radius:5px; }
         QTabBar::tab:selected { background:#263e35; color:#c8f3cd; }
         QTabBar::tab:hover { background:#263e35; }
+        QTabBar QToolButton#ScrollLeftButton,QTabBar QToolButton#ScrollRightButton { background:#19252c; border:1px solid #34444d; border-radius:3px; padding:0; }
         QPushButton#primary { background:#b5e6b9; color:#122219; border-color:#b5e6b9; font-weight:600; }
         QPushButton#primary:hover { background:#cdf2d0; }
         QPushButton#primary:pressed { background:#88ba91; padding-top:7px; padding-bottom:3px; }

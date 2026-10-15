@@ -39,11 +39,12 @@ public:
     explicit AwaitRespawn(std::shared_ptr<const game::RespawnSource> source):source_(std::move(source)) {
         if (!source_) throw std::invalid_argument("Respawn wait needs game observations");
     }
-    RunConfig config() const override { return {Time(25000),28,{},true,true}; }
+    RunConfig config() const override { return {Time(30000),28,{},true,true}; }
     bool expects_respawn() const noexcept override { return true; }
     Step next(const View& view) override {
         if (started_<Time{}) started_=view.context.now;
         if (completion_.ready(view,*source_,started_)) return Done{"Game view returned after respawn"};
+        if (view.context.now-started_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return the game view; rejoining Bee Swarm");
         return Wait{Time(100),"Waiting for player respawn"};
     }
 };
@@ -71,7 +72,7 @@ public:
             stage_=Stage::transition; started_=minimum_=c.now;
         }
         if (c.now-started_>=(stage_==Stage::transition?Time(25000):Time(8000)))
-            throw std::runtime_error(stage_==Stage::transition?"Respawn transition timed out":"Respawn menu could not be confirmed");
+            throw ClientRejoinRequired(stage_==Stage::transition?"Respawn transition timed out":"Respawn menu could not be confirmed");
         if (stage_==Stage::transition) {
             if (!completion_.ready(view,*source_,minimum_)) return Wait{Time(100),"Waiting for player respawn"};
             stage_=Stage::done; return next(view);

@@ -138,8 +138,7 @@ void Observer::capture() {
                 backpack=features->backpack;
                 const auto& controls=features->menus;
                 menus={Knowledge::present,controls,frame.captured,frame.window,context.generation};
-                game_hud={Knowledge::present,backpack.knowledge==Knowledge::present || std::count_if(controls.begin(),controls.end(),
-                    [](const auto& control) { return control.selected.has_value(); })>=2,frame.captured,frame.window,context.generation};
+                game_hud={Knowledge::present,game_hud_visible(*features),frame.captured,frame.window,context.generation};
                 if (connection) connection_regions=connection_text_regions(frame,game_hud.value);
                 if (game_hud.value) {
                     const auto health=read_empty_health_bar(frame,context.generation);
@@ -238,18 +237,24 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
                     return r.x<prompt->x+prompt->width && r.x+r.width>prompt->x
                         && r.y<prompt->y+prompt->height && r.y+r.height>prompt->y;
                 })) prompt.reset();
-                const auto hive_region=hive_proximity_prompt().region;
+                const auto hive_region=interaction_prompt_search_region;
                 hive_requested=prompt.has_value() || std::any_of(regions.begin(),regions.end(),[&](const auto& r) {
                     return r.x<=hive_region.x && r.y<=hive_region.y && r.x+r.width>=hive_region.x+hive_region.width && r.y+r.height>=hive_region.y+hive_region.height;
                 });
-                if (prompt) regions=exclude_text_region(std::move(regions),*prompt);
+                std::erase(regions,interaction_prompt_search_region);
+                if (prompt) {
+                    regions=exclude_text_region(std::move(regions),*prompt);
+                }
                 if (regions.size()>64) regions=prompt?exclude_text_region({{0,0,1,1}},*prompt):std::vector<Rect>{{0,0,1,1}};
                 lines=recognition.read(desktop_,*frame,generation,std::move(regions),cancelled);
                 if (prompt) {
                     const auto image=interaction_text_image(*frame,*prompt);
-                    auto isolated=prompt_recognition.read(desktop_,image,generation,{{0,0,1,1}},cancelled);
+                    std::vector<TextLine> isolated;
+                    if (const auto label=interaction_label(image)) isolated.push_back(*label);
+                    else isolated=prompt_recognition.read(desktop_,image,generation,{{0,0,1,1}},cancelled);
                     for (auto& line:isolated) {
-                        line.pixels.x+=std::floor(prompt->x*frame->width); line.pixels.y+=std::floor(prompt->y*frame->height);
+                        line.pixels.x+=std::floor(prompt->x*frame->width)-interaction_text_padding;
+                        line.pixels.y+=std::floor(prompt->y*frame->height)-interaction_text_padding;
                     }
                     lines.insert(lines.end(),isolated.begin(),isolated.end());
                 } else prompt_recognition.clear();

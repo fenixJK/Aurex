@@ -7,7 +7,7 @@ namespace {
 int nectar_color(const Frame& frame,int x,int y) { return detail::nectar_color(frame,x,y,20); }
 class NectarDetector final : public Detector {
 public:
-    std::vector<Rect> text_regions(const Frame&,std::uint64_t) const override { return {{0,0,1,.4}}; }
+    std::vector<Rect> text_regions(const Frame&,std::uint64_t) const override { return {}; }
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         auto result=std::make_shared<NectarDetection>();
         result->levels=read_nectar(input);

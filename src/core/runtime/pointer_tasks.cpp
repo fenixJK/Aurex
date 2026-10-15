@@ -40,6 +40,7 @@ void PointerTasks::tick(Input& input,const Window& window,Time now,bool can_star
     now_=now;
     if (id_.empty()) { release(input); return; }
     if (!started_) {
+        release(input);
         if (!can_start) return;
         expires_+=now;
     }

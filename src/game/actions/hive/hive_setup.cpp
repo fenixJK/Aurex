@@ -113,7 +113,7 @@ public:
                 stage_=Stage::unlock; return next(view);
             }
             if (result_) result_->reset();
-            return UsePrompt{game::hive_claim_prompt(),game::hive_proximity_prompt()};
+            return UsePrompt{game::hive_claim_prompt(),game::hive_proximity_prompt(),Time(15000),true};
         }
         case Stage::unlock: return RunProgram{[] { return set_shift_lock(false); }};
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};

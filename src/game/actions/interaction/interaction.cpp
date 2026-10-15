@@ -8,8 +8,8 @@ Interaction::Interaction(game::TextTarget prompt,game::TextTarget result,Time ti
     std::visit([](const auto& target) { game::validate(target); },result_);
     if (timeout<Time(1000) || timeout>Time(60000)) throw std::invalid_argument("Invalid interaction timeout");
 }
-Interaction::Interaction(game::PromptLandmark prompt,game::PromptLandmark result,Time timeout)
-    :prompt_(std::move(prompt)),result_(std::move(result)),timeout_(timeout) {
+Interaction::Interaction(game::PromptLandmark prompt,game::PromptLandmark result,Time timeout,bool accept_existing_result)
+    :prompt_(std::move(prompt)),result_(std::move(result)),timeout_(timeout),accept_existing_result_(accept_existing_result) {
     std::visit([](const auto& target) { game::validate(target); },prompt_);
     std::visit([](const auto& target) { game::validate(target); },result_);
     if (timeout<Time(1000) || timeout>Time(60000)) throw std::invalid_argument("Invalid interaction timeout");
@@ -61,7 +61,8 @@ void Interaction::update(const ObservationContext& c,const game::State& state,Ta
                 last_result_=state.text.captured;
                 const auto result=read(result_,c,state);
                 if (result.knowledge==Knowledge::present && result.value) {
-                    if (exact) fail("Interaction already shows its result");
+                    if (exact && accept_existing_result_ && read(prompt_,c,state).value) return;
+                    if (exact && !accept_existing_result_) fail("Interaction already shows its result");
                     else finish(InteractionStage::completed,"Station result confirmed",tasks,scope);
                     return;
                 }
@@ -78,7 +79,7 @@ void Interaction::update(const ObservationContext& c,const game::State& state,Ta
                 && (!exact || !read(prompt_,c,state).value);
             last_result_=state.text.captured;
             if (result) finish(InteractionStage::completed,"Station result confirmed",tasks,scope);
-            else if (!exact && attempts_<3 && observed.knowledge==Knowledge::absent
+            else if ((!exact || accept_existing_result_) && attempts_<3 && observed.knowledge==Knowledge::absent
                 && state.text.captured>=pressed_+Time(750) && read(prompt_,c,state).value) {
                 prompt_seen_=true; stage_=InteractionStage::waiting;
             }

@@ -28,7 +28,7 @@ class HiveSurvey final : public Program {
     }
     Step check_slot(const View& view) {
         const auto& c=view.context;
-        if (c.now-minimum_>=Time(4000)) throw std::runtime_error("Hive slot prompt could not be read");
+        if (c.now-minimum_>=Time(4000)) throw ObservationUnavailable("Hive slot prompt could not be read");
         const auto wait=[&] { return Step(Wait{Time(50),"Checking hive slot "+std::to_string(selected_)}); };
         if (!view.observations) return wait();
         const auto& text=view.observations->text;
@@ -52,7 +52,7 @@ class HiveSurvey final : public Program {
             const auto previous=std::abs(int(next_slot_)-int(selected_));
             if (!next_slot_ || distance<previous || (distance==previous && selected_>3)) next_slot_=slot;
         }
-        if (!next_slot_) throw std::runtime_error("No owned or claimable hive found in the six-slot scan");
+        if (!next_slot_) throw ClientRejoinRequired("No owned or claimable hive found; rejoining Bee Swarm");
         stage_=Stage::scan; return next(view);
     }
     bool started_{};
@@ -88,7 +88,7 @@ public:
         case Stage::check: return check_slot(view);
         case Stage::scan: return FollowPath{movement_->path("hive",{{"action",std::string("scan")},
             {"from",int(selected_)},{"to",int(next_slot_)}},claim_->speed).at(0)};
-        case Stage::claim: return UsePrompt{game::hive_claim_prompt(),game::hive_proximity_prompt()};
+        case Stage::claim: return UsePrompt{game::hive_claim_prompt(),game::hive_proximity_prompt(),Time(15000),true};
         case Stage::done: return Done{result_};
         case Stage::observe: break;
         }
