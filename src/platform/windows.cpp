@@ -11,6 +11,8 @@
 #include <winrt/Windows.Media.Ocr.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -52,8 +54,9 @@ bool roblox_process(std::int64_t pid) {
     return process && roblox_process(process.get());
 }
 class WindowsDesktop final : public Desktop {
-    static constexpr DWORD mouse_interval=100;
+    static constexpr DWORD mouse_dwell=100;
     std::optional<ULONGLONG> primary_pressed_;
+    winrt::handle pointer_timer_;
 public:
     bool client_lifecycle_available() const override { return true; }
     std::vector<std::int64_t> client_processes() override {
@@ -199,13 +202,13 @@ public:
         if (key==Key::primary) {
             if (!down && primary_pressed_) {
                 const auto elapsed=GetTickCount64()-*primary_pressed_;
-                if (elapsed<mouse_interval) Sleep(mouse_interval-static_cast<DWORD>(elapsed));
+                if (elapsed<mouse_dwell) Sleep(mouse_dwell-static_cast<DWORD>(elapsed));
             }
             INPUT input{}; input.type=INPUT_MOUSE;
             input.mi.dwFlags=down?MOUSEEVENTF_LEFTDOWN:MOUSEEVENTF_LEFTUP;
             if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Mouse button input was blocked by Windows");
             if (down) primary_pressed_=GetTickCount64();
-            else { primary_pressed_.reset(); Sleep(mouse_interval); }
+            else { primary_pressed_.reset(); Sleep(mouse_dwell); }
             return;
         }
         if (key==Key::select_all) {
@@ -237,14 +240,28 @@ public:
         POINT from{};
         if (!GetCursorPos(&from)) throw std::runtime_error("Could not read cursor position");
         if (std::abs(point.x-from.x)<.5 && std::abs(point.y-from.y)<.5) return;
-        const auto started=GetTickCount64();
+        if (!pointer_timer_) {
+            pointer_timer_=winrt::handle{CreateWaitableTimerExW(nullptr,nullptr,CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,TIMER_MODIFY_STATE | SYNCHRONIZE)};
+            if (!pointer_timer_) throw std::runtime_error("Could not create pointer timer");
+        }
+        using Clock=std::chrono::steady_clock;
+        constexpr auto travel=std::chrono::milliseconds(100),interval=std::chrono::milliseconds(4);
+        const auto started=Clock::now(),finished=started+travel;
         for (;;) {
-            Sleep(10);
-            const double part=std::min(1.,double(GetTickCount64()-started)/mouse_interval);
-            move({from.x+(point.x-from.x)*part,from.y+(point.y-from.y)*part});
+            const auto now=Clock::now();
+            if (now<finished) {
+                LARGE_INTEGER due{};
+                due.QuadPart=-std::max<LONGLONG>(1,std::chrono::duration_cast<std::chrono::nanoseconds>(std::min(finished,now+interval)-now).count()/100);
+                if (!SetWaitableTimer(pointer_timer_.get(),&due,0,nullptr,nullptr,FALSE)
+                    || WaitForSingleObject(pointer_timer_.get(),INFINITE)!=WAIT_OBJECT_0)
+                    throw std::runtime_error("Pointer timer failed");
+            }
+            const double part=std::min(1.,std::chrono::duration<double>(Clock::now()-started)/std::chrono::duration<double>(travel));
+            const double eased=part*part*(3-2*part);
+            move({from.x+(point.x-from.x)*eased,from.y+(point.y-from.y)*eased});
             if (part==1.) break;
         }
-        Sleep(mouse_interval);
+        Sleep(mouse_dwell);
     }
     void scroll(int lines) override {
         if (lines<-8 || lines>8) throw std::invalid_argument("Invalid scroll distance");
