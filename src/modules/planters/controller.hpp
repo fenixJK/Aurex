@@ -60,7 +60,7 @@ public:
     Outcome observe(std::uint64_t ticket,const ObservationContext& context,WallTime wall,const Observation<Placements>& placements,
         const Observation<HarvestEvidence>& harvested={});
     void input_finished(std::uint64_t ticket,const ObservationContext& context);
-    void placement_accepted(std::uint64_t ticket,const ObservationContext& context,WallTime wall);
+    void placement_rejected(std::uint64_t ticket,WallTime wall);
     void interrupt() noexcept;
     void record_travel(const std::string& field,double seconds);
     void exclude_offline(WallTime begin,WallTime end);

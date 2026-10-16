@@ -180,7 +180,7 @@ public:
         case Stage::restore: return MoveCamera{{Key::rotate_right,4}};
         case Stage::locate: {
             if (options_.confirmed_spawn) {
-                if (view.observations && view.observations->game_hud.has_value(c,Time(2000),minimum_) && view.observations->game_hud.value) {
+                if (view.observations && view.observations->game_hud.has_value(c,Time(2000)) && view.observations->game_hud.value) {
                     stage_=Stage::zoom; return next(view);
                 }
                 if (c.now-minimum_>=Time(120000)) throw ClientRejoinRequired("Bee Swarm did not finish loading");

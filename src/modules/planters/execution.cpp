@@ -601,6 +601,14 @@ public:
         }
         if (phase_==Phase::acting) return emit(steps_.at(action_step_++));
         if (phase_==Phase::confirming) {
+            if (!harvest_ && view.observations
+                && game::planter_capacity_error(view.context,view.observations->text).has_value(view.context,Time(2000),minimum_)) {
+                controller_->placement_rejected(controller_->ledger().pending->ticket,now);
+                finish_reason_="The game already has 3 planters; update Timers to match";
+                pending_report_=ActivityStatus{"Planter not placed",finish_reason_,ActivityKind::failure};
+                phase_=Phase::placed; publish(ExecutionStage::returning);
+                return next(view);
+            }
             if (view.context.now>=deadline_) throw ObservationUnavailable(harvest_?"Planter harvest was not confirmed":"Planter placement was not confirmed");
             const auto evidence=scan(view,snapshot)?snapshot.placements:Observation<Placements>{};
             auto receipt=harvest_action_?harvest_receipt(selected_,nectar_before_,snapshot,view.context,minimum_):Observation<HarvestEvidence>{};
@@ -634,12 +642,6 @@ public:
         } else if (phase_==Phase::approaching) {
             begin_baseline(view);
         } else if (phase_==Phase::acting && (action_step_==steps_.size() || (harvest_action_ && action_step_==1))) {
-            const auto* dialog=std::get_if<AnswerDialog>(&steps_.at(action_step_-1));
-            if (!harvest_ && dialog && dialog->plan.choice==workflows::DialogChoice::yes) {
-                controller_->placement_accepted(controller_->ledger().pending->ticket,view.context,wall());
-                complete_action();
-                return;
-            }
             if (!harvest_action_ || action_step_==1) controller_->input_finished(controller_->ledger().pending->ticket,view.context);
             phase_=Phase::confirming; minimum_=view.context.now+Time(1); deadline_=view.context.now+Time(10000); publish(ExecutionStage::confirming);
         } else if (phase_==Phase::returning && plan_.conversion && plan_.conversion->enabled && (harvest_confirmed_ || plan_.conversion->every_return)) {

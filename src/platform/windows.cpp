@@ -26,7 +26,10 @@ Window describe(HWND hwnd) {
     RECT r{}; POINT origin{}; DWORD pid{}; wchar_t title[512]{};
     if (!IsWindow(hwnd) || !IsWindowVisible(hwnd) || IsIconic(hwnd) || !GetClientRect(hwnd,&r)
         || !ClientToScreen(hwnd,&origin) || r.right<=0 || r.bottom<=0) return {};
-    GetWindowThreadProcessId(hwnd,&pid); GetWindowTextW(hwnd,title,512);
+    GetWindowThreadProcessId(hwnd,&pid);
+    // Reading our own title sends a synchronous message to the UI thread.
+    if (!pid || pid==GetCurrentProcessId()) return {};
+    GetWindowTextW(hwnd,title,512);
     return {reinterpret_cast<std::uint64_t>(hwnd),pid,utf8(title),{double(origin.x),double(origin.y),double(r.right),double(r.bottom)}};
 }
 WORD code(Key key) {
@@ -125,18 +128,11 @@ public:
     std::vector<Window> windows() override {
         std::vector<Window> result;
         EnumWindows([](HWND hwnd, LPARAM data) -> BOOL {
+            DWORD pid{}; GetWindowThreadProcessId(hwnd,&pid);
+            if (!pid || pid==GetCurrentProcessId() || !roblox_process(pid)) return TRUE;
             auto window=describe(hwnd);
-            if (!window.id || window.bounds.width<300 || window.bounds.height<200) return TRUE;
-            HANDLE process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,static_cast<DWORD>(window.process));
-            if (!process) return TRUE;
-            wchar_t path[32768]{}; DWORD size=32768;
-            bool ok=QueryFullProcessImageNameW(process,0,path,&size); CloseHandle(process);
-            if (ok) {
-                std::wstring name(path); auto slash=name.find_last_of(L"\\/");
-                if (slash!=std::wstring::npos) name=name.substr(slash+1);
-                if (_wcsicmp(name.c_str(),L"RobloxPlayerBeta.exe")==0)
-                    reinterpret_cast<std::vector<Window>*>(data)->push_back(std::move(window));
-            }
+            if (window.process==pid && window.bounds.width>=300 && window.bounds.height>=200)
+                reinterpret_cast<std::vector<Window>*>(data)->push_back(std::move(window));
             return TRUE;
         },reinterpret_cast<LPARAM>(&result));
         return result;

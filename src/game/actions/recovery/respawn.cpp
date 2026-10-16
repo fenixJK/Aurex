@@ -3,23 +3,25 @@
 namespace hive::automation {
 namespace {
 class RespawnCompletion {
-    bool transitioned_{},was_away_{};
+    bool transitioned_{},menu_seen_{};
 public:
     explicit RespawnCompletion(bool already_died=false):transitioned_(already_died) {}
-    void departing(const View& view) {
-        if (!view.observations) return;
-        const auto& prompt=view.observations->hive_prompt;
-        if (prompt.usable(view.context,Time(2000))) was_away_=prompt.knowledge==Knowledge::absent;
+    void observe_menu(const ObservationContext& c,const Observation<game::RespawnView>& reading) {
+        if (reading.has_value(c,Time(2000)) && (reading.value.screen==game::RespawnScreen::menu
+            || reading.value.screen==game::RespawnScreen::confirmation)) menu_seen_=true;
     }
-    bool ready(const View& view,const game::RespawnSource& source,Time minimum) {
+    bool ready(const View& view,const game::RespawnSource& source,Time minimum,Time transition) {
         const auto& c=view.context;
         const auto* state=view.observations;
-        if (state && state->last_death.has_value(c,Time(25000),minimum) && state->last_death.value) transitioned_=true;
+        if (state && state->last_death.has_value(c,Time(25000),transition) && state->last_death.value) transitioned_=true;
         const bool health=state && state->alive.has_value(c,Time(2000),minimum);
         const bool hud=state && state->game_hud.has_value(c,Time(2000),minimum);
         const auto reading=source.read(c);
         const bool observed=reading.has_value(c,Time(2000),minimum);
-        if (observed && (reading.value.screen==game::RespawnScreen::menu || reading.value.screen==game::RespawnScreen::confirmation)) return false;
+        if (observed && (reading.value.screen==game::RespawnScreen::menu || reading.value.screen==game::RespawnScreen::confirmation)) {
+            menu_seen_=true; return false;
+        }
+        if (state && state->connection.has_value(c,Time(2000)) && state->connection.value==game::Connection::disconnected) return false;
         if (health && !state->alive.value) {
             transitioned_=true; return false;
         }
@@ -27,9 +29,12 @@ public:
             transitioned_=true;
             if (!health || state->alive.captured<=reading.captured) return false;
         }
-        const bool returned=(hud && state->game_hud.value && health)
-            || (observed && (reading.value.screen==game::RespawnScreen::game || reading.value.screen==game::RespawnScreen::controls));
-        return returned && (transitioned_ || (was_away_ && state && state->at_hive.has_value(c,Time(2000),minimum) && state->at_hive.value));
+        const bool game=observed && (reading.value.screen==game::RespawnScreen::game || reading.value.screen==game::RespawnScreen::controls);
+        const bool returned=(hud && state->game_hud.value && health) || game;
+        // A returned game view after the reset menu, or our own hive prompt, is
+        // sufficient even when capture missed the brief empty health bar.
+        return returned && (transitioned_ || (menu_seen_ && game)
+            || (state && state->at_hive.has_value(c,Time(2000),minimum) && state->at_hive.value));
     }
 };
 class AwaitRespawn final : public Program {
@@ -44,7 +49,7 @@ public:
     bool expects_respawn() const noexcept override { return true; }
     Step next(const View& view) override {
         if (started_<Time{}) started_=view.context.now;
-        if (completion_.ready(view,*source_,started_)) return Done{"Game view returned after respawn"};
+        if (completion_.ready(view,*source_,started_,started_)) return Done{"Game view returned after respawn"};
         if (view.context.now-started_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return the game view; rejoining Bee Swarm");
         return Wait{Time(100),"Waiting for player respawn"};
     }
@@ -67,7 +72,6 @@ public:
         const auto& c=view.context;
         if (started_<Time{}) started_=minimum_=c.now;
         if (stage_==Stage::done) return Done{"Respawn finished; confirming the hive"};
-        if (stage_==Stage::locate) completion_.departing(view);
         if (stage_==Stage::locate && view.observations && view.observations->alive.has_value(c,Time(2000),minimum_)
             && !view.observations->alive.value) {
             stage_=Stage::transition; started_=c.now; transition_=view.observations->alive.captured;
@@ -75,9 +79,11 @@ public:
         if (c.now-started_>=(stage_==Stage::transition?Time(25000):Time(8000)))
             throw ClientRejoinRequired(stage_==Stage::transition?"Respawn transition timed out":"Respawn menu could not be confirmed");
         if (stage_==Stage::transition) {
-            if (!completion_.ready(view,*source_,transition_)) return Wait{Time(100),"Waiting for player respawn"};
+            if (!completion_.ready(view,*source_,minimum_,transition_)) return Wait{Time(100),"Waiting for player respawn"};
             stage_=Stage::done; return next(view);
         }
+        const auto reading=source_->read(c);
+        completion_.observe_menu(c,reading);
         if (stage_==Stage::select) {
             stage_=Stage::confirm; issued_=true;
             return TapMenuKey{Key::respawn,"Select respawn"};
@@ -86,7 +92,6 @@ public:
             stage_=Stage::transition; transition_=c.now; issued_=true;
             return TapMenuKey{Key::confirm,"Confirm respawn"};
         }
-        const auto reading=source_->read(c);
         if (!reading.has_value(c,Time(2000),minimum_)) {
             if (stage_==Stage::locate && view.observations
                 && ((view.observations->game_hud.has_value(c,Time(2000),minimum_) && view.observations->game_hud.value)
@@ -97,7 +102,6 @@ public:
             return Wait{Time(50),"Waiting for respawn menu"};
         }
         const auto screen=reading.value.screen;
-        if (screen==game::RespawnScreen::game) completion_.departing(view);
         if (screen==game::RespawnScreen::respawning) {
             stage_=Stage::transition; started_=c.now; transition_=reading.captured;
             return next(view);
@@ -116,7 +120,7 @@ public:
     }
     void step_completed(const View& view) override {
         if (!issued_) return;
-        issued_=false; minimum_=view.context.now+Time(1);
+        issued_=false; minimum_=view.context.now;
         if (stage_==Stage::transition) started_=view.context.now;
     }
 };

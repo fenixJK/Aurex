@@ -28,6 +28,7 @@ public:
     virtual Observation<std::string> interaction(const ObservationContext&) const { return {}; }
 };
 PromptLandmark planter_harvest_prompt(const std::string& type);
+Observation<bool> planter_capacity_error(const ObservationContext& context,const Reading<TextSnapshot>& text);
 Observation<std::vector<PlanterReward>> read_planter_rewards(const DetectionInput& input);
 Observation<std::string> read_planter_interaction(const DetectionInput& input);
 std::shared_ptr<const LandmarkSource> planter_proximity(std::shared_ptr<const PlanterSource> source,std::string type);

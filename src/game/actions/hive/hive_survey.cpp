@@ -105,7 +105,6 @@ public:
         }
         const auto& c=view.context;
         if (c.now-minimum_>=Time(5000)) {
-            if (can_scan()) { start_scan(); return next(view); }
             throw std::runtime_error("Hive survey could not confirm a stable view");
         }
         const auto reading=source_->read(c);
@@ -125,7 +124,6 @@ public:
                     stage_=Stage::departure_pitch;
                 } else stage_=Stage::done;
             } else if (std::all_of(reading.value.begin(),reading.value.end(),[](auto value) { return value==Knowledge::absent; })) {
-                if (can_scan()) { start_scan(); return next(view); }
                 if (claim_ && !claim_->search_opposite_view) throw std::runtime_error("No empty hive candidates in the confirmed spawn view");
                 if (!turned_) stage_=Stage::turn;
                 else {
@@ -155,6 +153,7 @@ public:
             ++claim_attempts_; pressed_=view.context.now; check_site(view.context.now);
         }
         else if (stage_==Stage::pitch || stage_==Stage::turn) {
+            if (can_scan()) { start_scan(); return; }
             turned_=stage_==Stage::turn;
             stage_=Stage::observe; minimum_=view.context.now+Time(150); seen_=Time(-1);
         }

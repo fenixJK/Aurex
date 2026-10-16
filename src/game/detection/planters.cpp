@@ -167,6 +167,14 @@ PromptLandmark planter_harvest_prompt(const std::string& type) {
     const auto prompt="Harvest the "+std::string(found->first);
     return {{prompt},{.2,0,.6,.3},.5f,PromptMatch::prefix,true};
 }
+Observation<bool> planter_capacity_error(const ObservationContext& c,const Reading<TextSnapshot>& text) {
+    for (const auto region:{Rect{.5,.4,.5,.6},Rect{.15,.2,.7,.5}}) {
+        const auto error=read_prompt_landmark(c,text,{{"already have 3 planters","already have three planters"},
+            region,.8f,PromptMatch::phrase,true});
+        if (error.has_value(c,Time(2000)) && error.value) return error;
+    }
+    return {};
+}
 namespace {
 Observation<std::string> read_interaction(const DetectionInput& input,const Observation<std::vector<VisiblePlanter>>& visible) {
     const auto& f=input.frame;
