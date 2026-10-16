@@ -7,6 +7,7 @@ template<class T> using Reading = Observation<T>;
 enum class HivePrompt { make_honey, stop_making_honey, none, collect_pollen };
 enum class Connection { connected, disconnected };
 struct TextSnapshot { int width{},height{}; std::vector<TextLine> lines; };
+struct InteractionCaption { std::string label; bool cooldown{}; };
 struct DialogButtons { Point yes,no; };
 enum class MenuTab { inventory,quests,settings };
 struct MenuControl {
@@ -23,6 +24,7 @@ struct State {
     Reading<double> backpack_percent;
     Reading<HivePrompt> hive_prompt;
     Reading<TextSnapshot> text;
+    Reading<InteractionCaption> interaction_caption;
     Reading<double> movement_speed;
     Reading<bool> shift_lock;
     Reading<Point> open_menu;

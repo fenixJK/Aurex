@@ -37,19 +37,37 @@ float similarity(const cv::Mat& ink,const cv::Mat& pattern) {
     }
     return static_cast<float>(best);
 }
-std::vector<cv::Rect> word_boxes(const cv::Mat& line) {
+std::vector<cv::Rect> word_boxes(const cv::Mat& line,double gap=.25) {
     std::vector<cv::Rect> words;
     for (int x=0;x<line.cols;) {
         if (!cv::countNonZero(line.col(x))) { ++x; continue; }
         const int left=x++;
         int right=x;
-        while (x<line.cols && x-right<line.rows*.25) {
+        while (x<line.cols && x-right<line.rows*gap) {
             if (cv::countNonZero(line.col(x))) right=x+1;
             ++x;
         }
         words.push_back(cv::boundingRect(line.colRange(left,right))+cv::Point(left,0));
     }
     return words;
+}
+float words_similarity(const cv::Mat& line,const cv::Mat& pattern,unsigned prefix) {
+    const auto expected=word_boxes(pattern,.4);
+    if (expected.size()<=prefix) return 0;
+    float best=0;
+    // Rasterization changes the apparent gaps between letters at small UI scales.
+    for (double gap:{.25,.4}) {
+        const auto words=word_boxes(line,gap);
+        if (words.size()!=expected.size()) continue;
+        float total=0;
+        for (std::size_t i=0;i<expected.size();++i) {
+            const auto score=similarity(line(words[i]),pattern(expected[i]));
+            if (score<(i<prefix?.6f:.75f)) { total=0; break; }
+            if (i>=prefix) total+=score;
+        }
+        best=std::max(best,total/(expected.size()-prefix));
+    }
+    return best;
 }
 float phrase_similarity(const cv::Mat& ink,const cv::Mat& pattern) {
     // Keep word boundaries, but allow the rest of the caption to wrap independently.
@@ -134,6 +152,8 @@ std::optional<Rect> locate_prompt(const Frame& frame,bool captions) {
             for (const double top:{y+bar_height*1.08,y+bar_height*.08}) {
                 if (top+height>frame.height) continue;
                 const Rect region{x/frame.width,top/frame.height,width/frame.width,height/frame.height};
+                // Cooldown captions keep the banner below the HUD, but hide the E key.
+                if (interaction_cooldown(frame,region)) return region;
                 const auto label=interaction_label(interaction_text_image(frame,region));
                 if (label && label->text=="Collect Pollen") return region;
             }
@@ -144,6 +164,17 @@ std::optional<Rect> locate_prompt(const Frame& frame,bool captions) {
 }
 std::optional<Rect> interaction_prompt_region(const Frame& frame) { return locate_prompt(frame,false); }
 std::optional<Rect> interaction_text_region(const Frame& frame) { return locate_prompt(frame,true); }
+bool interaction_cooldown(const Frame& frame,Rect region) {
+    if (!frame.valid() || !region.valid() || region.x<0 || region.y<0 || region.x+region.width>1 || region.y+region.height>1) return false;
+    unsigned red=0;
+    for (double dy:{.12,.88}) for (double dx:{.08,.92}) {
+        const auto i=(std::size_t((region.y+region.height*dy)*frame.height)*frame.width
+            +std::size_t((region.x+region.width*dx)*frame.width))*4;
+        const int r=frame.rgba[i],g=frame.rgba[i+1],b=frame.rgba[i+2];
+        red+=r>=100 && r>g*1.3 && r>b*1.15;
+    }
+    return red>=3;
+}
 Frame interaction_text_image(const Frame& frame,Rect region) {
     if (!frame.valid() || !region.valid() || region.x<0 || region.y<0 || region.x+region.width>1 || region.y+region.height>1)
         throw std::invalid_argument("Invalid interaction text region");
@@ -165,10 +196,16 @@ std::optional<TextLine> interaction_label(const Frame& image,const std::string& 
     if (!image.valid() || image.width>2048 || image.height>512) return {};
     cv::Mat rgba(image.height,image.width,CV_8UC4,const_cast<std::uint8_t*>(image.rgba.data())),ink;
     cv::inRange(rgba,cv::Scalar(0,0,0,255),cv::Scalar(127,127,127,255),ink);
-    auto first=cv::boundingRect(ink);
+    cv::Rect first;
+    for (int row=0;row<ink.rows;) {
+        if (!cv::countNonZero(ink.row(row))) { ++row; continue; }
+        const int top=row++;
+        while (row<ink.rows && cv::countNonZero(ink.row(row))) ++row;
+        if (row-top<6) continue; // Exclude a HUD border clipped into the caption crop.
+        first=cv::boundingRect(ink.rowRange(top,row))+cv::Point(0,top);
+        break;
+    }
     if (first.empty()) return {};
-    for (int row=first.y;row<first.y+first.height;++row) if (!cv::countNonZero(ink.row(row))) {first.height=row-first.y;break;}
-    first=cv::boundingRect(ink(first))+first.tl();
     const auto first_ink=ink(first).clone();
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(ink,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
@@ -183,26 +220,34 @@ std::optional<TextLine> interaction_label(const Frame& image,const std::string& 
     }
     const auto bounds=cv::boundingRect(ink);
     if (bounds.height<8) return {};
-    enum class Match { whole,first_line,phrase,first_word };
-    struct Label { const char* text; cv::Mat pattern; Match match; float minimum{.9f}; };
+    enum class Match { whole,first_line,phrase,first_word,words };
+    struct Label { const char* text; cv::Mat pattern; Match match; float minimum{.9f}; unsigned prefix_words{}; };
     static const std::array labels{
         Label{"Make Honey",reference(detail::make_honey_width,detail::make_honey_height,detail::make_honey),Match::whole},
         Label{"Claim Hive",reference(detail::claim_hive_width,detail::claim_hive_height,detail::claim_hive),Match::whole},
         Label{"Trade Request",reference(detail::trade_request_width,detail::trade_request_height,detail::trade_request),Match::first_line},
         Label{"Stop Making Honey",reference(detail::stop_honey_width,detail::stop_honey_height,detail::stop_honey),Match::whole},
         Label{"Collect Pollen",reference(detail::flower_fields_width,detail::flower_fields_height,detail::flower_fields),Match::phrase,.87f},
+        Label{"Blue Field Booster",reference(detail::blue_booster_width,detail::blue_booster_height,detail::blue_booster),Match::words,.83f,2},
+        Label{"Blue Field Booster",reference(detail::blue_booster_clear_width,detail::blue_booster_clear_height,detail::blue_booster_clear),Match::words,.83f,2},
+        Label{"Red Field Booster",reference(detail::red_booster_width,detail::red_booster_height,detail::red_booster),Match::words,.83f,2},
+        Label{"Red Field Booster",reference(detail::red_booster_clear_width,detail::red_booster_clear_height,detail::red_booster_clear),Match::words,.83f,2},
+        Label{"Field Booster",reference(detail::field_booster_width,detail::field_booster_height,detail::field_booster),Match::words,.81f,2},
+        Label{"Field Booster",reference(detail::field_booster_clear_width,detail::field_booster_clear_height,detail::field_booster_clear),Match::words,.81f,2},
         Label{"Harvest",reference(detail::harvest_width,detail::harvest_height,detail::harvest),Match::first_word,.87f}};
     std::optional<TextLine> result;
     for (const auto& label:labels) {
         // A requested prefix identifies an action without replacing its full caption for other readers.
         if (target.empty()?label.match==Match::first_word:target!=label.text) continue;
-        auto area=label.match==Match::first_line || label.match==Match::first_word?first:bounds;
+        if (result && result->text==label.text) continue;
+        auto area=label.match==Match::first_line || label.match==Match::first_word || label.match==Match::words?first:bounds;
         if (label.match==Match::first_word) {
             const auto words=word_boxes(first_ink);
             if (words.empty()) continue;
             area=words.front()+first.tl();
         }
-        const auto score=label.match==Match::phrase?phrase_similarity(ink(area),label.pattern)
+        const auto score=label.match==Match::words?words_similarity(first_ink,label.pattern,label.prefix_words)
+            :label.match==Match::phrase?phrase_similarity(ink(area),label.pattern)
             :similarity(label.match==Match::first_line?first_ink:ink(area),label.pattern);
         if (score<label.minimum) continue;
         if (result) return {};

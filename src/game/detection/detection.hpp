@@ -9,6 +9,7 @@
 
 namespace hive::game {
 struct HudFeatures;
+struct InteractionCaption;
 struct Detection { virtual ~Detection()=default; };
 struct DetectionInput {
     const Frame& frame;
@@ -17,6 +18,7 @@ struct DetectionInput {
     std::function<bool()> cancelled;
     std::function<std::vector<TextLine>(const Frame&)> recognize;
     const HudFeatures* hud{};
+    const Observation<InteractionCaption>* interaction_caption{};
 };
 class Detector {
     friend class Observer;

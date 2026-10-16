@@ -161,10 +161,18 @@ void validate(const TextTarget& target) {
     }
 }
 bool text_matches(const Frame& frame,const std::vector<TextLine>& lines,const TextTarget& target) {
-    validate(target); return frame.valid() && matches(lines,frame.width,frame.height,target).knowledge==Knowledge::present;
+    validate(target); return !target.visual && frame.valid() && matches(lines,frame.width,frame.height,target).knowledge==Knowledge::present;
 }
 Reading<bool> read_text_target(const Context& context,const State& state,const TextTarget& target,Time minimum) {
     validate(target);
+    if (target.visual) {
+        const auto& caption=state.interaction_caption;
+        Reading<bool> result{Knowledge::unknown,false,caption.captured,caption.window,caption.generation};
+        if (!caption.usable(context,Time(2000),minimum)) return result;
+        result.value=caption.knowledge==Knowledge::present && caption.value.label==target.words && caption.value.cooldown==target.cooldown;
+        result.knowledge=result.value?Knowledge::present:Knowledge::absent;
+        return result;
+    }
     Reading<bool> result{Knowledge::unknown,false,state.text.captured,state.text.window,state.text.generation};
     if (!state.text.has_value(context,Time(2000),minimum)) return result;
     result.knowledge=matches(state.text.value.lines,state.text.value.width,state.text.value.height,target).knowledge;
@@ -175,6 +183,7 @@ Reading<Time> read_text_cooldown(const Context& context,const State& state,const
     validate(target);
     if (!target.cooldown || !target.station_name) throw std::invalid_argument("Cooldown requires an exact station target");
     Reading<Time> result{Knowledge::unknown,{},state.text.captured,state.text.window,state.text.generation};
+    if (target.visual) return result; // Banner color proves cooldown, not its remaining duration.
     if (!state.text.has_value(context,Time(2000),minimum)) return result;
     const auto match=matches(state.text.value.lines,state.text.value.width,state.text.value.height,target);
     result.knowledge=match.knowledge; result.value=match.remaining;

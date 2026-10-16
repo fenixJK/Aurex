@@ -4,11 +4,11 @@ namespace hive::game {
 const std::vector<StationDefinition>& stations() {
     using namespace std::chrono;
     static const std::vector<StationDefinition> catalog{
-        {"Red Field Booster","station.red-booster",minutes(45),{"Red Field Booster",{.2,0,.6,.3},false,true},Time{},false,
+        {"Red Field Booster","station.red-booster",minutes(45),{"Red Field Booster",{.2,0,.6,.3},false,true,{},true},Time{},false,
             StationInteraction::activate,false,{"Mushroom","Strawberry","Rose","Pepper"}},
-        {"Blue Field Booster","station.blue-booster",minutes(45),{"Blue Field Booster",{.2,0,.6,.3},false,true},Time{},false,
+        {"Blue Field Booster","station.blue-booster",minutes(45),{"Blue Field Booster",{.2,0,.6,.3},false,true,{},true},Time{},false,
             StationInteraction::activate,false,{"Blue Flower","Bamboo","Pine Tree","Stump"}},
-        {"Mountain Top Field Booster","station.mountain-booster",hours(1),{"Field Booster",{.2,0,.6,.3},false,true},Time{},false,
+        {"Mountain Top Field Booster","station.mountain-booster",hours(1),{"Field Booster",{.2,0,.6,.3},false,true,{},true},Time{},false,
             StationInteraction::activate,false,{"Sunflower","Dandelion","Spider","Clover","Pineapple","Pumpkin","Cactus"}},
         {"Coconut Dispenser","station.coconut",hours(4),{"Coconut Dispenser",{.2,0,.6,.3},false,true},Time{},false,
             StationInteraction::activate,false,{"Coconut"}},

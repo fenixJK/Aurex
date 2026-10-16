@@ -13,6 +13,7 @@ struct TextTarget {
     bool cooldown{};
     bool station_name{};
     std::optional<CountedSuffix> counted_suffix;
+    bool visual{}; // Fixed caption and banner state, without timer OCR.
 };
 std::vector<TextLine> text_candidates(std::span<const TextLine> lines,unsigned max_rows=3);
 void validate(const TextTarget& target);

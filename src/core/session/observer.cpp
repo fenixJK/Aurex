@@ -214,6 +214,7 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
         lock.unlock();
         auto cancelled=[this,revision,text_revision,mode] { return revision_.load()!=revision || (mode==DetectionMode::text && text_revision_.load()!=text_revision); };
         std::vector<TextLine> lines; bool readable=true;
+        Reading<InteractionCaption> caption;
         if (mode==DetectionMode::text) {
             ObservedState result;
             bool requested=false,hive_requested=false;
@@ -245,10 +246,14 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
                 }
                 if (regions.size()>64) regions=prompt?exclude_text_region({{0,0,1,1}},*prompt):std::vector<Rect>{{0,0,1,1}};
                 lines=recognition.read(desktop_,*frame,generation,std::move(regions),cancelled);
+                if (hive_requested) caption={Knowledge::absent,{},frame->captured,frame->window,generation};
                 if (prompt) {
                     const auto image=interaction_text_image(*frame,*prompt);
                     std::vector<TextLine> isolated;
-                    if (const auto label=interaction_label(image)) isolated.push_back(*label);
+                    if (const auto label=interaction_label(image)) {
+                        isolated.push_back(*label);
+                        caption={Knowledge::present,{label->text,interaction_cooldown(*frame,*prompt)},frame->captured,frame->window,generation};
+                    }
                     else isolated=prompt_recognition.read(desktop_,image,generation,{{0,0,1,1}},cancelled);
                     for (auto& line:isolated) {
                         line.pixels.x+=std::floor(prompt->x*frame->width)-interaction_text_padding;
@@ -264,6 +269,7 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
             lock.lock();
             if (!cancelled() && !exiting_ && requested) {
                 latest_.state.text=std::move(result.state.text);
+                latest_.state.interaction_caption=caption;
                 if (result.state.connection.knowledge!=Knowledge::unknown && result.state.connection.captured>=latest_.state.connection.captured)
                     latest_.state.connection=result.state.connection;
                 if (hive_requested || result.state.hive_prompt.knowledge==Knowledge::present) {
@@ -285,7 +291,7 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
                     if (mode!=DetectionMode::text) throw std::logic_error("Pixel detection cannot request OCR");
                     return desktop_.recognize(crop,cancelled);
                 };
-                reading.value=entry.config.detector->detect({*frame,lines,generation,cancelled,recognize,features.get()});
+                reading.value=entry.config.detector->detect({*frame,lines,generation,cancelled,recognize,features.get(),&caption});
             }
             catch (const std::exception& e) { reading.error=std::string(e.what()).substr(0,4096); if (reading.error.empty()) reading.error="Detector failed"; }
             catch (...) { reading.error="Detector failed"; }

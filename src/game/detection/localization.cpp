@@ -82,6 +82,7 @@ public:
             {f.width,f.height,{input.text.begin(),input.text.end()}},f.captured,f.window,input.generation};
         auto result=std::make_shared<Landmarks>();
         State state; state.text=text;
+        if (input.interaction_caption) state.interaction_caption=*input.interaction_caption;
         for (const auto& anchor : anchors_) {
             if (input.cancelled && input.cancelled()) return {};
             auto reading=std::visit([&](const auto& target) {
