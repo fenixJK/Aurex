@@ -124,6 +124,7 @@ class Execution final : public automation::Program {
     std::optional<WallTime> last_wall_;
     Stats selected_;
     std::string finish_reason_;
+    bool deferred_result_{};
     std::optional<bool> learn_travel_;
     Observation<game::NectarLevels> nectar_before_;
     Observation<std::vector<game::PlanterReward>> rewards_before_;
@@ -162,6 +163,14 @@ class Execution final : public automation::Program {
         ++confirmed_; if (harvest_) ++harvests_; else ++placements_; loot_step_=0; report_outcome();
         if (harvest_) { harvest_confirmed_=true; phase_=Phase::looting; publish(ExecutionStage::looting); }
         else { phase_=Phase::placed; publish(ExecutionStage::confirming); }
+    }
+    Step defer_result(const View& view,std::string reason="Planter outcome is unclear; check Timers before retrying") {
+        controller_->interrupt();
+        deferred_result_=true;
+        finish_reason_=std::move(reason);
+        pending_report_=ActivityStatus{"Planter not confirmed",finish_reason_,ActivityKind::failure};
+        phase_=Phase::placed; publish(ExecutionStage::returning);
+        return next(view);
     }
     const Plant* due_plant(WallTime now) const {
         const Plant* due=nullptr;
@@ -263,7 +272,9 @@ class Execution final : public automation::Program {
     }
     Step complete_visit(const View& view) {
         if (!finish_reason_.empty()) {
-            phase_=Phase::done; publish(ExecutionStage::finished); return Done{finish_reason_};
+            phase_=Phase::done; publish(ExecutionStage::finished);
+            if (deferred_result_) return Defer{finish_reason_};
+            return Done{finish_reason_};
         }
         phase_=Phase::select; inspected_=false; inspection_.reset(); placement_inventory_.reset(); selected_={}; assignment_.reset(); harvest_.reset(); reconcile_=false; harvest_confirmed_=false;
         minimum_=view.context.now; deadline_=view.context.now+Time(10000); publish(ExecutionStage::checking);
@@ -271,7 +282,7 @@ class Execution final : public automation::Program {
     }
     void begin_baseline(const View& view) {
         phase_=reconcile_?Phase::reconciling:Phase::baseline;
-        if (reconcile_) minimum_=view.context.now;
+        if (reconcile_ || !harvest_) minimum_=view.context.now;
         deadline_=view.context.now+Time(10000);
         publish(reconcile_?ExecutionStage::reconciling:ExecutionStage::checking);
     }
@@ -351,6 +362,9 @@ public:
         }
     }
     ProgramFactory recovery(Interruption reason,const View& view) override {
+        // A missing placement result cannot be fixed by resetting and repeating the placement.
+        if (reason==Interruption::lost_observations && !harvest_
+            && (phase_==Phase::acting || phase_==Phase::confirming)) return {};
         const auto recover=reason==Interruption::death?plan_.death_recovery:plan_.route_recovery;
         if ((reason!=Interruption::death && reason!=Interruption::lost_route && reason!=Interruption::lost_observations)
             || !recover || recoveries_>=3) return {};
@@ -363,7 +377,7 @@ public:
         planned_=false; cancelled_=false; error_={}; decision_={};
         assignment_.reset(); harvest_.reset(); steps_.clear(); inspection_.reset(); placement_inventory_.reset();
         action_step_=loot_step_=0; issued_=acknowledged_=view.completed_steps;
-        phase_=Phase::select; selected_={}; finish_reason_.clear(); learn_travel_.reset();
+        phase_=Phase::select; selected_={}; finish_reason_.clear(); deferred_result_=false; learn_travel_.reset();
         nectar_before_={}; rewards_before_={};
         reconcile_=harvest_confirmed_=harvest_action_=inspected_=initialized_=ready_for_travel_=false;
         minimum_=view.context.now; deadline_=minimum_+Time(10000);
@@ -415,6 +429,11 @@ public:
             return wait("Preparing planter placement");
         }
         if (phase_==Phase::locating) {
+            if (reconcile_ && controller_->ledger().pending->operation==Operation::place) {
+                // An uncertain placement gets one local outcome read, not an inventory scan and field search.
+                begin_baseline(view);
+                return wait("Reading the previous placement result");
+            }
             const auto snapshot=source_->read_at(view,selected_.field);
             const auto& local=snapshot.placements;
             const bool nearby=snapshot.harvest_prompt.has_value(view.context,Time(2000),minimum_)
@@ -494,8 +513,9 @@ public:
             }
         }
         const bool at_field=(phase_==Phase::baseline && (harvest_ || !plan_.attempt_unscanned_placement))
-            || phase_==Phase::reconciling || phase_==Phase::confirming;
-        auto snapshot=at_field?source_->read_at(view,selected_.field):source_->read(view);
+            || phase_==Phase::reconciling || (phase_==Phase::confirming && harvest_);
+        auto snapshot=at_field?source_->read_at(view,selected_.field):
+            phase_==Phase::confirming?Snapshot{}:source_->read(view);
         const bool planning=phase_==Phase::select || phase_==Phase::planning || (phase_==Phase::baseline && !harvest_);
         const bool requires_nectar=!plan_.preferences || plan_.preferences->mode==Mode::nectar;
         const bool fresh=snapshot.nectar.has_value(view.context,Time(2000));
@@ -556,6 +576,17 @@ public:
             assignment_=assignments.front(); selected_=assignment_->stats; harvest_.reset(); reconcile_=false; return travel(view);
         }
         if (phase_==Phase::baseline || phase_==Phase::reconciling) {
+            if ((reconcile_ || !harvest_) && view.context.now>=deadline_) return defer_result(view);
+            if (phase_==Phase::baseline && !harvest_) {
+                const auto prompt=source_->placement_prompt(view);
+                if (!prompt.usable(view.context,Time(2000),minimum_)) return wait("Reading placement location");
+                // Existing Harvest prompts must never confirm a new placement.
+                if (prompt.value) return defer_result(view,"A planter is already here; update Timers before placing another");
+            }
+            if (phase_==Phase::reconciling && controller_->ledger().pending->operation==Operation::place
+                && snapshot.placements.has_value(view.context,Time(2000),minimum_)
+                && snapshot.placements.value.field==selected_.field && !snapshot.placements.value.complete
+                && !snapshot.placements.value.identities.contains(identity(selected_))) return defer_result(view);
             if (!scan(view,snapshot)) {
                 if (view.context.now>=deadline_) throw ObservationUnavailable(harvest_?
                     "Harvest prompt for the saved planter was not found":"Planter field state could not be confirmed");
@@ -601,21 +632,18 @@ public:
         }
         if (phase_==Phase::acting) return emit(steps_.at(action_step_++));
         if (phase_==Phase::confirming) {
-            if (!harvest_ && view.observations
-                && game::planter_capacity_error(view.context,view.observations->text).has_value(view.context,Time(2000),minimum_)) {
-                controller_->placement_rejected(controller_->ledger().pending->ticket,now);
-                finish_reason_="The game already has 3 planters; update Timers to match";
-                pending_report_=ActivityStatus{"Planter not placed",finish_reason_,ActivityKind::failure};
-                phase_=Phase::placed; publish(ExecutionStage::returning);
-                return next(view);
+            if (view.context.now>=deadline_) return defer_result(view);
+            auto evidence=harvest_ && scan(view,snapshot)?snapshot.placements:Observation<Placements>{};
+            if (!harvest_) {
+                const auto prompt=source_->placement_prompt(view);
+                if (prompt.has_value(view.context,Time(2000),minimum_) && prompt.value)
+                    evidence={Knowledge::present,{{identity(selected_)},false,selected_.field},prompt.captured,prompt.window,prompt.generation};
             }
-            if (view.context.now>=deadline_) throw ObservationUnavailable(harvest_?"Planter harvest was not confirmed":"Planter placement was not confirmed");
-            const auto evidence=scan(view,snapshot)?snapshot.placements:Observation<Placements>{};
             auto receipt=harvest_action_?harvest_receipt(selected_,nectar_before_,snapshot,view.context,minimum_):Observation<HarvestEvidence>{};
             if (harvest_action_ && receipt.knowledge!=Knowledge::present)
                 receipt=reward_receipt(selected_,rewards_before_,snapshot,view.context,minimum_);
             const auto result=controller_->observe(controller_->ledger().pending->ticket,view.context,now,evidence,receipt);
-            if (result==Outcome::uncertain) throw ObservationUnavailable(harvest_?"Planter harvest was not confirmed":"Planter placement was not confirmed");
+            if (result==Outcome::uncertain) return defer_result(view);
             if (result==Outcome::confirmed) {
                 complete_action();
             } else if (harvest_action_ && action_step_<steps_.size() && view.observations
@@ -637,7 +665,7 @@ public:
             const auto seconds=(view.context.now-travel_started_).count()/1000.0;
             if (learn_travel_.value_or(false) && seconds>=1 && seconds<=1800) { controller_->record_travel(selected_.field,seconds); account_->travel_.record(selected_.field,seconds); }
             phase_=Phase::locating;
-            if (reconcile_) minimum_=view.context.now;
+            if (reconcile_ || !harvest_) minimum_=view.context.now;
             deadline_=view.context.now+Time(10000);
         } else if (phase_==Phase::approaching) {
             begin_baseline(view);

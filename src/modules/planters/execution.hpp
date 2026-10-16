@@ -24,6 +24,7 @@ public:
     virtual ~Source()=default;
     virtual Snapshot read(const automation::View& view) const=0;
     virtual Snapshot read_at(const automation::View& view,const std::string&) const { return read(view); }
+    virtual Observation<bool> placement_prompt(const automation::View&) const { return {}; }
 };
 class Actions {
 public:

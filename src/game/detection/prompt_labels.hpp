@@ -213,4 +213,27 @@ inline constexpr std::array<std::uint64_t,32> interact_key{
     0x3ffffULL,
     0x3ffffULL,
 };
+// Fixed Harvest prefix; the rest of the caption remains variable.
+inline constexpr int harvest_width=84,harvest_height=19;
+inline constexpr std::array<std::uint64_t,38> harvest{
+    0x1c07ULL,0x30000ULL,
+    0x1c07ULL,0x38000ULL,
+    0x1c07ULL,0x38000ULL,
+    0x1c07ULL,0x38000ULL,
+    0x1c07ULL,0x38000ULL,
+    0x1f0781cfe07e1c07ULL,0xfe1f0ULL,
+    0x3fc381dfe1ff1c07ULL,0xfe7f8ULL,
+    0x7fc3c3cfe1fe1e07ULL,0xfe7fcULL,
+    0x70e1c381e3c01fffULL,0x3821cULL,
+    0x70e1c380e3c01fffULL,0x3803cULL,
+    0x70e1e780e3fe1fffULL,0x380f8ULL,
+    0xffe0e700e3ff1c07ULL,0x383f0ULL,
+    0xffe0e700e3cf1c07ULL,0x387e0ULL,
+    0xe07e00e3831c07ULL,0x38780ULL,
+    0xe07e00e3839c07ULL,0x38700ULL,
+    0x31e07e00e3871c07ULL,0x38708ULL,
+    0x7fc03c00e3ef1c07ULL,0xf87fcULL,
+    0x3fc03c00e3ff1c07ULL,0xf07fcULL,
+    0x1f003800e3fc1c07ULL,0xf01f8ULL,
+};
 }

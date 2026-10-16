@@ -17,7 +17,7 @@ void validate(const PromptLandmark& landmark);
 std::optional<Rect> interaction_prompt_region(const Frame& frame);
 std::optional<Rect> interaction_text_region(const Frame& frame);
 Frame interaction_text_image(const Frame& frame,Rect region);
-std::optional<TextLine> interaction_label(const Frame& image);
+std::optional<TextLine> interaction_label(const Frame& image,const std::string& target={});
 Reading<bool> read_prompt_landmark(const Context& context,const Reading<TextSnapshot>& text,
     const PromptLandmark& landmark);
 PromptLandmark hive_proximity_prompt();

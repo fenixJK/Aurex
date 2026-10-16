@@ -243,11 +243,6 @@ void Controller::abandon_unstarted_placement(std::uint64_t ticket,WallTime wall)
         throw std::logic_error("Only an unstarted planter placement can be abandoned");
     clock(wall); finish(false,wall);
 }
-void Controller::placement_rejected(std::uint64_t ticket,WallTime wall) {
-    if (!ledger_.pending || ledger_.pending->ticket!=ticket || ledger_.pending->operation!=Operation::place || !transaction_)
-        throw std::logic_error("No matching planter placement to reject");
-    clock(wall); finish(false,wall);
-}
 bool Controller::reconcile_returned(const ObservationContext& c,WallTime wall,const Observation<ReturnedPlanter>& returned) {
     if (transaction_) throw std::logic_error("Cannot reconcile an active planter action");
     if (!returned.has_value(c,Time(2000)) || returned.value.first_seen<Time{} || returned.value.first_seen>returned.captured

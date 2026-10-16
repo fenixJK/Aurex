@@ -8,11 +8,14 @@ namespace hive::game {
 namespace {
 constexpr Time freshness{2000};
 class InteractionPromptDetector final : public Detector {
+    std::string label_;
 public:
+    explicit InteractionPromptDetector(std::string label):label_(std::move(label)) {}
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         if (!input.frame.valid() || !input.generation || (input.cancelled && input.cancelled())) return {};
         const auto& frame=input.frame;
-        const bool visible=interaction_prompt_region(frame).has_value();
+        const auto region=interaction_prompt_region(frame);
+        const bool visible=region && (label_.empty() || interaction_label(interaction_text_image(frame,*region),label_).has_value());
         auto result=std::make_shared<Landmarks>();
         result->readings.emplace("interaction.prompt",Observation<bool>{visible?Knowledge::present:Knowledge::absent,
             visible,frame.captured,frame.window,input.generation});
@@ -123,7 +126,7 @@ std::vector<PromptAnchor> interaction_anchors() {
     return result;
 }
 std::shared_ptr<const Detector> landmark_detector(std::vector<PromptAnchor> anchors) { return std::make_shared<PromptDetector>(std::move(anchors)); }
-std::shared_ptr<const Detector> interaction_prompt_detector() { return std::make_shared<InteractionPromptDetector>(); }
+std::shared_ptr<const Detector> interaction_prompt_detector(std::string label) { return std::make_shared<InteractionPromptDetector>(std::move(label)); }
 void Localization::invalidate(const ObservationContext& c) {
     context_=c; last_=processed_=c.now; confirmed_={};
 }

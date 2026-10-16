@@ -161,7 +161,7 @@ Frame interaction_text_image(const Frame& frame,Rect region) {
     }
     return crop;
 }
-std::optional<TextLine> interaction_label(const Frame& image) {
+std::optional<TextLine> interaction_label(const Frame& image,const std::string& target) {
     if (!image.valid() || image.width>2048 || image.height>512) return {};
     cv::Mat rgba(image.height,image.width,CV_8UC4,const_cast<std::uint8_t*>(image.rgba.data())),ink;
     cv::inRange(rgba,cv::Scalar(0,0,0,255),cv::Scalar(127,127,127,255),ink);
@@ -183,17 +183,25 @@ std::optional<TextLine> interaction_label(const Frame& image) {
     }
     const auto bounds=cv::boundingRect(ink);
     if (bounds.height<8) return {};
-    enum class Match { whole,first_line,phrase };
+    enum class Match { whole,first_line,phrase,first_word };
     struct Label { const char* text; cv::Mat pattern; Match match; float minimum{.9f}; };
     static const std::array labels{
         Label{"Make Honey",reference(detail::make_honey_width,detail::make_honey_height,detail::make_honey),Match::whole},
         Label{"Claim Hive",reference(detail::claim_hive_width,detail::claim_hive_height,detail::claim_hive),Match::whole},
         Label{"Trade Request",reference(detail::trade_request_width,detail::trade_request_height,detail::trade_request),Match::first_line},
         Label{"Stop Making Honey",reference(detail::stop_honey_width,detail::stop_honey_height,detail::stop_honey),Match::whole},
-        Label{"Collect Pollen",reference(detail::flower_fields_width,detail::flower_fields_height,detail::flower_fields),Match::phrase,.87f}};
+        Label{"Collect Pollen",reference(detail::flower_fields_width,detail::flower_fields_height,detail::flower_fields),Match::phrase,.87f},
+        Label{"Harvest",reference(detail::harvest_width,detail::harvest_height,detail::harvest),Match::first_word,.87f}};
     std::optional<TextLine> result;
     for (const auto& label:labels) {
-        const auto area=label.match==Match::first_line?first:bounds;
+        // A requested prefix identifies an action without replacing its full caption for other readers.
+        if (target.empty()?label.match==Match::first_word:target!=label.text) continue;
+        auto area=label.match==Match::first_line || label.match==Match::first_word?first:bounds;
+        if (label.match==Match::first_word) {
+            const auto words=word_boxes(first_ink);
+            if (words.empty()) continue;
+            area=words.front()+first.tl();
+        }
         const auto score=label.match==Match::phrase?phrase_similarity(ink(area),label.pattern)
             :similarity(label.match==Match::first_line?first_ink:ink(area),label.pattern);
         if (score<label.minimum) continue;

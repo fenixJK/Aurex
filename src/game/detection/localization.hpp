@@ -22,7 +22,7 @@ public:
 std::shared_ptr<const LandmarkSource> landmark_source(std::shared_ptr<const DetectionSource> source,std::string id);
 std::vector<PromptAnchor> interaction_anchors();
 std::shared_ptr<const Detector> landmark_detector(std::vector<PromptAnchor> anchors);
-std::shared_ptr<const Detector> interaction_prompt_detector();
+std::shared_ptr<const Detector> interaction_prompt_detector(std::string label={});
 class Localization {
     Observation<std::string> confirmed_;
     Time processed_{Time(-1)},last_{};
