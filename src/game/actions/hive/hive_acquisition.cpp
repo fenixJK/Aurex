@@ -97,7 +97,7 @@ class AcquireHive final : public Program {
         if (std::holds_alternative<Done>(step)) {
             child_->finished(State::completed); child_.reset(); child_guard_.reset();
             if (stage_==Stage::recover) {
-                recovered_=true; turned_=false; stage_=Stage::locate; minimum_=view.context.now+Time(1);
+                recovered_=true; turned_=false; options_.confirmed_spawn=false; stage_=Stage::locate; minimum_=view.context.now+Time(1);
                 seen_=Time(-1); return Wait{};
             }
             if (stage_==Stage::claim) { begin(Stage::prepare,view); return child_step(view); }
@@ -133,7 +133,7 @@ public:
         if (child_) child_->finished(State::stopped);
         child_.reset(); child_guard_.reset(); child_running_.reset();
         if (options_.result) options_.result->invalidate_camera();
-        stage_=Stage::locate; started_=turned_=issued_=false; recovered_=true;
+        stage_=Stage::locate; started_=turned_=issued_=false; recovered_=true; options_.confirmed_spawn=false;
         seen_=Time(-1);
         return [source=options_.recovery,reason] {
             return reason==Interruption::death?wait_for_respawn(source):request_respawn(source);
@@ -149,6 +149,7 @@ public:
     Step next(const View& view) override {
         if (!started_) {
             if (options_.result) {
+                options_.confirmed_spawn=options_.result->consume_join(view.context) || options_.confirmed_spawn;
                 const auto previous=options_.result->read();
                 const auto& current=view.context;
                 if (previous && previous->claimed_slot && previous->camera_prepared
@@ -178,6 +179,13 @@ public:
         case Stage::turn:
         case Stage::restore: return MoveCamera{{Key::rotate_right,4}};
         case Stage::locate: {
+            if (options_.confirmed_spawn) {
+                if (view.observations && view.observations->game_hud.has_value(c,Time(2000),minimum_) && view.observations->game_hud.value) {
+                    stage_=Stage::zoom; return next(view);
+                }
+                if (c.now-minimum_>=Time(120000)) throw ClientRejoinRequired("Bee Swarm did not finish loading");
+                return Wait{Time(100),"Waiting for Bee Swarm to load"};
+            }
             spawn_->read(c);
             if (c.now-minimum_>=Time(10000)) { stage_=Stage::zoom; return next(view); }
             if (!view.observations) return Wait{};
@@ -238,7 +246,10 @@ public:
         switch (stage_) {
         case Stage::zoom: stage_=Stage::pitch_limit; break;
         case Stage::pitch_limit: stage_=Stage::pitch; break;
-        case Stage::pitch: observe(view.context.now); break;
+        case Stage::pitch:
+            if (options_.confirmed_spawn) begin(Stage::claim,view);
+            else observe(view.context.now);
+            break;
         case Stage::turn: turned_=true; observe(view.context.now); break;
         case Stage::restore:
             begin_recovery(view); break;
@@ -288,7 +299,7 @@ std::unique_ptr<Program> reconnect_to_hive(std::shared_ptr<const game::HiveSlots
     std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options,ReconnectStart start) {
     if (!options.recovery) throw std::invalid_argument("Reconnect needs game-view observations");
     if (start!=ReconnectStart::request && start!=ReconnectStart::loading) throw std::invalid_argument("Invalid reconnect starting phase");
-    options.confirmed_spawn=false;
+    options.confirmed_spawn=start==ReconnectStart::loading;
     acquire_hive(slots,spawn,reference,proximity,options);
     return std::make_unique<RespawnToHive>([source=options.recovery,start] { return start==ReconnectStart::loading?wait_for_reconnect(source):request_reconnect(source); },
         [slots,spawn,reference,proximity,options] { return acquire_hive(slots,spawn,reference,proximity,options); },options.recovery,options.result,options.speed,Reentry::reconnect);

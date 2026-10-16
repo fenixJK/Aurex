@@ -2,6 +2,7 @@
 #include "core/runtime/model.hpp"
 #include <memory>
 #include <functional>
+#include <future>
 
 namespace hive {
 struct Permissions { bool capture{}, input{}; std::string detail; };
@@ -15,7 +16,9 @@ public:
     }
     virtual bool client_running(std::int64_t) { return false; }
     virtual bool close_client(const Window&) { return false; }
-    virtual bool open_client(const std::string&) { return false; }
+    virtual std::future<bool> open_client(const std::string&) {
+        std::promise<bool> result; result.set_value(false); return result.get_future();
+    }
     virtual bool focus_client(const Window&) { return false; }
     virtual bool focus_client_process(std::int64_t pid) {
         for (const auto& window : windows()) if (window.process==pid) return focus_client(window);

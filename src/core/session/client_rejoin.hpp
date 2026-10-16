@@ -16,6 +16,7 @@ class ClientRejoin {
     std::set<std::int64_t> excluded_;
     Time deadline_,next_{},last_;
     bool close_sent_{};
+    std::future<bool> launch_;
 public:
     ClientRejoin(game::JoinTarget target,Window old,const std::vector<std::int64_t>& existing,Time now,RejoinLimits limits={});
     std::optional<Window> update(Desktop& desktop,Time now);

@@ -4,6 +4,7 @@
 #include "game/detection/respawn.hpp"
 #include "game/detection/hive_slots.hpp"
 #include <mutex>
+#include <utility>
 
 namespace hive::automation {
 class HiveAlignmentError : public std::runtime_error {
@@ -18,9 +19,13 @@ struct HiveSetupSnapshot {
 class HiveSetupResult {
     mutable std::mutex mutex_;
     std::optional<HiveSetupSnapshot> value_;
+    std::optional<std::pair<Window,Time>> joined_;
 public:
     std::optional<HiveSetupSnapshot> read() const;
     void reset();
+    void joined(const Window& window,Time now);
+    void clear_join();
+    bool consume_join(const ObservationContext& context);
     void invalidate_camera();
     void begin_preparation(const ObservationContext& context);
     void claimed(unsigned slot,const ObservationContext& context);

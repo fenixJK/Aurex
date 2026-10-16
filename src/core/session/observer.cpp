@@ -140,11 +140,9 @@ void Observer::capture() {
                 menus={Knowledge::present,controls,frame.captured,frame.window,context.generation};
                 game_hud={Knowledge::present,game_hud_visible(*features),frame.captured,frame.window,context.generation};
                 if (connection) connection_regions=connection_text_regions(frame,game_hud.value);
-                if (game_hud.value) {
-                    const auto health=read_empty_health_bar(frame,context.generation);
-                    if (health.knowledge==Knowledge::present) {
-                        alive=health; alive.value=!health.value;
-                    }
+                const auto health=read_empty_health_bar(frame,context.generation);
+                if (health.knowledge==Knowledge::present && (health.value || game_hud.value)) {
+                    alive=health; alive.value=!health.value;
                 }
                 if (controls.size()>=2) shift_lock=read_shift_lock(frame,context.generation);
                 for (const auto& control:controls) if (control.selected==true)

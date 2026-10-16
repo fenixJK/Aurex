@@ -14,8 +14,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <optional>
 #include <stdexcept>
+#include <thread>
 
 namespace hive {
 namespace {
@@ -79,15 +81,22 @@ public:
         if (!roblox_process(process.get())) return WaitForSingleObject(process.get(),0)==WAIT_OBJECT_0;
         return TerminateProcess(process.get(),0) || WaitForSingleObject(process.get(),0)==WAIT_OBJECT_0;
     }
-    bool open_client(const std::string& uri) override {
-        const auto wide=winrt::to_hstring(uri);
-        SHELLEXECUTEINFOW info{}; info.cbSize=sizeof(info); info.fMask=SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
-        info.lpVerb=L"open"; info.lpFile=wide.c_str(); info.nShow=SW_SHOWNORMAL;
-        const auto initialized=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-        if (FAILED(initialized) && initialized!=RPC_E_CHANGED_MODE) return false;
-        const bool launched=ShellExecuteExW(&info)!=0;
-        if (SUCCEEDED(initialized)) CoUninitialize();
-        return launched;
+    std::future<bool> open_client(const std::string& uri) override {
+        std::promise<bool> result;
+        auto pending=result.get_future();
+        std::thread([uri,result=std::move(result)]() mutable {
+            try {
+                const auto wide=winrt::to_hstring(uri);
+                SHELLEXECUTEINFOW info{}; info.cbSize=sizeof(info); info.fMask=SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+                info.lpVerb=L"open"; info.lpFile=wide.c_str(); info.nShow=SW_SHOWNORMAL;
+                const auto initialized=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+                if (FAILED(initialized)) { result.set_value(false); return; }
+                const bool launched=ShellExecuteExW(&info)!=0;
+                CoUninitialize();
+                result.set_value(launched);
+            } catch (...) { result.set_exception(std::current_exception()); }
+        }).detach();
+        return pending;
     }
     bool focus_client(const Window& window) override {
         if (!roblox_process(window.process)) return false;

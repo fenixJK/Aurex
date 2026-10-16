@@ -86,12 +86,13 @@ public:
             return roblox_app(app) && [app terminate];
         }
     }
-    bool open_client(const std::string& uri) override {
+    std::future<bool> open_client(const std::string& uri) override {
+        std::promise<bool> result;
         @autoreleasepool {
             NSURL* url=[NSURL URLWithString:[NSString stringWithUTF8String:uri.c_str()]];
-            if (!url) return false;
-            return [NSWorkspace.sharedWorkspace openURL:url];
+            result.set_value(url && [NSWorkspace.sharedWorkspace openURL:url]);
         }
+        return result.get_future();
     }
     bool focus_client(const Window& window) override {
         @autoreleasepool {

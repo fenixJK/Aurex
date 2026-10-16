@@ -3,7 +3,17 @@
 
 namespace hive::automation {
 std::optional<HiveSetupSnapshot> HiveSetupResult::read() const { std::lock_guard lock(mutex_); return value_; }
-void HiveSetupResult::reset() { std::lock_guard lock(mutex_); value_.reset(); }
+void HiveSetupResult::reset() { std::lock_guard lock(mutex_); value_.reset(); joined_.reset(); }
+void HiveSetupResult::joined(const Window& window,Time now) {
+    std::lock_guard lock(mutex_); value_.reset(); joined_=std::pair{window,now};
+}
+void HiveSetupResult::clear_join() { std::lock_guard lock(mutex_); joined_.reset(); }
+bool HiveSetupResult::consume_join(const ObservationContext& c) {
+    std::lock_guard lock(mutex_);
+    const auto joined=std::exchange(joined_,std::nullopt);
+    return joined && c.generation && c.window.id && c.window.id==joined->first.id
+        && c.window.process==joined->first.process && c.now>=joined->second && c.now-joined->second<Time(120000);
+}
 void HiveSetupResult::invalidate_camera() { std::lock_guard lock(mutex_); if (value_) value_->camera_prepared=false; }
 void HiveSetupResult::begin_preparation(const ObservationContext& c) {
     std::lock_guard lock(mutex_);

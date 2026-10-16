@@ -131,6 +131,7 @@ class Window final : public QMainWindow {
         permission_->setText(QString("Screen capture: %1   ·   Input: %2\n%3").arg(p.capture?"Allowed":"Permission needed",p.input?"Allowed":"Permission needed",q(p.detail)));
     }
     void prepare_start() {
+        hive_setup_->clear_join();
         refresh();
         const auto permissions=desktop_->permissions();
         if (!permissions.input || !permissions.capture) throw std::runtime_error(permissions.detail);
@@ -629,6 +630,7 @@ public:
                     const auto window=initial_join_->update(*desktop_,hive::monotonic_now());
                     if(!window) return;
                     window_id_=window->id; initial_join_.reset();
+                    hive_setup_->joined(*window,hive::monotonic_now());
                 }
                 auto snapshot=desktop_->inspect(selected());
                 if (!snapshot.input_allowed) throw std::runtime_error("Input permission is required before starting");

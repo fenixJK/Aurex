@@ -8,7 +8,7 @@ ClientRejoin::ClientRejoin(game::JoinTarget target,Window old,const std::vector<
     if(old_.id) {
         for (const auto process:existing) excluded_.insert(process);
         excluded_.insert(old_.process);
-    } else stage_=Stage::launching;
+    } else { stage_=Stage::launching; deadline_=now+limits_.window; }
 }
 std::string ClientRejoin::status() const {
     switch (stage_) {
@@ -35,11 +35,14 @@ std::optional<Window> ClientRejoin::update(Desktop& desktop,Time now) {
             }
             return {};
         }
-        stage_=Stage::launching;
+        stage_=Stage::launching; deadline_=now+limits_.window;
     }
     if (stage_==Stage::launching) {
-        if (!desktop.open_client(target_.uri())) throw std::runtime_error("Roblox could not be launched; check its installation");
-        stage_=Stage::window; deadline_=now+limits_.window;
+        if (!launch_.valid()) launch_=desktop.open_client(target_.uri());
+        if (!launch_.valid()) throw std::runtime_error("Roblox launch could not be started");
+        if (launch_.wait_for(Time{})!=std::future_status::ready) return {};
+        if (!launch_.get()) throw std::runtime_error("Roblox could not be launched; check its installation");
+        stage_=Stage::window;
         return {};
     }
     std::optional<Window> found;
