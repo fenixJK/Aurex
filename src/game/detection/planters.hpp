@@ -11,7 +11,7 @@ struct VisiblePlanter {
 };
 struct PlanterReward {
     std::string type;
-    Nectar nectar;
+    std::optional<Nectar> nectar;
     std::string text;
     bool operator==(const PlanterReward&) const=default;
 };

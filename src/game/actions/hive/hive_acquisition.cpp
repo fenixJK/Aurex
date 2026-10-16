@@ -190,7 +190,7 @@ public:
             if (c.now-minimum_>=Time(10000)) { stage_=Stage::zoom; return next(view); }
             if (!view.observations) return Wait{};
             const auto& text=view.observations->text;
-            if (!text.has_value(c,Time(2000),minimum_)) {
+            if (!text.has_value(c,Time(2000))) {
                 const auto& hud=view.observations->game_hud;
                 if (hud.has_value(c,Time(2000),minimum_) && hud.value) { stage_=Stage::zoom; return next(view); }
                 return Wait{};
@@ -221,7 +221,8 @@ public:
             const auto& text=view.observations->text;
             const auto owned=game::read_prompt_landmark(c,text,game::hive_proximity_prompt());
             const auto claim=game::read_prompt_landmark(c,text,game::hive_claim_prompt());
-            if (owned.has_value(c,Time(2000),minimum_) && owned.value && !claim.value) {
+            // Camera turns invalidate the view reference, not a fresh proximity prompt.
+            if (owned.has_value(c,Time(2000)) && owned.value && !claim.value) {
                 auto result=options_.result?options_.result->read():std::nullopt;
                 if (options_.existing_slot && options_.result && (!result || !result->claimed_slot)) {
                     options_.result->claimed(options_.existing_slot,c); result=options_.result->read();
