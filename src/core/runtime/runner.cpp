@@ -319,7 +319,7 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
                     && game::client_home_screen(observations.text.value)) {
                     interrupt(Interruption::disconnected,c,observations,"Roblox is on its home screen"); return;
                 }
-                if (c.now-context_.now>=Time(30000)) finish(State::failed,"Bee Swarm HUD was not found in the selected Roblox window");
+                if (c.now-context_.now>=Time(30000)) interrupt(Interruption::client_rejoin,c,observations,"Bee Swarm did not finish loading");
                 else progress_.message="Waiting for Bee Swarm to load";
                 return;
             }

@@ -77,13 +77,14 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
         frame_=reading.captured; const auto current=signature(view,seek_bottom_ && scrolls_?nullptr:selected);
         first_seen_=reading.captured;
         if (!view.open) {
-            if (opened_) { reason_="Waiting for inventory to open"; return; }
+            if (open_attempts_ && reading.captured<minimum_+Time(750)) { reason_="Waiting for inventory to open"; return; }
+            if (open_attempts_>=3) { fail("Inventory did not open after three clicks"); return; }
             if (!view.toggle) { reason_="Waiting for inventory control"; return; }
             const auto rest=game::pointer_rest(c,state);
             pending_=tasks.submit(scope,TaskClass::interaction,
                 {{"Move to inventory",{},Time(50),view.toggle},{"Open inventory",{Key::primary},Time(50),view.toggle},
                     {"Move off inventory",{},Time(100),rest}},Time(2000));
-            opened_=true; stage_=InventoryStage::opening; reason_="Opening inventory"; return;
+            ++open_attempts_; stage_=InventoryStage::opening; reason_="Opening inventory"; return;
         }
         auto scroll=[&](int amount) {
             if (scrolls_>=plan_.max_scrolls) { fail("Inventory scroll limit reached"); return; }

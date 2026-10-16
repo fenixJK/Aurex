@@ -19,7 +19,7 @@ public:
     Step next(const View& view) override {
         const auto& c=view.context;
         if (!started_) { started_=true; minimum_=c.now; deadline_=c.now+Time(10000); }
-        if (c.now>=deadline_) throw std::runtime_error("NPC conversation did not confirm its next state");
+        if (c.now>=deadline_) throw ObservationUnavailable("NPC conversation did not confirm its next state");
         if (!view.observations) return Wait{};
         const auto scene=source_->read(c);
         if (!scene.has_value(c,Time(2000),minimum_) || scene.captured<=frame_) return Wait{};

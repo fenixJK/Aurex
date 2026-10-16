@@ -1,4 +1,5 @@
 #include "travel_preparation.hpp"
+#include "game/detection/menus.hpp"
 
 namespace hive::automation {
 namespace {
@@ -6,7 +7,7 @@ class Preparation final : public Program {
     ProgramFactory movement_,hive_;
     double speed_;
     unsigned conversion_retries_{};
-    enum class Phase { movement,hive,converting,done } phase_{Phase::movement};
+    enum class Phase { park,movement,hive,converting,done } phase_{Phase::park};
 public:
     Preparation(ProgramFactory movement,ProgramFactory hive,double speed)
         :movement_(std::move(movement)),hive_(std::move(hive)),speed_(speed) {
@@ -24,10 +25,12 @@ public:
         return hive_;
     }
     bool resume_after_reconnect(const View&) override {
-        phase_=Phase::hive; conversion_retries_=0;
+        phase_=Phase::park; conversion_retries_=0;
         return true;
     }
-    Step next(const View&) override {
+    Step next(const View& view) override {
+        if (phase_==Phase::park)
+            return Hold{{},Time(1),game::pointer_rest(view.context,view.observations?*view.observations:game::State{})};
         if (phase_==Phase::movement) {
             if (movement_) return RunProgram{movement_};
             phase_=Phase::hive;
@@ -37,7 +40,8 @@ public:
         return Done{"Travel preparation complete"};
     }
     void step_completed(const View&) override {
-        if (phase_==Phase::movement) phase_=Phase::hive;
+        if (phase_==Phase::park) phase_=Phase::movement;
+        else if (phase_==Phase::movement) phase_=Phase::hive;
         else if (phase_==Phase::hive) phase_=Phase::converting;
         else if (phase_==Phase::converting) phase_=Phase::done;
     }

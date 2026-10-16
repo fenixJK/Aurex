@@ -3,8 +3,9 @@
 namespace hive::automation {
 namespace {
 class RespawnCompletion {
-    bool saw_death_{},was_away_{};
+    bool transitioned_{},was_away_{};
 public:
+    explicit RespawnCompletion(bool already_died=false):transitioned_(already_died) {}
     void departing(const View& view) {
         if (!view.observations) return;
         const auto& prompt=view.observations->hive_prompt;
@@ -13,28 +14,28 @@ public:
     bool ready(const View& view,const game::RespawnSource& source,Time minimum) {
         const auto& c=view.context;
         const auto* state=view.observations;
-        if (state && state->last_death.has_value(c,Time(25000),minimum) && state->last_death.value) saw_death_=true;
+        if (state && state->last_death.has_value(c,Time(25000),minimum) && state->last_death.value) transitioned_=true;
         const bool health=state && state->alive.has_value(c,Time(2000),minimum);
         const bool hud=state && state->game_hud.has_value(c,Time(2000),minimum);
-        if (health && !state->alive.value) { saw_death_=true; return false; }
-        if (was_away_ && state && state->at_hive.has_value(c,Time(2000),minimum) && state->at_hive.value) return true;
-        bool returned=false;
-        if (hud && state->game_hud.value && health) {
-            returned=true;
-        } else {
-            const auto reading=source.read(c);
-            if (reading.has_value(c,Time(2000),minimum)) {
-                saw_death_|=reading.value.screen==game::RespawnScreen::respawning;
-                returned=reading.value.screen==game::RespawnScreen::game || reading.value.screen==game::RespawnScreen::controls;
-            }
+        const auto reading=source.read(c);
+        const bool observed=reading.has_value(c,Time(2000),minimum);
+        if (observed && (reading.value.screen==game::RespawnScreen::menu || reading.value.screen==game::RespawnScreen::confirmation)) return false;
+        if (health && !state->alive.value) {
+            transitioned_=true; return false;
         }
-        return returned && (saw_death_ || c.now-minimum>=Time(8000));
+        if (observed && reading.value.screen==game::RespawnScreen::respawning) {
+            transitioned_=true;
+            if (!health || state->alive.captured<=reading.captured) return false;
+        }
+        const bool returned=(hud && state->game_hud.value && health)
+            || (observed && (reading.value.screen==game::RespawnScreen::game || reading.value.screen==game::RespawnScreen::controls));
+        return returned && (transitioned_ || (was_away_ && state && state->at_hive.has_value(c,Time(2000),minimum) && state->at_hive.value));
     }
 };
 class AwaitRespawn final : public Program {
     std::shared_ptr<const game::RespawnSource> source_;
     Time started_{Time(-1)};
-    RespawnCompletion completion_;
+    RespawnCompletion completion_{true};
 public:
     explicit AwaitRespawn(std::shared_ptr<const game::RespawnSource> source):source_(std::move(source)) {
         if (!source_) throw std::invalid_argument("Respawn wait needs game observations");
@@ -52,7 +53,7 @@ class Respawn final : public Program {
     enum class Stage { locate,select,confirm,transition,done };
     std::shared_ptr<const game::RespawnSource> source_;
     Stage stage_{Stage::locate};
-    Time started_{Time(-1)},minimum_{};
+    Time started_{Time(-1)},minimum_{},transition_{};
     RespawnCompletion completion_;
     bool issued_{};
 public:
@@ -69,12 +70,12 @@ public:
         if (stage_==Stage::locate) completion_.departing(view);
         if (stage_==Stage::locate && view.observations && view.observations->alive.has_value(c,Time(2000),minimum_)
             && !view.observations->alive.value) {
-            stage_=Stage::transition; started_=minimum_=c.now;
+            stage_=Stage::transition; started_=c.now; transition_=view.observations->alive.captured;
         }
         if (c.now-started_>=(stage_==Stage::transition?Time(25000):Time(8000)))
             throw ClientRejoinRequired(stage_==Stage::transition?"Respawn transition timed out":"Respawn menu could not be confirmed");
         if (stage_==Stage::transition) {
-            if (!completion_.ready(view,*source_,minimum_)) return Wait{Time(100),"Waiting for player respawn"};
+            if (!completion_.ready(view,*source_,transition_)) return Wait{Time(100),"Waiting for player respawn"};
             stage_=Stage::done; return next(view);
         }
         if (stage_==Stage::select) {
@@ -82,7 +83,7 @@ public:
             return TapMenuKey{Key::respawn,"Select respawn"};
         }
         if (stage_==Stage::confirm) {
-            stage_=Stage::transition; issued_=true;
+            stage_=Stage::transition; transition_=c.now; issued_=true;
             return TapMenuKey{Key::confirm,"Confirm respawn"};
         }
         const auto reading=source_->read(c);
@@ -98,11 +99,11 @@ public:
         const auto screen=reading.value.screen;
         if (screen==game::RespawnScreen::game) completion_.departing(view);
         if (screen==game::RespawnScreen::respawning) {
-            stage_=Stage::transition; started_=minimum_=c.now;
+            stage_=Stage::transition; started_=c.now; transition_=reading.captured;
             return next(view);
         }
         if (screen==game::RespawnScreen::confirmation) {
-            stage_=Stage::transition; issued_=true;
+            stage_=Stage::transition; transition_=c.now; issued_=true;
             return TapMenuKey{Key::confirm,"Confirm respawn"};
         }
         if (screen==game::RespawnScreen::menu) {

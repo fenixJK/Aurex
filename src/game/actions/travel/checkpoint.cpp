@@ -184,7 +184,8 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
             const auto& actions=nudging_?plan_.nudge:plan_.approach;
             const bool camera=!actions.empty() && actions.at(std::min(index_,actions.size()-1)).held.size()==1
                 && camera_key(actions.at(std::min(index_,actions.size()-1)).held.front());
-            cancel_tasks(tasks); pending_.clear(); confirm(c.now+(camera?plan_.camera_settle:Time::zero())); return;
+            if (!camera) { finish(CheckpointStage::completed,"Checkpoint confirmed",tasks); return; }
+            cancel_tasks(tasks); pending_.clear(); confirm(c.now+plan_.camera_settle); return;
         } else if (stage_==CheckpointStage::confirming) {
             if (!fresh) return;
             if (present) {

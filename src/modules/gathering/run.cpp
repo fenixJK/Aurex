@@ -13,7 +13,7 @@ NavigationSource::NavigationSource(std::shared_ptr<const automation::NavigationP
 }
 Snapshot NavigationSource::read(const ObservationContext& context,const game::State& observations) const {
     auto navigation=perception_->read(context,observations);
-    if (navigation.observations.conflicting_anchors) throw std::runtime_error("Conflicting location observations");
+    if (navigation.observations.conflicting_anchors) throw automation::ObservationUnavailable("Conflicting location observations");
     Snapshot result; result.field.observation=context; result.field.location=std::move(navigation.observations.anchor);
     result.field.available=std::move(navigation.available); result.field.blocked_routes=std::move(navigation.blocked);
     result.goals=goals_->snapshot(context.now,context.generation); return result;
@@ -128,7 +128,10 @@ class Gathering final : public automation::Program {
     automation::Step select(const automation::View& view) {
         const auto decision=choose(view);
         selection(decision);
-        if (!decision.field) throw std::runtime_error("No reachable field with fresh location evidence");
+        if (!decision.field) {
+            if (decision.reason==game::FieldReason::unknown_location) throw automation::ObservationUnavailable("Gathering location could not be determined");
+            return automation::Defer{"No selected gathering field is currently reachable"};
+        }
         for (std::size_t i=0;i<plan_.fields.size();++i) if (plan_.fields[i].preference.field==*decision.field) selected_=i;
         const auto& field=plan_.fields[selected_];
         temporary_=decision.reason!=game::FieldReason::fallback;
@@ -275,7 +278,10 @@ public:
         if (stage_==Stage::arrived) {
             const auto decision=choose(view);
             selection(decision);
-            if (!decision.field) throw std::runtime_error("Field prerequisites expired during travel");
+            if (!decision.field) {
+                if (decision.reason==game::FieldReason::unknown_location) throw automation::ObservationUnavailable("Gathering location was lost during travel");
+                return automation::Defer{"Gathering fields are no longer available"};
+            }
             if (*decision.field!=plan_.fields[selected_].preference.field) return select(view);
             stage_=Stage::positioned;
             const auto offset=plan_.fields[selected_].start_offset;
@@ -322,7 +328,7 @@ public:
         if (stage_==Stage::shift_disabled) {
             stage_=Stage::pattern_restored; phase(Phase::returning);
             if (plan_.fields[selected_].strategy) {
-                if (!pattern_heading_) throw std::runtime_error("Pattern did not confirm its final facing");
+                if (!pattern_heading_) throw automation::ObservationUnavailable("Pattern did not confirm its final facing");
                 if (auto restore=game::heading_move(*pattern_heading_,0)) return automation::MoveCamera{*restore};
             }
         }

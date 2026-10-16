@@ -259,6 +259,7 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
                     lines.insert(lines.end(),isolated.begin(),isolated.end());
                 } else prompt_recognition.clear();
                 if (requested) result.state=read_game_text(*frame,lines,generation);
+                if (hive_requested) result.state.interaction_prompt={Knowledge::present,prompt.has_value(),frame->captured,frame->window,generation};
             } catch (const std::exception& e) { result.error=e.what(); readable=false; }
             catch (...) { result.error="Could not read game window"; readable=false; }
             result.processing=monotonic_now()-began;
@@ -270,6 +271,7 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
                 if (hive_requested || result.state.hive_prompt.knowledge==Knowledge::present) {
                     latest_.state.hive_prompt=result.state.hive_prompt;
                     latest_.state.at_hive=result.state.at_hive;
+                    latest_.state.interaction_prompt=result.state.interaction_prompt;
                 }
                 latest_.error=std::move(result.error); latest_.processing=result.processing;
             }

@@ -19,6 +19,7 @@ struct State {
     Reading<Connection> connection;
     Reading<bool> game_hud;
     Reading<bool> alive, at_hive;
+    Reading<bool> interaction_prompt;
     Reading<double> backpack_percent;
     Reading<HivePrompt> hive_prompt;
     Reading<TextSnapshot> text;

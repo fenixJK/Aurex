@@ -32,11 +32,10 @@ public:
             return UseControl{target,0,"Reconnect to game"};
         }
         const auto game_view=source_->read(c);
-        const bool hud=state.game_hud.has_value(c,Time(2000),minimum_+Time(2000)) && state.game_hud.value;
-        const bool observed_game=state.text.has_value(c,Time(2000),minimum_)
-            && game_view.has_value(c,Time(2000),minimum_+Time(2000))
+        const bool hud=state.game_hud.has_value(c,Time(2000),minimum_) && state.game_hud.value;
+        const bool observed_game=game_view.has_value(c,Time(2000),minimum_)
             && (game_view.value.screen==game::RespawnScreen::game || game_view.value.screen==game::RespawnScreen::controls);
-        if (c.now-minimum_>=Time(2000) && (hud || observed_game)
+        if ((hud || observed_game)
             && !target.has_value(c,Time(2000))
             && !(state.connection.has_value(c,Time(2000)) && state.connection.value==game::Connection::disconnected)
             && !(state.alive.has_value(c,Time(2000)) && !state.alive.value)

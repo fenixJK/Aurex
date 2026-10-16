@@ -16,7 +16,8 @@ class HiveSurvey final : public Program {
     std::string result_;
     std::optional<HiveClaimOptions> claim_;
     std::shared_ptr<const movement::Recipes> movement_;
-    unsigned selected_{},next_slot_{};
+    unsigned selected_{},next_slot_{},claim_attempts_{};
+    Time pressed_{Time(-1)};
     std::array<bool,6> checked_{};
     void start_scan() {
         selected_=claim_->preferred_slot?claim_->preferred_slot:1;
@@ -45,7 +46,13 @@ class HiveSurvey final : public Program {
             if (claim_->result) claim_->result->claimed(selected_,c);
             result_="Owned hive slot "+std::to_string(selected_)+" confirmed"; stage_=Stage::done; return next(view);
         }
-        if (candidate==2) { stage_=Stage::claim; return next(view); }
+        if (pressed_>=Time{} && text.captured<pressed_+Time(750)) return wait();
+        if (candidate==2) {
+            if (claim_attempts_>=3) throw ObservationUnavailable("Hive claim did not respond");
+            stage_=Stage::claim; return next(view);
+        }
+        const auto& prompt=view.observations->interaction_prompt;
+        if (!prompt.has_value(c,Time(2000),minimum_) || prompt.captured!=text.captured || prompt.value) return wait();
         checked_[selected_-1]=true; next_slot_=0;
         for (unsigned slot=1;slot<=6;++slot) if (!checked_[slot-1]) {
             const auto distance=std::abs(int(slot)-int(selected_));
@@ -67,7 +74,7 @@ public:
             throw std::invalid_argument("Hive claim requires a speed from 8 to 200 and preferred slot from 0 to 6");
     }
     RunConfig config() const override { return {claim_?(can_scan()?Time(120000):Time(60000)):Time(15000),claim_?claim_->speed:28,{},bool(claim_),true}; }
-    std::vector<Rect> text_regions() const override { return stage_==Stage::check?std::vector<Rect>{game::hive_claim_prompt().region}:std::vector<Rect>{}; }
+    std::vector<Rect> text_regions() const override { return stage_==Stage::check || stage_==Stage::claim?std::vector<Rect>{game::hive_claim_prompt().region}:std::vector<Rect>{}; }
     Step next(const View& view) override {
         if (!started_) { if (claim_ && claim_->result) claim_->result->reset(); started_=true; }
         switch (stage_) {
@@ -88,7 +95,7 @@ public:
         case Stage::check: return check_slot(view);
         case Stage::scan: return FollowPath{movement_->path("hive",{{"action",std::string("scan")},
             {"from",int(selected_)},{"to",int(next_slot_)}},claim_->speed).at(0)};
-        case Stage::claim: return UsePrompt{game::hive_claim_prompt(),game::hive_proximity_prompt(),Time(15000),true};
+        case Stage::claim: return Hold{{Key::interact},Time(100)};
         case Stage::done: return Done{result_};
         case Stage::observe: break;
         }
@@ -135,12 +142,13 @@ public:
         else if (stage_==Stage::departure_pitch) stage_=Stage::departure_zoom;
         else if (stage_==Stage::departure_zoom) stage_=Stage::approach;
         else if (stage_==Stage::approach) {
-            if (can_scan()) check_site(view.context.now); else stage_=Stage::claim;
+            check_site(view.context.now);
         }
-        else if (stage_==Stage::scan) { selected_=next_slot_; check_site(view.context.now); }
+        else if (stage_==Stage::scan) {
+            selected_=next_slot_; claim_attempts_=0; pressed_=Time(-1); check_site(view.context.now);
+        }
         else if (stage_==Stage::claim) {
-            if (claim_->result) claim_->result->claimed(selected_,view.context);
-            result_="Hive claim confirmed"; stage_=Stage::done;
+            ++claim_attempts_; pressed_=view.context.now; check_site(view.context.now);
         }
         else if (stage_==Stage::pitch || stage_==Stage::turn) {
             turned_=stage_==Stage::turn;

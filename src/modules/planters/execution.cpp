@@ -167,7 +167,7 @@ class Execution final : public automation::Program {
         const Plant* due=nullptr;
         WallTime earliest;
         for (const auto& plant : controller_->ledger().plants) {
-            if (deferred_.contains(plant.id) || !plan_.destinations.contains(plant.stats.field)) continue;
+            if (deferred_.contains(plant.id) || failed_fields_.contains(plant.stats.field) || !plan_.destinations.contains(plant.stats.field)) continue;
             const auto ready=ready_at(plant);
             const auto travel=account_->travel_.estimate(plant.stats.field);
             const auto departure=ready-Time(static_cast<Time::rep>(travel.learned?travel.seconds*1000:0));
@@ -557,11 +557,11 @@ public:
         }
         if (phase_==Phase::baseline || phase_==Phase::reconciling) {
             if (!scan(view,snapshot)) {
-                if (view.context.now>=deadline_) throw std::runtime_error(harvest_?
+                if (view.context.now>=deadline_) throw ObservationUnavailable(harvest_?
                     "Harvest prompt for the saved planter was not found":"Planter field state could not be confirmed");
                 return wait("Reading planters in the field");
             }
-            if (view.context.now>=deadline_) throw std::runtime_error("Planter reading could not be completed");
+            if (view.context.now>=deadline_) throw ObservationUnavailable("Planter reading could not be completed");
             if (phase_==Phase::reconciling) {
                 if (!controller_->reconcile(view.context,now,snapshot.placements)) return wait("Reconciling the previous planter action");
                 return leave(view);

@@ -140,7 +140,7 @@ bool Runner::prepare_menu(const ObservationContext& c,const game::State& s) {
     const auto point=*target;
     if (!std::isfinite(point.x) || !std::isfinite(point.y) || point.x<0 || point.y<0 || point.x>=1 || point.y>=1)
         throw std::runtime_error("Invalid menu control position");
-    if (menu_attempts_>=3) throw std::runtime_error("Game menu did not respond after three clicks");
+    if (menu_attempts_>=3) throw ObservationUnavailable("Game menu did not respond after three clicks");
     if (!owned_) { if (!tasks_.acquire(scope_)) return true; owned_=true; }
     ++menu_attempts_; progress_.message=required?"Opening tracking menu":"Closing game menu";
     const auto rest=game::pointer_rest(c,s);
@@ -178,16 +178,17 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         return true;
     }
     if (const auto* heading=std::get_if<AdoptHeading>(&*step_)) {
-        if (!permissions_.contains(Permission::movement) || heading->heading>7
-            || !heading->reference.has_value(c,Time(60000)) || !heading->reference.value)
-            throw std::runtime_error("Known camera heading was not confirmed in this game view");
+        if (!permissions_.contains(Permission::movement) || heading->heading>7)
+            throw std::invalid_argument("Invalid camera heading or missing movement permission");
+        if (!heading->reference.has_value(c,Time(60000)) || !heading->reference.value)
+            throw ObservationUnavailable("Known camera heading was not confirmed in this game view");
         progress_.estimated_heading=heading->heading;
         complete_step(c,s); return true;
     }
     if (const auto* heading=std::get_if<ObserveHeading>(&*step_)) {
         if (!permissions_.contains(Permission::movement) || !heading->reference || heading->heading>7
             || heading->timeout<Time(100) || heading->timeout>Time(10000)) throw std::invalid_argument("Invalid camera heading reference");
-        if (c.now-step_started_>=heading->timeout) throw std::runtime_error("Camera heading reference was not confirmed");
+        if (c.now-step_started_>=heading->timeout) throw ObservationUnavailable("Camera heading reference was not confirmed");
         if (!baseline_clear_) {
             if (!tasks_.acquire(scope_)) { progress_.message="Waiting for camera control"; return true; }
             owned_=true; baseline_clear_=true; confirmation_frame_=c.now;
@@ -201,7 +202,7 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
     }
     if (const auto* heading=std::get_if<SetHeading>(&*step_)) {
         if (!permissions_.contains(Permission::movement)) throw std::runtime_error("Camera movement permission was not granted");
-        if (!progress_.estimated_heading) throw std::runtime_error("Camera heading must be established from a reference first");
+        if (!progress_.estimated_heading) throw ObservationUnavailable("Camera heading must be established from a reference first");
         const auto move=game::heading_move(*progress_.estimated_heading,heading->heading);
         if (!move) { complete_step(c,s); return true; }
         step_=MoveCamera{*move};
@@ -210,7 +211,7 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         if (!permissions_.contains(Permission::movement)) throw std::runtime_error("Camera movement permission was not granted");
         auto actions=game::camera_actions(camera->movement);
         if (!tasks_.acquire(scope_)) {
-            if (progress_.estimated_heading) throw std::runtime_error("Camera control was lost; re-establish its heading");
+            if (progress_.estimated_heading) throw ObservationUnavailable("Camera control was lost; re-establish its heading");
             progress_.message="Waiting for game control"; return true;
         }
         owned_=true; progress_.message="Adjusting camera";
@@ -358,7 +359,7 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
             confirmation_frame_=s.text.captured;
             if (game::text_matches(c,s,wait->target,step_started_)) { complete_step(c,s); return true; }
         }
-        if (c.now-step_started_>=wait->timeout) finish(State::failed,"Could not confirm "+wait->target.words);
+        if (c.now-step_started_>=wait->timeout) interrupt(Interruption::lost_observations,c,s,"Could not confirm "+wait->target.words);
         return true;
     }
     if (auto* destination=std::get_if<Navigate>(&*step_)) {
@@ -399,7 +400,8 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
             complete_step(c,s);
         }
         else if (status.stage==workflows::TravelStage::failed && (status.failure==workflows::TravelFailure::location
-            || status.failure==workflows::TravelFailure::timeout || status.failure==workflows::TravelFailure::exhausted))
+            || status.failure==workflows::TravelFailure::timeout || status.failure==workflows::TravelFailure::exhausted
+            || status.failure==workflows::TravelFailure::conflict))
             interrupt(Interruption::lost_route,c,s,status.reason);
         else if (status.stage==workflows::TravelStage::failed || status.stage==workflows::TravelStage::stopped) finish(State::failed,status.reason);
         return true;

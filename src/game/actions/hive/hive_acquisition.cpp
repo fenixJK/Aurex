@@ -178,10 +178,15 @@ public:
         case Stage::turn:
         case Stage::restore: return MoveCamera{{Key::rotate_right,4}};
         case Stage::locate: {
+            spawn_->read(c);
             if (c.now-minimum_>=Time(10000)) { stage_=Stage::zoom; return next(view); }
             if (!view.observations) return Wait{};
             const auto& text=view.observations->text;
-            if (!text.has_value(c,Time(2000),minimum_) || text.captured<seen_) { return Wait{}; }
+            if (!text.has_value(c,Time(2000),minimum_)) {
+                const auto& hud=view.observations->game_hud;
+                if (hud.has_value(c,Time(2000),minimum_) && hud.value) { stage_=Stage::zoom; return next(view); }
+                return Wait{};
+            }
             if (text.captured==seen_) return Wait{};
             seen_=text.captured;
             const auto owned=game::read_prompt_landmark(c,text,game::hive_proximity_prompt());
@@ -225,8 +230,6 @@ public:
             if (reading.knowledge==Knowledge::present && reading.value) {
                 begin(Stage::claim,view); return child_step(view);
             }
-            if (!view.observations || !view.observations->text.has_value(c,Time(2000),minimum_))
-                return Wait{Time(50),"Reading hive interaction prompt"};
             stage_=turned_?Stage::restore:Stage::turn; return next(view);
         }
         return Wait{Time(50),"Checking the settled spawn view"};

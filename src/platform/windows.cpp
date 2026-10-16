@@ -54,8 +54,8 @@ bool roblox_process(std::int64_t pid) {
     return process && roblox_process(process.get());
 }
 class WindowsDesktop final : public Desktop {
-    static constexpr DWORD mouse_dwell=100;
-    std::optional<ULONGLONG> primary_pressed_;
+    static constexpr DWORD mouse_delay=10;
+    bool primary_down_{};
     winrt::handle pointer_timer_;
 public:
     bool client_lifecycle_available() const override { return true; }
@@ -200,15 +200,11 @@ public:
     catch (const winrt::hresult_error& error) { throw std::runtime_error(winrt::to_string(error.message())); }
     void key(Key key, bool down) override {
         if (key==Key::primary) {
-            if (!down && primary_pressed_) {
-                const auto elapsed=GetTickCount64()-*primary_pressed_;
-                if (elapsed<mouse_dwell) Sleep(mouse_dwell-static_cast<DWORD>(elapsed));
-            }
             INPUT input{}; input.type=INPUT_MOUSE;
             input.mi.dwFlags=down?MOUSEEVENTF_LEFTDOWN:MOUSEEVENTF_LEFTUP;
             if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Mouse button input was blocked by Windows");
-            if (down) primary_pressed_=GetTickCount64();
-            else { primary_pressed_.reset(); Sleep(mouse_dwell); }
+            primary_down_=down;
+            if (!down) Sleep(mouse_delay);
             return;
         }
         if (key==Key::select_all) {
@@ -238,7 +234,7 @@ public:
             input.mi.dy=static_cast<LONG>(std::clamp((target.y-top+.5)*65536/height,0.,65535.));
             if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Pointer movement was blocked by Windows");
         };
-        if (primary_pressed_) { move(point); return; }
+        if (primary_down_) { move(point); return; }
         POINT from{};
         if (!GetCursorPos(&from)) throw std::runtime_error("Could not read cursor position");
         if (point.x==from.x && point.y==from.y) return;
@@ -247,7 +243,7 @@ public:
             if (!pointer_timer_) throw std::runtime_error("Could not create pointer timer");
         }
         using Clock=std::chrono::steady_clock;
-        constexpr auto travel=std::chrono::milliseconds(100),interval=std::chrono::milliseconds(4);
+        constexpr auto travel=std::chrono::milliseconds(60),interval=std::chrono::milliseconds(4);
         const auto started=Clock::now(),finished=started+travel;
         for (;;) {
             const auto now=Clock::now();
@@ -263,7 +259,7 @@ public:
             move({from.x+(point.x-from.x)*eased,from.y+(point.y-from.y)*eased});
             if (part==1.) break;
         }
-        Sleep(mouse_dwell);
+        Sleep(mouse_delay);
     }
     void scroll(int lines) override {
         if (lines<-8 || lines>8) throw std::invalid_argument("Invalid scroll distance");
