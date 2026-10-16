@@ -6,6 +6,7 @@
 #include <opencv2/imgproc.hpp>
 #include <span>
 #include <stdexcept>
+#include <vector>
 
 namespace hive::game {
 namespace {
@@ -35,6 +36,38 @@ float similarity(const cv::Mat& ink,const cv::Mat& pattern) {
         if (best>=.94) break;
     }
     return static_cast<float>(best);
+}
+std::vector<cv::Rect> word_boxes(const cv::Mat& line) {
+    std::vector<cv::Rect> words;
+    for (int x=0;x<line.cols;) {
+        if (!cv::countNonZero(line.col(x))) { ++x; continue; }
+        const int left=x++;
+        int right=x;
+        while (x<line.cols && x-right<line.rows*.25) {
+            if (cv::countNonZero(line.col(x))) right=x+1;
+            ++x;
+        }
+        words.push_back(cv::boundingRect(line.colRange(left,right))+cv::Point(left,0));
+    }
+    return words;
+}
+float phrase_similarity(const cv::Mat& ink,const cv::Mat& pattern) {
+    // Keep word boundaries, but allow the rest of the caption to wrap independently.
+    float best=0;
+    for (int y=0;y<ink.rows;) {
+        if (!cv::countNonZero(ink.row(y))) { ++y; continue; }
+        const int top=y++;
+        while (y<ink.rows && cv::countNonZero(ink.row(y))) ++y;
+        const auto line=ink(cv::Rect(0,top,ink.cols,y-top));
+        if (line.rows<8) continue;
+        const auto words=word_boxes(line);
+        for (std::size_t first=0;first<words.size();++first) for (std::size_t last=first;last<words.size();++last) {
+            const auto phrase=line.colRange(words[first].x,words[last].x+words[last].width);
+            best=std::max(best,similarity(phrase,pattern));
+            if (best>=.94f) return best;
+        }
+    }
+    return best;
 }
 bool interact_key(const Frame& frame,const cv::Rect& box) {
     const cv::Rect inner(box.x+box.width/5,box.y+box.height/10,box.width*3/5,box.height*4/5);
@@ -150,18 +183,20 @@ std::optional<TextLine> interaction_label(const Frame& image) {
     }
     const auto bounds=cv::boundingRect(ink);
     if (bounds.height<8) return {};
-    struct Label { const char* text; cv::Mat pattern; bool first_line; };
+    enum class Match { whole,first_line,phrase };
+    struct Label { const char* text; cv::Mat pattern; Match match; float minimum{.9f}; };
     static const std::array labels{
-        Label{"Make Honey",reference(detail::make_honey_width,detail::make_honey_height,detail::make_honey),false},
-        Label{"Claim Hive",reference(detail::claim_hive_width,detail::claim_hive_height,detail::claim_hive),false},
-        Label{"Trade Request",reference(detail::trade_request_width,detail::trade_request_height,detail::trade_request),true},
-        Label{"Stop Making Honey",reference(detail::stop_honey_width,detail::stop_honey_height,detail::stop_honey),false},
-        Label{"Collect Pollen",reference(detail::collect_pollen_width,detail::collect_pollen_height,detail::collect_pollen),false}};
+        Label{"Make Honey",reference(detail::make_honey_width,detail::make_honey_height,detail::make_honey),Match::whole},
+        Label{"Claim Hive",reference(detail::claim_hive_width,detail::claim_hive_height,detail::claim_hive),Match::whole},
+        Label{"Trade Request",reference(detail::trade_request_width,detail::trade_request_height,detail::trade_request),Match::first_line},
+        Label{"Stop Making Honey",reference(detail::stop_honey_width,detail::stop_honey_height,detail::stop_honey),Match::whole},
+        Label{"Collect Pollen",reference(detail::flower_fields_width,detail::flower_fields_height,detail::flower_fields),Match::phrase,.87f}};
     std::optional<TextLine> result;
     for (const auto& label:labels) {
-        const auto area=label.first_line?first:bounds;
-        const auto score=similarity(label.first_line?first_ink:ink(area),label.pattern);
-        if (score<.9f) continue;
+        const auto area=label.match==Match::first_line?first:bounds;
+        const auto score=label.match==Match::phrase?phrase_similarity(ink(area),label.pattern)
+            :similarity(label.match==Match::first_line?first_ink:ink(area),label.pattern);
+        if (score<label.minimum) continue;
         if (result) return {};
         result=TextLine{label.text,{double(area.x),double(area.y),double(area.width),double(area.height)},std::clamp(score,0.f,1.f)};
     }

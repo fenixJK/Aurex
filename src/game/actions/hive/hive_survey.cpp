@@ -53,9 +53,10 @@ class HiveSurvey final : public Program {
         }
         const auto& prompt=view.observations->interaction_prompt;
         if (!prompt.has_value(c,Time(2000),minimum_) || prompt.captured!=text.captured) return wait();
-        if (prompt.value && !game::read_prompt_landmark(c,text,{{"Trade Request"},
-            game::interaction_prompt_search_region,game::hive_prompt_confidence,game::PromptMatch::phrase,true}).value)
-            return wait();
+        const bool trade=game::read_prompt_landmark(c,text,{{"Trade Request"},
+            game::interaction_prompt_search_region,game::hive_prompt_confidence,game::PromptMatch::phrase,true}).value;
+        // After E, a missing caption can be the claim transition, not an occupied slot.
+        if ((prompt.value || claim_attempts_) && !trade) return wait();
         checked_[selected_-1]=true; next_slot_=0;
         for (unsigned slot=1;slot<=6;++slot) if (!checked_[slot-1]) {
             const auto distance=std::abs(int(slot)-int(selected_));

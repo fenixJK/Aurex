@@ -1,4 +1,5 @@
 #include "session.hpp"
+#include "game/detection/connection.hpp"
 #include <utility>
 
 namespace hive {
@@ -53,13 +54,18 @@ bool Session::begin_client_rejoin(Time now,bool requested) {
     read_server_request(now); const auto target=rejoin_target(now);
     if (!feature_ || !target || !desktop_.client_lifecycle_available()) return false;
     if (!requested && !feature_->needs_client_rejoin() && !feature_->expects_reconnect() && desktop_.client_running(active_window_.process)) return false;
+    const auto observed=observer_.latest(false).state;
+    const ObservationContext context{active_window_,tasks_.generation(),now};
+    const bool home=observed.text.has_value(context,Time(2000)) && game::client_home_screen(observed.text.value)
+        && !(observed.game_hud.has_value(context,Time(2000)) && observed.game_hud.value);
     if (!feature_->prepare_client_rejoin(now)) return false;
     observer_.stop(); runtime_.stop("Preparing Roblox rejoin");
     if (runtime_.status().state==RunState::faulted) throw std::runtime_error("Could not release input before relaunching Roblox");
     joining_server_=requested_server_ && requested_server_->expires>now?requested_server_->key:std::string{};
     rejoin_schedule_.arm(wall_time());
     const RejoinLimits limits;
-    client_rejoin_.emplace(*target,active_window_,desktop_.client_processes(),now,limits);
+    client_rejoin_.emplace(*target,active_window_,desktop_.client_processes(),now,limits,
+        home?RejoinMode::join_existing:RejoinMode::restart);
     runtime_.start(active_window_,now,CompletionMode::managed);
     window_recovery_=WindowRecovery{now+limits.close+limits.window+limits.focus,now};
     return true;

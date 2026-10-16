@@ -1,14 +1,15 @@
 #include "client_rejoin.hpp"
 
 namespace hive {
-ClientRejoin::ClientRejoin(game::JoinTarget target,Window old,const std::vector<std::int64_t>& existing,Time now,RejoinLimits limits)
+ClientRejoin::ClientRejoin(game::JoinTarget target,Window old,const std::vector<std::int64_t>& existing,Time now,RejoinLimits limits,RejoinMode mode)
     :target_(std::move(target)),limits_(limits),old_(std::move(old)),deadline_(now+limits.close),next_(now),last_(now) {
     if ((old_.id && old_.process<=0) || (!old_.id && old_.process) || limits.close<=Time{} || limits.window<=Time{} || limits.focus<=Time{} || limits.poll<=Time{})
         throw std::invalid_argument("Invalid client recovery configuration");
     if(old_.id) {
-        for (const auto process:existing) excluded_.insert(process);
-        excluded_.insert(old_.process);
-    } else { stage_=Stage::launching; deadline_=now+limits_.window; }
+        for (const auto process:existing) if (process!=old_.process) excluded_.insert(process);
+        if (mode==RejoinMode::restart) excluded_.insert(old_.process);
+    }
+    if (!old_.id || mode==RejoinMode::join_existing) { stage_=Stage::launching; deadline_=now+limits_.window; }
 }
 std::string ClientRejoin::status() const {
     switch (stage_) {

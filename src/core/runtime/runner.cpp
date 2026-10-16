@@ -317,7 +317,7 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
             if (!hud && !connected) {
                 if (observations.text.has_value(c,Time(2000),context_.now)
                     && game::client_home_screen(observations.text.value)) {
-                    interrupt(Interruption::disconnected,c,observations,"Roblox is on its home screen"); return;
+                    interrupt(Interruption::client_rejoin,c,observations,"Roblox is on its home screen"); return;
                 }
                 if (c.now-context_.now>=Time(30000)) interrupt(Interruption::client_rejoin,c,observations,"Bee Swarm did not finish loading");
                 else progress_.message="Waiting for Bee Swarm to load";
