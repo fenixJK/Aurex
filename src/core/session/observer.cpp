@@ -230,7 +230,7 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
                 }
                 if (regions.size()>64) regions={{0,0,1,1}};
                 requested=!regions.empty();
-                auto prompt=requested?interaction_text_region(*frame,features.get()):std::optional<Rect>{};
+                auto prompt=requested?interaction_text_region(*frame):std::optional<Rect>{};
                 if (prompt && std::none_of(regions.begin(),regions.end(),[&](const auto& r) {
                     return r.x<prompt->x+prompt->width && r.x+r.width>prompt->x
                         && r.y<prompt->y+prompt->height && r.y+r.height>prompt->y;

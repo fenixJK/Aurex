@@ -26,6 +26,7 @@ add_library(hive_game
   movement/navigation.cpp
   movement/field_plans.cpp
   detection/landmarks.cpp
+  detection/interaction_prompt.cpp
   detection/blooms.cpp
   detection/planters.cpp
   detection/buff_bar.cpp

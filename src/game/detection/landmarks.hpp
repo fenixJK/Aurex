@@ -2,7 +2,6 @@
 #include "state.hpp"
 
 namespace hive::game {
-struct HudFeatures;
 enum class PromptMatch { exact, phrase, prefix };
 inline constexpr float hive_prompt_confidence=.5f;
 inline constexpr int interaction_text_padding=4;
@@ -16,7 +15,7 @@ struct PromptLandmark {
 };
 void validate(const PromptLandmark& landmark);
 std::optional<Rect> interaction_prompt_region(const Frame& frame);
-std::optional<Rect> interaction_text_region(const Frame& frame,const HudFeatures* hud=nullptr);
+std::optional<Rect> interaction_text_region(const Frame& frame);
 Frame interaction_text_image(const Frame& frame,Rect region);
 std::optional<TextLine> interaction_label(const Frame& image);
 Reading<bool> read_prompt_landmark(const Context& context,const Reading<TextSnapshot>& text,
