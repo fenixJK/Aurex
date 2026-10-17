@@ -38,8 +38,8 @@ TimeExtension extension(const Plan& plan,const FieldPlan& field) {
                 for (const auto& boost:result->boosts) if (boost.field==name) return true;
         }
         if (std::any_of(selected.begin(),selected.end(),[](const auto& name) { return name!="Field boost"; }))
-            if (const auto result=std::dynamic_pointer_cast<const game::BuffDetection>(read(buffs)))
-                for (const auto& buff:result->buffs) if (buff.active==true && std::find(selected.begin(),selected.end(),buff.name)!=selected.end()) return true;
+            if (const auto result=game::buff_snapshot(buffs,view.context))
+                for (const auto& buff:result->value->buffs) if (buff.active==true && std::find(selected.begin(),selected.end(),buff.name)!=selected.end()) return true;
         return false;
     }};
 }

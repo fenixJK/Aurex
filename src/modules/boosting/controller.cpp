@@ -54,6 +54,7 @@ void Controller::update(const extensions::SessionView& view,const std::optional<
     if (view.generation!=generation_) {
         generation_=view.generation; active_.clear(); completed_.clear(); boosted_.clear(); ages_.clear();
         readable_=false; observed_={}; gathering_field_.clear(); last_field_.clear(); stacks_.clear();
+        dice_hit_.reset(); dice_field_.clear();
     }
     running_=enabled_ && view.status.state==RunState::running; updated_=view.now;
     if (!running_) return;
