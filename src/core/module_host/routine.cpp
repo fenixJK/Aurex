@@ -14,10 +14,11 @@ Routine::Routine(std::vector<RoutineEntry> entries,std::unique_ptr<automation::A
             throw std::invalid_argument("Invalid routine participation");
     }
 }
-Routine::Readiness Routine::readiness(Host& host,const SessionView& view,const WorkSnapshot& schedule,std::size_t index) const {
+Routine::Readiness Routine::readiness(Host& host,const SessionView& view,const WorkSnapshot& schedule,std::size_t index,bool idle_retry) const {
     const auto& e=entries_[index];
     const auto& p=e.participation;
-    if (deferred_until_[index]>view.now || after_work_[index]>completed_work_) return {};
+    if (deferred_until_[index]>view.now) return {};
+    if (after_work_[index]>completed_work_ && (!idle_retry || view.now<due_[index]+Time(30000))) return {};
     if (!p.fallback && !p.demand_only && !p.reactive && due_[index]>view.now) return {};
     const auto found=host.entries().find(e.id);
     if (found==host.entries().end() || !found->second.executable()) return {};
@@ -77,21 +78,26 @@ std::optional<automation::Launch> Routine::next(Host& host,const SessionView& vi
     std::fill(pending_at_dispatch_.begin(),pending_at_dispatch_.end(),false);
     std::optional<std::size_t> fallback;
     bool interrupt_gather=false;
-    for (std::size_t i=0;i<entries_.size();++i) {
-        const auto& e=entries_[i];
-        const auto work=readiness(host,view,schedule,i);
-        pending_at_dispatch_[i]=work.pending;
-        if (!work.eligible) continue;
-        if (!e.participation.fallback && schedule.wait_until(e.id,view.now)>view.now) continue;
-        if (e.participation.fallback) {
-            fallback=i;
-            if (e.participation.priority>0 && due_[i]<=view.now)
-                options.push_back({e.id,e.participation.priority,due_[i]});
+    // Let other work run first; retry deferred work after a backoff if nothing else can run.
+    for (const bool idle_retry : {false,true}) {
+        for (std::size_t i=0;i<entries_.size();++i) {
+            if (idle_retry && after_work_[i]<=completed_work_) continue;
+            const auto& e=entries_[i];
+            const auto work=readiness(host,view,schedule,i,idle_retry);
+            pending_at_dispatch_[i]=work.pending;
+            if (!work.eligible) continue;
+            if (!e.participation.fallback && schedule.wait_until(e.id,view.now)>view.now) continue;
+            if (e.participation.fallback) {
+                fallback=i;
+                if (e.participation.priority>0 && due_[i]<=view.now)
+                    options.push_back({e.id,e.participation.priority,due_[i]});
+            }
+            else {
+                options.push_back({e.id,e.participation.priority,std::min(due_[i],view.now)});
+                interrupt_gather=interrupt_gather || (e.participation.interrupt_gather && work.pending);
+            }
         }
-        else {
-            options.push_back({e.id,e.participation.priority,std::min(due_[i],view.now)});
-            interrupt_gather=interrupt_gather || (e.participation.interrupt_gather && work.pending);
-        }
+        if (!options.empty() || fallback) break;
     }
     for (auto& option:options) {
         option.now=view.now;

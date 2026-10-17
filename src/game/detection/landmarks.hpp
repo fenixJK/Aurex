@@ -17,6 +17,8 @@ void validate(const PromptLandmark& landmark);
 std::optional<Rect> interaction_prompt_region(const Frame& frame);
 std::optional<Rect> interaction_text_region(const Frame& frame);
 bool interaction_cooldown(const Frame& frame,Rect region);
+struct HudFeatures;
+Reading<InteractionBanner> read_interaction_banner(const Frame& frame,std::uint64_t generation,const HudFeatures* hud=nullptr);
 Frame interaction_text_image(const Frame& frame,Rect region);
 std::optional<TextLine> interaction_label(const Frame& image,const std::string& target={});
 Reading<bool> read_prompt_landmark(const Context& context,const Reading<TextSnapshot>& text,

@@ -27,7 +27,7 @@ void plant_valid(const Plant& plant) {
 bool same(const Plant& a,const Plant& b) {
     return a.id==b.id && a.stats.planter==b.stats.planter && a.stats.field==b.stats.field && a.stats.nectar==b.stats.nectar
         && a.stats.nectar_bonus==b.stats.nectar_bonus && a.stats.speed_bonus==b.stats.speed_bonus && a.stats.full_seconds==b.stats.full_seconds
-        && a.phase==b.phase && a.placed==b.placed && a.due==b.due && a.growth==b.growth && a.offline==b.offline && a.material==b.material;
+        && a.phase==b.phase && a.placed==b.placed && a.due==b.due && a.growth==b.growth && a.offline==b.offline && a.material==b.material && a.missing==b.missing;
 }
 void scan_valid(const Placements& scan) {
     if ((!scan.field.empty() && !name(scan.field)) || scan.identities.size()>3) throw std::invalid_argument("Too many observed planters");
@@ -170,7 +170,7 @@ std::uint64_t Controller::harvest(std::uint64_t id,const ObservationContext& c,W
     if (ledger_.pending) throw std::logic_error("A planter action is already pending");
     clock(wall);
     const auto found=std::find_if(ledger_.plants.begin(),ledger_.plants.end(),[&](const Plant& p) { return p.id==id; });
-    if (found==ledger_.plants.end() || wall<found->placed || wall-found->placed<Time(1000))
+    if (found==ledger_.plants.end() || found->missing || wall<found->placed || wall-found->placed<Time(1000))
         throw std::runtime_error("Planter is unknown or not ready for harvest");
     baseline(c,placements,identity(found->stats));
     if (!placements.value.field.empty() && placements.value.field!=found->stats.field) throw std::runtime_error("Harvest observation is from another field");
@@ -265,6 +265,14 @@ bool Controller::reconcile_returned(const ObservationContext& c,WallTime wall,co
     return true;
 }
 void Controller::interrupt() noexcept { transaction_.reset(); confirmed_at_.reset(); reset_reconciliation(); }
+bool Controller::mark_missing(std::uint64_t id) {
+    if (ledger_.pending) throw std::logic_error("Cannot mark a planter missing during an action");
+    auto next=ledger_;
+    const auto found=std::find_if(next.plants.begin(),next.plants.end(),[&](const Plant& plant) { return plant.id==id; });
+    if (found==next.plants.end()) throw std::invalid_argument("Saved planter no longer exists");
+    if (found->missing) return false;
+    found->missing=true; commit(std::move(next)); return true;
+}
 void Controller::reset_reconciliation() {
     reconciliation_context_.reset(); reconciliation_frame_=Time(-1);
 }

@@ -7,6 +7,7 @@ struct DetectionInput;
 struct HudFeatures {
     std::vector<MenuControl> menus;
     Reading<double> backpack;
+    Reading<InteractionBanner> interaction_banner;
     std::optional<std::array<Rect,2>> resources;
 };
 HudFeatures inspect_hud(const Frame& frame,std::uint64_t generation);

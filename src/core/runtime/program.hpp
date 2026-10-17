@@ -35,7 +35,7 @@ inline bool can_handoff(const Progress& progress) {
     return progress.input_released && (can_handoff(progress.state) || (progress.state==State::failed
         && progress.interruption!=Interruption::disconnected && progress.interruption!=Interruption::client_rejoin));
 }
-struct RunConfig { Time duration{60000}; double speed{28}; std::optional<double> backpack_limit; bool observe{}, require_done{}; };
+struct RunConfig { Time duration{60000}; double speed{28}; std::optional<double> backpack_limit; bool observe{}, require_done{}, observe_interaction{}; };
 struct View {
     Time elapsed{};
     std::size_t completed_steps{};

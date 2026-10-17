@@ -39,6 +39,7 @@ public:
     void replace_window(const ObservationContext& context,ModuleScope scope);
     bool request_yield();
     bool observes_game() const;
+    bool observes_interaction() const;
     std::vector<Rect> text_regions() const;
 private:
     std::unique_ptr<Program> program_;

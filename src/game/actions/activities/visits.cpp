@@ -17,11 +17,25 @@ public:
             game::station_target(name,true);
         }
     }
-    std::vector<Rect> text_regions(const std::string& id) const override { return {game::station_target(stations_.at(id)).region}; }
+    std::vector<Rect> text_regions(const std::string& id) const override {
+        const auto& name=stations_.at(id);
+        const auto* definition=game::station_definition(name);
+        if (definition && definition->interaction==game::StationInteraction::activate) return {};
+        return {game::station_target(name).region};
+    }
     Observation<bool> read(const std::string& id,const View& view) const override {
         const auto it=stations_.find(id);
         if (it==stations_.end() || !view.observations) return {};
         const auto& name=it->second;
+        const auto* definition=game::station_definition(name);
+        if (definition && definition->interaction==game::StationInteraction::activate) {
+            // A generic banner identifies readiness only at the destination of the completed route.
+            if (!view.route_position || !view.route_position->usable(view.context)
+                || view.route_position->location!=definition->location) return {};
+            const auto& banner=view.observations->interaction_banner;
+            if (!banner.has_value(view.context,Time(2000)) || banner.value==game::InteractionBanner::none) return {};
+            return {Knowledge::present,banner.value==game::InteractionBanner::ready,banner.captured,banner.window,banner.generation};
+        }
         const auto cooldown=game::read_text_target(view.context,*view.observations,game::station_target(name,true));
         if (cooldown.has_value(view.context,Time(2000)))
             return {Knowledge::present,false,cooldown.captured,cooldown.window,cooldown.generation};
@@ -170,6 +184,7 @@ public:
         std::shared_ptr<const AvailabilitySource> availability,std::shared_ptr<VisitResults> results)
         :plan_(std::move(plan)),availability_(std::move(availability)),results_(std::move(results)) {
         plan_.config.require_done=true;
+        plan_.config.observe_interaction=std::any_of(plan_.visits.begin(),plan_.visits.end(),[](const auto& visit) { return std::holds_alternative<UseStation>(visit.action); });
         if (!network || !availability_ || plan_.visits.empty() || plan_.visits.size()>32 || !plan_.config.observe || plan_.config.backpack_limit
             || plan_.config.duration<Time(1000) || plan_.config.duration>std::chrono::hours(8)
             || !std::isfinite(plan_.config.speed) || plan_.config.speed<1 || plan_.config.speed>200

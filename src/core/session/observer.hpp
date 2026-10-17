@@ -18,7 +18,7 @@ public:
     std::map<std::string,std::shared_ptr<const DetectionSource>> configure(std::vector<DetectorConfig> detectors);
     void configure_speed(std::shared_ptr<const MovementSpeedSource> source);
     bool has_detectors() const;
-    void watch(const ObservationContext& context,bool hud=true,bool connection=false);
+    void watch(const ObservationContext& context,bool hud=true,bool connection=false,bool interaction=false);
     void request_text(std::vector<Rect> regions);
     void stop();
     ObservedState latest(bool request_speed=true);
@@ -38,7 +38,7 @@ private:
     std::shared_ptr<const Frame> frame_;
     std::shared_ptr<const HudFeatures> frame_hud_;
     std::uint64_t frame_sequence_{};
-    bool hud_{true},connection_{};
+    bool hud_{true},connection_{},interaction_{};
     std::vector<Rect> text_regions_,connection_regions_;
     Time ocr_next_{};
     std::string capture_error_;

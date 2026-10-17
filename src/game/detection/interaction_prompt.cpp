@@ -1,4 +1,5 @@
 #include "landmarks.hpp"
+#include "perception.hpp"
 #include "prompt_labels.hpp"
 #include <algorithm>
 #include <array>
@@ -164,6 +165,68 @@ std::optional<Rect> locate_prompt(const Frame& frame,bool captions) {
 }
 std::optional<Rect> interaction_prompt_region(const Frame& frame) { return locate_prompt(frame,false); }
 std::optional<Rect> interaction_text_region(const Frame& frame) { return locate_prompt(frame,true); }
+Reading<InteractionBanner> read_interaction_banner(const Frame& frame,std::uint64_t generation,const HudFeatures* hud) {
+    if (!frame.valid() || !generation) return {};
+    const auto inspected=hud?HudFeatures{}:inspect_hud(frame,generation);
+    if (!hud) hud=&inspected;
+    Reading<InteractionBanner> result{Knowledge::present,InteractionBanner::none,frame.captured,frame.window,generation};
+    const bool hud_visible=game_hud_visible(*hud);
+    // Locate the colored panel independently of the white HUD borders, which can
+    // merge into a bright sky. The ready state also requires the adjoining E key.
+    cv::Mat colored(frame.height/4,frame.width,CV_8UC1,cv::Scalar(0));
+    cv::Mat blue=cv::Mat::zeros(colored.size(),CV_8UC1);
+    for (int y=0;y<colored.rows;++y) for (int x=frame.width/4;x<frame.width*3/4;++x) {
+        const auto i=(std::size_t(y)*frame.width+x)*4;
+        const int r=frame.rgba[i],g=frame.rgba[i+1],b=frame.rgba[i+2];
+        if (r>=100 && r>g*1.3 && r>b*1.15) colored.at<unsigned char>(y,x)=255;
+        if (b>=100 && b>r*1.3 && b>g*1.15) blue.at<unsigned char>(y,x)=255;
+    }
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(colored,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
+    std::vector<std::vector<cv::Point>> blue_contours;
+    cv::findContours(blue,blue_contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
+    for (auto& contour:blue_contours) contours.push_back(std::move(contour));
+    std::vector<InteractionBanner> found;
+    for (const auto& contour:contours) {
+        const auto box=cv::boundingRect(contour);
+        if (box.height<frame.height*.018 || box.height>frame.height*.1 || box.width<box.height*3 || box.width>box.height*14
+            || std::abs(box.x+box.width/2.-frame.width/2.)>box.height || box.y<frame.height*.025
+            || cv::contourArea(contour)<box.area()*.8) continue;
+        // A solid panel or world geometry is not a text-bearing action banner.
+        const Rect region{double(box.x)/frame.width,double(box.y)/frame.height,double(box.width)/frame.width,double(box.height)/frame.height};
+        if (!interaction_cooldown(frame,region)) {
+            bool key=false;
+            for (double gap:{.04,.1,.16}) {
+                const cv::Rect button(box.x-box.height-int(box.height*gap),box.y,box.height,box.height);
+                if (button.x>=0 && interact_key(frame,button)) { key=true; break; }
+            }
+            if (key) found.push_back(InteractionBanner::ready);
+            continue;
+        }
+        if (!hud_visible) continue;
+        const auto text=interaction_text_image(frame,region);
+        cv::Mat ink(text.height,text.width,CV_8UC1,cv::Scalar(0));
+        for (int y=0;y<text.height;++y) for (int x=0;x<text.width;++x)
+            if (text.rgba[(std::size_t(y)*text.width+x)*4]==0) ink.at<unsigned char>(y,x)=255;
+        std::vector<std::vector<cv::Point>> letters;
+        cv::findContours(ink,letters,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
+        std::vector<cv::Rect> glyphs; int baseline=0;
+        for (const auto& glyph:letters) {
+            const auto r=cv::boundingRect(glyph);
+            if (r.height<box.height*.12 || r.height>box.height*.65 || r.width>box.height*.7) continue;
+            glyphs.push_back(r); baseline=std::max(baseline,r.y+r.height);
+        }
+        cv::Rect timer; unsigned timer_glyphs=0;
+        for (const auto& r:glyphs) if (r.y+r.height>=baseline-box.height*.18) { timer|=r; ++timer_glyphs; }
+        // A centered timer line below a caption distinguishes cooldowns from red warnings.
+        if (glyphs.size()>=8 && timer_glyphs>=3 && glyphs.size()-timer_glyphs>=4 && timer.width<box.width*.75
+            && std::abs(timer.x+timer.width/2.-ink.cols/2.)<=box.width*.15)
+            found.push_back(InteractionBanner::cooldown);
+
+    }
+    if (found.size()==1) result.value=found.front();
+    return result;
+}
 bool interaction_cooldown(const Frame& frame,Rect region) {
     if (!frame.valid() || !region.valid() || region.x<0 || region.y<0 || region.x+region.width>1 || region.y+region.height>1) return false;
     unsigned red=0;

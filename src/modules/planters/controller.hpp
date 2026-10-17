@@ -18,6 +18,7 @@ struct Plant {
     std::optional<GrowthSample> growth;
     Time offline{};
     std::string material;
+    bool missing{};
 };
 double harvest_fraction(const Plant& plant);
 double harvest_minimum_fraction(const Plant& plant);
@@ -61,6 +62,7 @@ public:
         const Observation<HarvestEvidence>& harvested={});
     void input_finished(std::uint64_t ticket,const ObservationContext& context);
     void interrupt() noexcept;
+    bool mark_missing(std::uint64_t plant);
     void record_travel(const std::string& field,double seconds);
     void exclude_offline(WallTime begin,WallTime end);
     void abandon_unstarted_placement(std::uint64_t ticket,WallTime wall);

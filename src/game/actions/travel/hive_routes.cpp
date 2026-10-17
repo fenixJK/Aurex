@@ -1,5 +1,6 @@
 #include "hive_routes.hpp"
 #include "game/data/fields.hpp"
+#include "game/data/stations.hpp"
 #include <mutex>
 #include "field_routes.hpp"
 #include "planting_routes.hpp"
@@ -52,6 +53,15 @@ std::shared_ptr<const workflows::RouteCatalog> accessible_routes(const workflows
         const bool cannon=std::any_of(path.begin(),path.end(),[](const auto& p) { return p.detector=="transport.red-cannon"; });
         if (cannon && (!access.cannon || access.bees<25)) continue;
         routes.push_back({route,path});
+        for (const auto& station:game::stations()) if (station.location==route.to && station.interaction==game::StationInteraction::activate) {
+            auto& scoped=routes.back();
+            if (scoped.checkpoints.back().detector==route.to) {
+                // The route supplies identity; the shared visual banner supplies proximity.
+                scoped.checkpoints.back().detector="interaction.station";
+                scoped.route.arrival=game::RouteArrival::estimated;
+            }
+            break;
+        }
     }
     auto locations=detail::locations(routes);
     return std::make_shared<workflows::RouteCatalog>(std::move(locations),std::move(routes));

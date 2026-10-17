@@ -8,6 +8,7 @@ enum class HivePrompt { make_honey, stop_making_honey, none, collect_pollen };
 enum class Connection { connected, disconnected };
 struct TextSnapshot { int width{},height{}; std::vector<TextLine> lines; };
 struct InteractionCaption { std::string label; bool cooldown{}; };
+enum class InteractionBanner { none, ready, cooldown };
 struct DialogButtons { Point yes,no; };
 enum class MenuTab { inventory,quests,settings };
 struct MenuControl {
@@ -25,6 +26,7 @@ struct State {
     Reading<HivePrompt> hive_prompt;
     Reading<TextSnapshot> text;
     Reading<InteractionCaption> interaction_caption;
+    Reading<InteractionBanner> interaction_banner;
     Reading<double> movement_speed;
     Reading<bool> shift_lock;
     Reading<Point> open_menu;

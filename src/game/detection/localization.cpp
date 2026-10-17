@@ -1,4 +1,5 @@
 #include "localization.hpp"
+#include "perception.hpp"
 #include "game/data/stations.hpp"
 #include "game/data/npcs.hpp"
 #include <algorithm>
@@ -14,8 +15,14 @@ public:
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         if (!input.frame.valid() || !input.generation || (input.cancelled && input.cancelled())) return {};
         const auto& frame=input.frame;
-        const auto region=interaction_prompt_region(frame);
-        const bool visible=region && (label_.empty() || interaction_label(interaction_text_image(frame,*region),label_).has_value());
+        bool visible=false;
+        if (label_.empty()) {
+            const auto banner=input.hud && input.hud->interaction_banner.knowledge!=Knowledge::unknown?input.hud->interaction_banner:
+                read_interaction_banner(frame,input.generation,input.hud);
+            visible=banner.knowledge==Knowledge::present && banner.value==InteractionBanner::ready;
+        } else if (const auto region=interaction_prompt_region(frame)) {
+            visible=interaction_label(interaction_text_image(frame,*region),label_).has_value();
+        }
         auto result=std::make_shared<Landmarks>();
         result->readings.emplace("interaction.prompt",Observation<bool>{visible?Knowledge::present:Knowledge::absent,
             visible,frame.captured,frame.window,input.generation});

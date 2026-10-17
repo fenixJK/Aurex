@@ -2,26 +2,40 @@
 #include <algorithm>
 
 namespace hive::workflows {
+Interaction::Interaction(Time timeout)
+    :prompt_(game::InteractionBanner::ready),result_(game::InteractionBanner::cooldown),timeout_(timeout) {
+    if (timeout<Time(1000) || timeout>Time(60000)) throw std::invalid_argument("Invalid interaction timeout");
+}
 Interaction::Interaction(game::TextTarget prompt,game::TextTarget result,Time timeout)
     :prompt_(std::move(prompt)),result_(std::move(result)),timeout_(timeout) {
-    std::visit([](const auto& target) { game::validate(target); },prompt_);
-    std::visit([](const auto& target) { game::validate(target); },result_);
+    game::validate(std::get<game::TextTarget>(prompt_));
+    game::validate(std::get<game::TextTarget>(result_));
     if (timeout<Time(1000) || timeout>Time(60000)) throw std::invalid_argument("Invalid interaction timeout");
 }
 Interaction::Interaction(game::PromptLandmark prompt,game::PromptLandmark result,Time timeout,bool accept_existing_result)
     :prompt_(std::move(prompt)),result_(std::move(result)),timeout_(timeout),accept_existing_result_(accept_existing_result) {
-    std::visit([](const auto& target) { game::validate(target); },prompt_);
-    std::visit([](const auto& target) { game::validate(target); },result_);
+    game::validate(std::get<game::PromptLandmark>(prompt_));
+    game::validate(std::get<game::PromptLandmark>(result_));
     if (timeout<Time(1000) || timeout>Time(60000)) throw std::invalid_argument("Invalid interaction timeout");
 }
 game::Reading<bool> Interaction::read(const Target& target,const ObservationContext& c,const game::State& state) const {
+    if (const auto* banner=std::get_if<game::InteractionBanner>(&target)) {
+        const auto& observed=state.interaction_banner;
+        game::Reading<bool> result{Knowledge::unknown,false,observed.captured,observed.window,observed.generation};
+        if (observed.has_value(c,Time(2000),minimum_)) {
+            result.value=observed.value==*banner;
+            result.knowledge=result.value?Knowledge::present:Knowledge::absent;
+        }
+        return result;
+    }
     if (const auto* text=std::get_if<game::TextTarget>(&target)) return game::read_text_target(c,state,*text,minimum_);
     return game::read_prompt_landmark(c,state.text,std::get<game::PromptLandmark>(target));
 }
 void Interaction::start(const ObservationContext& context) {
     if (stage_!=InteractionStage::idle || !context.window.id || !context.window.bounds.valid() || !context.generation) throw std::logic_error("Interaction needs a new valid session");
     started_=context; minimum_=last_tick_=context.now; stage_=InteractionStage::waiting;
-    if (const auto* station=std::get_if<game::TextTarget>(&prompt_); station && station->station_name)
+    const auto* station=std::get_if<game::TextTarget>(&prompt_);
+    if ((station && station->station_name) || std::holds_alternative<game::InteractionBanner>(prompt_))
         minimum_=std::max(Time{},context.now-Time(2000));
 }
 void Interaction::finish(InteractionStage stage,std::string reason,TaskPort& tasks,ModuleScope scope) {
@@ -50,15 +64,18 @@ void Interaction::update(const ObservationContext& c,const game::State& state,Ta
             pressed_=result.finished; minimum_=pressed_+Time(1); stage_=InteractionStage::confirming;
         }
         const bool exact=std::holds_alternative<game::PromptLandmark>(prompt_);
+        const bool visual=std::holds_alternative<game::InteractionBanner>(prompt_);
         if (exact && !owned_) {
             if (!tasks.acquire(scope)) return;
             owned_=true; minimum_=c.now+Time(1);
         }
-        if (!state.text.has_value(c,Time(2000),minimum_)) return;
+        const auto frame=visual?state.interaction_banner.captured:state.text.captured;
+        const bool fresh=visual?state.interaction_banner.has_value(c,Time(2000),minimum_):state.text.has_value(c,Time(2000),minimum_);
+        if (!fresh) return;
         if (stage_==InteractionStage::waiting) {
-            if (state.text.captured<last_result_) return;
-            if (state.text.captured>last_result_) {
-                last_result_=state.text.captured;
+            if (frame<last_result_) return;
+            if (frame>last_result_) {
+                last_result_=frame;
                 const auto result=read(result_,c,state);
                 if (result.knowledge==Knowledge::present && result.value) {
                     if (exact && accept_existing_result_ && read(prompt_,c,state).value) return;
@@ -73,14 +90,14 @@ void Interaction::update(const ObservationContext& c,const game::State& state,Ta
             if (!prompt_seen_ || !tasks.acquire(scope)) return;
             pending_=tasks.submit(scope,TaskClass::interaction,{{"Use station",{Key::interact},Time(100),{}}},Time(2000));
             ++attempts_; stage_=InteractionStage::pressing;
-        } else if (stage_==InteractionStage::confirming && state.text.captured>last_result_) {
+        } else if (stage_==InteractionStage::confirming && frame>last_result_) {
             const auto observed=read(result_,c,state);
             const bool result=observed.knowledge==Knowledge::present && observed.value
                 && (!exact || !read(prompt_,c,state).value);
-            last_result_=state.text.captured;
+            last_result_=frame;
             if (result) finish(InteractionStage::completed,"Station result confirmed",tasks,scope);
             else if ((!exact || accept_existing_result_) && attempts_<3 && observed.knowledge==Knowledge::absent
-                && state.text.captured>=pressed_+Time(750) && read(prompt_,c,state).value) {
+                && frame>=pressed_+Time(750) && read(prompt_,c,state).value) {
                 prompt_seen_=true; stage_=InteractionStage::waiting;
             }
         }

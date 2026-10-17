@@ -6,6 +6,11 @@
 #include <utility>
 
 namespace hive::automation {
+bool Runner::observes_interaction() const {
+    return config_.observe_interaction || (step_ && (std::holds_alternative<UseStation>(*step_) || std::holds_alternative<Navigate>(*step_)))
+        || (recovery_ && recovery_->observes_interaction()) || (child_ && child_->observes_interaction())
+        || (pattern_ && pattern_->observes_interaction());
+}
 bool Runner::observes_game() const {
     return config_.observe || config_.backpack_limit
         || (recovery_ && recovery_->observes_game()) || (child_ && child_->observes_game()) || (pattern_ && pattern_->observes_game());
@@ -25,7 +30,10 @@ std::vector<Rect> Runner::text_regions() const {
         if constexpr (std::is_same_v<T,AwaitText>) regions.push_back(step.target.region);
         else if constexpr (std::is_same_v<T,ApproachPrompt>) regions.push_back(step.prompt.region);
         else if constexpr (std::is_same_v<T,UsePrompt>) { regions.push_back(step.prompt.region); regions.push_back(step.result.region); }
-        else if constexpr (std::is_same_v<T,UseStation>) regions.push_back(game::station_target(step.name).region);
+        else if constexpr (std::is_same_v<T,UseStation>) {
+            const auto* definition=game::station_definition(step.name);
+            if (!definition || definition->interaction!=game::StationInteraction::activate) regions.push_back(game::station_target(step.name).region);
+        }
         else if constexpr (std::is_same_v<T,Pattern>) { if (step.until) regions.push_back(step.until->region); }
         else if constexpr (std::is_same_v<T,AnswerDialog>) { if (step.plan.read_question) regions.push_back(step.plan.question.region); }
         else if constexpr (std::is_same_v<T,Convert>) { if (!conversion_ || conversion_->needs_prompt()) regions.push_back(game::hive_proximity_prompt().region); }
@@ -434,7 +442,9 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
     if (auto* station=std::get_if<UseStation>(&*step_)) {
         if (!permissions_.contains(Permission::interact)) throw std::runtime_error("Station interaction permission was not granted");
         if (!interaction_) {
-            interaction_.emplace(game::station_target(station->name),game::station_target(station->name,true),station->timeout);
+            const auto* definition=game::station_definition(station->name);
+            if (definition && definition->interaction==game::StationInteraction::activate) interaction_.emplace(station->timeout);
+            else interaction_.emplace(game::station_target(station->name),game::station_target(station->name,true),station->timeout);
             interaction_->start(c);
         }
         progress_.message="Using "+station->name; interaction_->update(c,s,tasks_,scope_);

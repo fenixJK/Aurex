@@ -180,6 +180,7 @@ public:
         if (!gather_fields_ || !view.generation || view.status.state!=RunState::running || !plan_.preferences) return;
         const auto plants=account_->plants();
         for (const auto& plant:plants) {
+            if (plant.missing) continue;
             const auto nectar=static_cast<std::size_t>(plant.stats.nectar);
             if (!plan_.preferences->fields.contains(plant.stats.field) || !plan_.preferences->targets[nectar].minimum) continue;
             requests_.fields.push_back({"sipping-"+std::to_string(plant.id),plant.stats.field,10,view.now+Time(5000)});
@@ -314,9 +315,9 @@ public:
             const bool pending=ledger.pending && ledger.pending->plant.id==plant.id;
             auto name=plant.stats.planter;
             for(const auto& item:equipment())if(item.id==name) {name=item.label;break;}
-            result.push_back({std::to_string(plant.id),plant.stats.field,name,
-                pending?std::optional<Time>{}:std::max(Time{},ready_at(plant)-now),
-                pending?std::optional<double>{}:std::clamp(estimated_age(plant,now)/plant.stats.full_seconds*100.,0.,100.)});
+            result.push_back({std::to_string(plant.id),plant.stats.field,name+(plant.missing?" · Not found":""),
+                pending || plant.missing?std::optional<Time>{}:std::max(Time{},ready_at(plant)-now),
+                pending || plant.missing?std::optional<double>{}:std::clamp(estimated_age(plant,now)/plant.stats.full_seconds*100.,0.,100.)});
         }
         return result;
     }
@@ -328,7 +329,7 @@ public:
             const auto time=minutes>=60?std::to_string(minutes/60)+"h "+std::to_string(minutes%60)+"m":minutes?std::to_string(minutes)+"m":"Ready";
             std::string name=plant.stats.planter;
             for (std::size_t i=1;i<name.size();++i) if (name[i]>='A' && name[i]<='Z' && name[i-1]!=' ') name.insert(i++,1,' ');
-            result.push_back({plant.stats.field,name+" · "+time,std::clamp(estimated_age(plant,now)/plant.stats.full_seconds*100.,0.,100.),
+            result.push_back({plant.stats.field,name+" · "+(plant.missing?"Not found":time),plant.missing?std::optional<double>{}:std::clamp(estimated_age(plant,now)/plant.stats.full_seconds*100.,0.,100.),
                 {},nectar_names()[static_cast<std::size_t>(plant.stats.nectar)]});
         }
         return result;
@@ -342,14 +343,15 @@ public:
         const auto plants=account_->plants();
         if (const auto ready=material_ready(plants.size());ready && *ready<=now.time_since_epoch()) return true;
         if (plants.empty()) return false;
-        return std::any_of(plants.begin(),plants.end(),[&](const auto& plant) { return ready_at(plant)<=now; });
+        return std::any_of(plants.begin(),plants.end(),[&](const auto& plant) { return !plant.missing && ready_at(plant)<=now; });
     }
     std::optional<extensions::WorkEstimate> next_work(const extensions::SessionView& view) const override {
         if (!started_) return {};
         if (check_requested_ || timer_revision_!=account_->edit_revision())
             return extensions::WorkEstimate{"Check planter slots",{},Time{},view.now,view.now};
-        const auto plants=account_->plants();
+        auto plants=account_->plants();
         const auto material=material_ready(plants.size());
+        std::erase_if(plants,[](const Plant& plant) { return plant.missing; });
         const auto wall=clock_();
         if (material && (plants.empty() || std::all_of(plants.begin(),plants.end(),[&](const auto& plant) { return *material<ready_at(plant).time_since_epoch(); })))
             return extensions::WorkEstimate{"Planter bonus ready",{},Time{},view.now+std::max(Time{},*material-wall.time_since_epoch()),{}};

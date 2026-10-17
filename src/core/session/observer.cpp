@@ -65,18 +65,18 @@ void Observer::clear_detections() {
     if (speed_source_) speed_source_->reset();
     for (auto& entry : detectors_) { entry.channel->clear(); entry.next={}; }
 }
-void Observer::watch(const ObservationContext& context,bool hud,bool connection) {
-    hud=hud || connection;
+void Observer::watch(const ObservationContext& context,bool hud,bool connection,bool interaction) {
+    hud=hud || connection || interaction;
     if (!context.window.id || !context.window.bounds.valid() || !context.generation || context.now<Time::zero()) throw std::invalid_argument("Invalid observation target");
     {
         std::lock_guard lock(mutex_);
         const bool same=target_ && target_->generation==context.generation && target_->window.id==context.window.id
             && target_->window.process==context.window.process && target_->window.bounds==context.window.bounds;
         if (same) {
-            if (hud_==hud && connection_==connection) return;
-            hud_=hud; connection_=connection; ++revision_;
+            if (hud_==hud && connection_==connection && interaction_==interaction) return;
+            hud_=hud; connection_=connection; interaction_=interaction; ++revision_;
         }
-        else { target_=context; hud_=hud; connection_=connection; latest_={}; ++revision_; clear_detections(); }
+        else { target_=context; hud_=hud; connection_=connection; interaction_=interaction; latest_={}; ++revision_; clear_detections(); }
     }
     wake_->changed.notify_all();
 }
@@ -112,7 +112,7 @@ void Observer::capture() {
     while (!exiting_) {
         wake_->changed.wait(lock,[this] { return exiting_ || target_.has_value(); });
         if (exiting_) break;
-        const auto context=*target_; const auto revision=revision_.load(); const bool hud=hud_,connection=connection_;
+        const auto context=*target_; const auto revision=revision_.load(); const bool hud=hud_,connection=connection_,interaction=interaction_;
         const auto demand=wake_->revision.load();
         auto interval=hud_ || !text_regions_.empty()?text_interval:Time::max();
         for (const auto& entry : detectors_) if (!entry.config.on_demand || entry.channel->wanted(monotonic_now())) interval=std::min(interval,entry.config.interval);
@@ -125,6 +125,7 @@ void Observer::capture() {
         std::shared_ptr<const HudFeatures> features;
         Observation<std::vector<MenuControl>> menus;
         Observation<DialogButtons> confirmation;
+        Observation<InteractionBanner> interaction_banner;
         Observation<double> backpack;
         std::vector<Rect> connection_regions;
         try {
@@ -134,11 +135,14 @@ void Observer::capture() {
                 throw std::runtime_error("Game window changed during capture or returned an invalid timestamp");
             if (hud) {
                 confirmation=read_confirmation(frame,context.generation);
-                features=std::make_shared<const HudFeatures>(hud_inspector.inspect(frame,context.generation));
+                auto inspected=hud_inspector.inspect(frame,context.generation);
+                if (interaction) inspected.interaction_banner=read_interaction_banner(frame,context.generation,&inspected);
+                features=std::make_shared<const HudFeatures>(std::move(inspected));
                 backpack=features->backpack;
                 const auto& controls=features->menus;
                 menus={Knowledge::present,controls,frame.captured,frame.window,context.generation};
                 game_hud={Knowledge::present,game_hud_visible(*features),frame.captured,frame.window,context.generation};
+                interaction_banner=features->interaction_banner;
                 if (connection) connection_regions=connection_text_regions(frame,game_hud.value);
                 const auto health=read_empty_health_bar(frame,context.generation);
                 if (health.knowledge==Knowledge::present && (health.value || game_hud.value)) {
@@ -161,6 +165,7 @@ void Observer::capture() {
             }
             capture_error_=std::move(error);
             if (result) {
+                if (hud) latest_.state.interaction_banner=interaction_banner;
                 if (hud) { latest_.state.backpack_percent=backpack; latest_.state.alive=alive; latest_.state.game_hud=game_hud; latest_.state.shift_lock=shift_lock; latest_.state.open_menu=open_menu; latest_.state.menus=std::move(menus); latest_.state.confirmation=confirmation; }
                 if (connection_regions_!=connection_regions) {
                     connection_regions_=std::move(connection_regions); ++wake_->revision;

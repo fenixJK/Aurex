@@ -14,5 +14,6 @@ struct StationDefinition {
     std::vector<std::string> boosted_fields;
 };
 const std::vector<StationDefinition>& stations();
+const StationDefinition* station_definition(const std::string& name);
 TextTarget station_target(const std::string& name,bool cooldown=false);
 }

@@ -11,6 +11,12 @@ LandmarkNavigation::LandmarkNavigation(std::shared_ptr<const game::DetectionSour
 NavigationView LandmarkNavigation::read(const ObservationContext& c,const game::State& state) const {
     std::lock_guard lock(mutex_);
     NavigationView result;
+    const auto& banner=state.interaction_banner;
+    if (banner.has_value(c,Time(2000))) {
+        const bool visible=banner.value!=game::InteractionBanner::none;
+        result.observations.checkpoints.emplace("interaction.station",Observation<bool>{visible?Knowledge::present:Knowledge::absent,
+            visible,banner.captured,banner.window,banner.generation});
+    }
     result.observations.movement_speed=state.movement_speed; result.observations.alive=state.alive; result.observations.connection=state.connection;
     if ((state.alive.has_value(c,Time(2000)) && !state.alive.value)
         || (state.connection.has_value(c,Time(2000)) && state.connection.value==game::Connection::disconnected)) {

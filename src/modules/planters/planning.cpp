@@ -92,6 +92,13 @@ PlanningSnapshot planning_snapshot(const Ledger& ledger,std::vector<Group> group
         }
     }
     for (const auto& plant : ledger.plants) {
+        if (plant.missing) {
+            if (snapshot.capacity) --snapshot.capacity;
+            for (auto& group:snapshot.groups) std::erase_if(group.candidates,[&](const Candidate& candidate) {
+                return candidate.stats.planter==plant.stats.planter || candidate.stats.field==plant.stats.field;
+            });
+            continue;
+        }
         if (wall<plant.placed) throw std::invalid_argument("Saved planter placement is in the future");
         const auto age=estimated_age(plant,wall);
         const auto due=plant.growth?std::max(harvest_fraction(plant),plant.growth->fraction)*plant.stats.full_seconds-age

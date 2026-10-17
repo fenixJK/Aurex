@@ -88,7 +88,12 @@ void Sprinkler::update_attempt(const ObservationContext& c,const game::State& st
         return;
     }
     if (c.now-input_finished_<Time(500)) return;
-    if (!reading.has_value(c,Time(2000),minimum_)) return;
+    if (!reading.has_value(c,Time(2000),minimum_)) {
+        // Placement normally produces no message. Optional warning OCR must not veto executed input.
+        if (stage_==SprinklerStage::confirming && c.now-input_finished_>=Time(1500))
+            finish(SprinklerStage::completed,"Sprinkler input sent; no rejection observed",tasks,scope);
+        return;
+    }
     if (reading.captured-input_finished_<Time(500)) return;
     if (reading.captured<=last_frame_) return;
     last_frame_=reading.captured;

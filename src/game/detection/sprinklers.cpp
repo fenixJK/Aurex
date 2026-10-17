@@ -12,7 +12,7 @@ Observation<SprinklerFeedback> read_sprinkler_feedback(const ObservationContext&
     const auto& snapshot=state.text;
     Observation<SprinklerFeedback> result{Knowledge::unknown,{},snapshot.captured,snapshot.window,snapshot.generation};
     if (!snapshot.has_value(c,Time(2000),minimum) || snapshot.value.width<=0 || snapshot.value.height<=0
-        || snapshot.value.lines.empty() || snapshot.value.lines.size()>2048) return result;
+        || snapshot.value.lines.size()>2048) return result;
     auto normalized=[](const std::string& text) {
         std::string value=" ";
         for (unsigned char c : text) {

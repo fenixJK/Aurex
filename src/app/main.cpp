@@ -654,7 +654,8 @@ public:
             if (snapshot.feature && hive::automation::can_handoff(*snapshot.feature)) {
                 const auto name=extensions_->feature_name(snapshot.feature->module_id);
                 const bool skipped=snapshot.feature->state!=hive::automation::State::completed;
-                const auto outcome=name+(skipped?" skipped · ":" · ")+q(snapshot.feature->message);
+                const auto outcome=name+(snapshot.feature->state==hive::automation::State::failed?" attempt interrupted · ":
+                    skipped?" deferred · ":" · ")+q(snapshot.feature->message);
                 if (name!=q(snapshot.feature->module_id) && outcome!=last_outcome_) {
                     log(outcome);
                     if (snapshot.feature->state==hive::automation::State::failed) discord_->error(outcome);

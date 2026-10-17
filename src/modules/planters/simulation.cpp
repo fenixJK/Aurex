@@ -15,7 +15,7 @@ std::vector<Active> occupied(std::span<const Growing> growing) {
 }
 std::vector<Group> planning_groups(const PlanningSnapshot& snapshot) {
     bounded(snapshot.now,0,1e12);
-    if (snapshot.capacity<1 || snapshot.capacity>3 || snapshot.growing.size()>3) throw std::invalid_argument("Invalid forecast capacity");
+    if (snapshot.capacity>3 || snapshot.growing.size()>3) throw std::invalid_argument("Invalid forecast capacity");
     for (const auto& group : snapshot.groups) if (!group.pending.empty()) throw std::invalid_argument("Forecast events must come from growing planters");
     auto groups=snapshot.groups;
     auto queue=snapshot.growing;

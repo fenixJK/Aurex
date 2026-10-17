@@ -8,6 +8,7 @@ namespace hive::workflows {
 enum class InteractionStage { idle, waiting, pressing, confirming, completed, failed, stopped };
 class Interaction {
 public:
+    explicit Interaction(Time timeout);
     Interaction(game::TextTarget prompt,game::TextTarget result,Time timeout);
     Interaction(game::PromptLandmark prompt,game::PromptLandmark result,Time timeout,bool accept_existing_result=false);
     void start(const ObservationContext& context);
@@ -16,7 +17,7 @@ public:
     InteractionStage stage() const { return stage_; }
     const std::string& reason() const { return reason_; }
 private:
-    using Target=std::variant<game::TextTarget,game::PromptLandmark>;
+    using Target=std::variant<game::TextTarget,game::PromptLandmark,game::InteractionBanner>;
     Target prompt_,result_;
     Time timeout_,minimum_{},last_result_{Time(-1)},last_tick_{};
     ObservationContext started_;

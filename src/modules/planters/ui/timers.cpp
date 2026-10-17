@@ -63,8 +63,8 @@ class Timers final : public QWidget {
                 const auto age=std::max(0.,estimated_age(plant,current));
                 const auto progress=std::min(100.,age/plant.stats.full_seconds*100.);
                 const QStringList cells{pretty(plant.stats.planter),QString::fromStdString(plant.stats.field),
-                    pending?QString("—"):QString::number(static_cast<int>(std::round(progress)))+"%",
-                    pending?QString(ledger.pending->operation==Operation::place?"Placement unconfirmed":"Harvest unconfirmed"):remaining(ready_at(plant),current)};
+                    pending || plant.missing?QString("—"):QString::number(static_cast<int>(std::round(progress)))+"%",
+                    plant.missing?QString("Not found"):pending?QString(ledger.pending->operation==Operation::place?"Placement unconfirmed":"Harvest unconfirmed"):remaining(ready_at(plant),current)};
                 for (int col=0;col<cells.size();++col) {
                     auto* item=new QTableWidgetItem(cells[col]); item->setFlags(Qt::ItemIsEnabled|Qt::ItemIsSelectable);
                     if (col==0) item->setData(Qt::UserRole,static_cast<qulonglong>(plant.id));
@@ -74,6 +74,7 @@ class Timers final : public QWidget {
             }
             editable_=true; update_controls();
             note_->setText(plants_.empty()?"No saved planters. Placed planters appear here, or use Add for one you placed yourself.":account_->busy()?"Planters is active. Editing unlocks when its current run finishes.":
+                std::any_of(plants_.begin(),plants_.end(),[](const Plant& plant) { return plant.missing; })?"Not found: its slot stays reserved until you correct or remove the timer.":
                 "Saved placements set the timers. Correct a timer after a manual change.");
         } catch (const std::exception& error) {
             editable_=false; note_->setText(error.what()); add_->setEnabled(false); edit_->setEnabled(false); remove_->setEnabled(false);

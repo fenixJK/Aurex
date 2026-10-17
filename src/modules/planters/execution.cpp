@@ -146,7 +146,7 @@ class Execution final : public automation::Program {
         auto& report=results_->report_; report.state=State::running; report.stage=stage; report.confirmed=confirmed_; report.placements=placements_; report.harvests=harvests_;
         report.field=selected_.field; report.planter=selected_.planter;
         if (controller_) {
-            report.growing=controller_->ledger().plants.size(); report.pending=controller_->ledger().pending;
+            report.growing=std::count_if(controller_->ledger().plants.begin(),controller_->ledger().plants.end(),[](const Plant& plant) { return !plant.missing; }); report.pending=controller_->ledger().pending;
             { std::lock_guard lock(account_->snapshot_mutex_); account_->plants_=controller_->ledger().plants; account_->materials_=controller_->ledger().materials; }
             report.records.clear();
             for (const auto& plant : controller_->ledger().plants) report.records.emplace_back(plant.id,identity(plant.stats));
@@ -172,11 +172,16 @@ class Execution final : public automation::Program {
         phase_=Phase::placed; publish(ExecutionStage::returning);
         return next(view);
     }
+    void mark_missing() {
+        if (!harvest_ || !controller_->mark_missing(*harvest_)) return;
+        pending_report_=ActivityStatus{"Planter not found",selected_.field+" · slot reserved; correct or remove its timer",ActivityKind::failure};
+        publish(ExecutionStage::checking);
+    }
     const Plant* due_plant(WallTime now) const {
         const Plant* due=nullptr;
         WallTime earliest;
         for (const auto& plant : controller_->ledger().plants) {
-            if (deferred_.contains(plant.id) || failed_fields_.contains(plant.stats.field) || !plan_.destinations.contains(plant.stats.field)) continue;
+            if (plant.missing || deferred_.contains(plant.id) || failed_fields_.contains(plant.stats.field) || !plan_.destinations.contains(plant.stats.field)) continue;
             const auto ready=ready_at(plant);
             const auto travel=account_->travel_.estimate(plant.stats.field);
             const auto departure=ready-Time(static_cast<Time::rep>(travel.learned?travel.seconds*1000:0));
@@ -362,6 +367,8 @@ public:
         }
     }
     ProgramFactory recovery(Interruption reason,const View& view) override {
+        if ((reason==Interruption::lost_observations || reason==Interruption::lost_route)
+            && (phase_==Phase::approaching || phase_==Phase::baseline || phase_==Phase::locating)) mark_missing();
         // A missing placement result cannot be fixed by resetting and repeating the placement.
         if (reason==Interruption::lost_observations && !harvest_
             && (phase_==Phase::acting || phase_==Phase::confirming)) return {};
@@ -503,7 +510,7 @@ public:
                 selected_=due->stats; harvest_=due->id; assignment_.reset(); reconcile_=false; return travel(view);
             }
             if (controller_->ledger().plants.size()>=plan_.capacity) {
-                phase_=Phase::done; publish(ExecutionStage::finished); return Done{"All planter slots are growing"};
+                phase_=Phase::done; publish(ExecutionStage::finished); return Done{"No planter visit is due"};
             }
         }
         if (phase_==Phase::planning) {
@@ -588,8 +595,10 @@ public:
                 && snapshot.placements.value.field==selected_.field && !snapshot.placements.value.complete
                 && !snapshot.placements.value.identities.contains(identity(selected_))) return defer_result(view);
             if (!scan(view,snapshot)) {
-                if (view.context.now>=deadline_) throw ObservationUnavailable(harvest_?
-                    "Harvest prompt for the saved planter was not found":"Planter field state could not be confirmed");
+                if (view.context.now>=deadline_) {
+                    if (harvest_) { mark_missing(); phase_=Phase::placed; return next(view); }
+                    throw ObservationUnavailable("Planter field state could not be confirmed");
+                }
                 return wait("Reading planters in the field");
             }
             if (view.context.now>=deadline_) throw ObservationUnavailable("Planter reading could not be completed");
@@ -598,6 +607,9 @@ public:
                 return leave(view);
             }
             if (harvest_) {
+                if (!snapshot.placements.value.identities.contains(identity(selected_))) {
+                    mark_missing(); phase_=Phase::placed; return next(view);
+                }
                 if (!snapshot.growth.has_value(view.context,Time(2000),minimum_)
                     || std::chrono::abs(snapshot.growth.captured-snapshot.placements.captured)>Time(500)) snapshot.growth={};
                 if (snapshot.growth.knowledge!=Knowledge::unknown)
@@ -679,7 +691,8 @@ public:
     }
     void finished(State state) override {
         release(); std::lock_guard lock(results_->mutex_); auto& report=results_->report_; report.state=state;
-        if (controller_) { report.pending=controller_->ledger().pending; report.growing=controller_->ledger().plants.size(); }
+        if (controller_) { report.pending=controller_->ledger().pending;
+            report.growing=std::count_if(controller_->ledger().plants.begin(),controller_->ledger().plants.end(),[](const Plant& plant) { return !plant.missing; }); }
     }
 };
 ExecutionRun program(ExecutionPlan plan,std::shared_ptr<const game::RouteNetwork> network,std::shared_ptr<Account> account,

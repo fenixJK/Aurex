@@ -39,4 +39,8 @@ TextTarget station_target(const std::string& name,bool cooldown) {
     for (const auto& definition : stations()) if (definition.name==name) { target=definition.prompt; target.cooldown=cooldown; break; }
     validate(target); return target;
 }
+const StationDefinition* station_definition(const std::string& name) {
+    for (const auto& definition:stations()) if (definition.name==name) return &definition;
+    return nullptr;
+}
 }
