@@ -1,0 +1,30 @@
+name: Download counter
+on:
+  schedule:
+    - cron: '2-59/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      initialize:
+        description: Start from current totals (first setup only)
+        type: boolean
+        default: false
+permissions:
+  contents: write
+concurrency:
+  group: download-counter
+  cancel-in-progress: false
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Report new downloads
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DOWNLOAD_WEBHOOK_URL: ${{ secrets.DOWNLOAD_WEBHOOK_URL }}
+          INITIALIZE: ${{ inputs.initialize }}
+        run: node .github/scripts/notify_downloads.mjs
