@@ -1,7 +1,5 @@
 #include "games.hpp"
 #include "card_memory.hpp"
-#include "game/data/stations.hpp"
-#include "game/detection/dialog.hpp"
 
 namespace hive::features::collection {
 namespace {
@@ -17,12 +15,7 @@ public:
     MemoryMatch(std::shared_ptr<const game::DetectionSource> source,std::string station):source_(std::move(source)),station_(std::move(station)) {
         if (!source_ || station_.empty()) throw std::invalid_argument("Memory Match needs board observations and a station");
     }
-    automation::RunConfig config() const override { return {std::chrono::minutes(3),28,{},true,true}; }
-    std::vector<Rect> text_regions() const override {
-        auto regions=std::vector<Rect>{game::station_target(station_).region};
-        if (!playing_ && !accepted_) regions.push_back({.1,.2,.8,.65});
-        return regions;
-    }
+    automation::RunConfig config() const override { return {std::chrono::minutes(3),28,{},true,true,true}; }
     ActivityStatus activity_status() const override { return {"Playing",station_}; }
     automation::Step next(const automation::View& view) override {
         using namespace automation;
@@ -33,14 +26,14 @@ public:
             const Observation<bool> fresh{Knowledge::present,true,packet->context.now,packet->context.window,packet->context.generation};
             if (fresh.has_value(c,Time(2000),began_)) board=std::dynamic_pointer_cast<const game::MemoryBoard>(packet->value);
         }
-        if (!entered_) { entered_=true; began_=c.now; if (!board || board->cards.empty()) return Hold{{Key::interact},Time(50),{}}; }
+        if (!entered_) { entered_=true; began_=c.now; if (!board || board->cards.empty()) return Hold{{Key::interact},Time(100),{}}; }
         if (c.now-began_>=std::chrono::minutes(2)) throw ObservationUnavailable("Memory Match did not finish");
         if (view.observations) {
-            const auto cooldown=game::read_text_cooldown(c,*view.observations,game::station_target(station_,true),began_);
-            if (playing_ && board && board->visibility==Knowledge::absent && packet->context.now>clicked_ && cooldown.has_value(c,Time(2000))) return Done{"Finished "+station_};
+            const auto& banner=view.observations->interaction_banner;
+            if (playing_ && board && board->visibility==Knowledge::absent && packet->context.now>clicked_
+                && banner.has_value(c,Time(2000),began_) && banner.value==game::InteractionBanner::cooldown) return Done{"Finished "+station_};
             if (!playing_ && !accepted_) {
-                const game::PromptLandmark question{{"Memory Match"},{.1,.2,.8,.65},.8f,game::PromptMatch::phrase};
-                const auto dialog=game::read_dialog(c,view.observations->text,question);
+                const auto& dialog=view.observations->confirmation;
                 if (dialog.has_value(c,Time(2000),began_)) {
                     accepted_=true;
                     return UseControl{{Knowledge::present,dialog.value.yes,dialog.captured,dialog.window,dialog.generation},0,"Start "+station_,Point{.85,.15}};

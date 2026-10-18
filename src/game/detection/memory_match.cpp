@@ -1,7 +1,7 @@
 #include "memory_match.hpp"
 #include <opencv2/imgproc.hpp>
 #include <algorithm>
-#include <cctype>
+#include <cmath>
 
 namespace hive::game {
 double card_distance(const CardImage& a,const CardImage& b) {
@@ -35,26 +35,16 @@ class BoardDetector final : public Detector {
         return !background_.empty() && matching*4>=background_.size()*3;
     }
 public:
-    std::vector<Rect> text_regions(const Frame& frame,std::uint64_t generation) const override {
-        if (frame.valid() && continuous(frame,generation) && background_visible(frame)) return {};
-        return {{.2,.18,.6,.22}};
-    }
+    std::vector<Rect> text_regions(const Frame&,std::uint64_t) const override { return {}; }
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         const auto& frame=input.frame;
-        if (!frame.valid() || frame.width>8192 || frame.height>8192 || input.text.size()>4096 || (input.cancelled && input.cancelled())) return {};
+        if (!frame.valid() || frame.width>8192 || frame.height>8192 || (input.cancelled && input.cancelled())) return {};
         auto board=std::make_shared<MemoryBoard>();
         if (!continuous(frame,input.generation)) { grid_.clear(); background_.clear(); seen_=false; }
         previous_={frame.window,input.generation,frame.captured}; width_=frame.width; height_=frame.height;
-        bool title=false;
-        for (const auto& line:input.text) {
-            std::string text=line.text;
-            std::transform(text.begin(),text.end(),text.begin(),[](unsigned char c) { return std::tolower(c); });
-            if (text.find("memory match")!=std::string::npos && line.pixels.y>=frame.height*.18 && line.pixels.y<frame.height*.4) title=true;
-        }
         const bool tracked=background_visible(frame);
         if (!tracked) { grid_.clear(); background_.clear(); }
-        if (!title && !tracked) { if (seen_) board->visibility=Knowledge::absent; return board; }
-        board->visibility=Knowledge::present;
+        if (seen_) board->visibility=Knowledge::absent;
         cv::Mat rgba(frame.height,frame.width,CV_8UC4,const_cast<std::uint8_t*>(frame.rgba.data())),gray,edges;
         std::vector<cv::Rect> grid=grid_;
         if (grid.empty()) {
@@ -65,7 +55,7 @@ public:
             std::vector<cv::Rect> boxes;
             for (const auto& contour:contours) {
                 const auto box=cv::boundingRect(contour);
-                if (box.width<frame.height*.035 || box.width>frame.height*.16 || box.height<box.width*.85 || box.height>box.width*1.15
+                if (box.width<16 || box.width>frame.height*.16 || box.height<box.width*.85 || box.height>box.width*1.15
                     || box.x<frame.width*.15 || box.x+box.width>frame.width*.9 || box.y<frame.height*.2 || box.y+box.height>frame.height*.9) continue;
                 if (cv::contourArea(contour)<box.area()*.85) continue;
                 if (std::any_of(boxes.begin(),boxes.end(),[&](const auto& old) { return (box&old).area()>std::min(box.area(),old.area())*.8; })) continue;
@@ -79,25 +69,36 @@ public:
                 if (same.size()>grid.size()) grid=std::move(same);
             }
         }
-        if (grid.size()!=16 && grid.size()!=20) return board;
-        const auto columns=grid.size()/4;
-        std::vector<cv::Rect> previous_row;
-        unsigned rows=0;
-        std::sort(grid.begin(),grid.end(),[](const auto& a,const auto& b) { return a.y<b.y; });
-        for (auto first=grid.begin();first!=grid.end();) {
-            auto last=std::find_if(first,grid.end(),[&](const auto& box) { return box.y-first->y>first->height*.3; });
-            if (std::size_t(last-first)!=columns) return board;
-            std::sort(first,last,[](const auto& a,const auto& b) { return a.x<b.x; });
-            const int spacing=(first+1)->x-first->x;
-            if (spacing<first->width || spacing>first->width*1.8) return board;
-            for (auto item=first+1;item!=last;++item)
-                if (std::abs(item->x-(item-1)->x-spacing)>first->width*.2) return board;
-            if (!previous_row.empty()) for (unsigned i=0;i<columns;++i)
-                if (std::abs((first+i)->x-previous_row[i].x)>first->width*.2
-                    || std::abs((first+i)->y-previous_row[i].y-spacing)>first->height*.25) return board;
-            previous_row.assign(first,last); ++rows; first=last;
+        if (!tracked) {
+            // Hover/reveal animation can hide borders. The remaining cards must
+            // cover every row/column and at least three quarters of a regular grid.
+            if (grid.size()<12 || grid.size()>20) return board;
+            std::vector<int> widths,heights;
+            for (const auto& box:grid) { widths.push_back(box.width); heights.push_back(box.height); }
+            std::sort(widths.begin(),widths.end()); std::sort(heights.begin(),heights.end());
+            const int width=widths[widths.size()/2],height=heights[heights.size()/2];
+            const auto axis=[&](bool horizontal) {
+                std::vector<int> centers,lines;
+                for (const auto& box:grid) centers.push_back(horizontal?box.x+box.width/2:box.y+box.height/2);
+                std::sort(centers.begin(),centers.end());
+                const int size=horizontal?width:height;
+                for (int center:centers) if (lines.empty() || center-lines.back()>size*.3) lines.push_back(center);
+                if (lines.size()<4 || lines.size()>(horizontal?5u:4u)) return std::vector<int>{};
+                const double spacing=double(lines.back()-lines.front())/(lines.size()-1);
+                if (spacing<size || spacing>size*1.8) return std::vector<int>{};
+                for (std::size_t i=1;i<lines.size();++i)
+                    if (std::abs(lines[i]-lines[i-1]-spacing)>size*.2) return std::vector<int>{};
+                return lines;
+            };
+            const auto columns=axis(true),rows=axis(false);
+            if (columns.empty() || rows.empty() || grid.size()>columns.size()*rows.size()
+                || grid.size()*4<columns.size()*rows.size()*3) return board;
+            std::vector<cv::Rect> complete;
+            for (int y:rows) for (int x:columns) complete.emplace_back(x-width/2,y-height/2,width,height);
+            grid=std::move(complete);
         }
-        if (rows!=4) return board;
+        const auto columns=grid.size()/4;
+        board->visibility=Knowledge::present;
         grid_=grid;
         seen_=true;
         if (background_.empty()) for (unsigned i=0;i<grid.size();++i) {

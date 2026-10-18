@@ -170,22 +170,22 @@ Reading<InteractionBanner> read_interaction_banner(const Frame& frame,std::uint6
     const auto inspected=hud?HudFeatures{}:inspect_hud(frame,generation);
     if (!hud) hud=&inspected;
     Reading<InteractionBanner> result{Knowledge::present,InteractionBanner::none,frame.captured,frame.window,generation};
+    // Locate E itself: the blue panel can blend into the world behind it.
+    if (const auto prompt=interaction_prompt_region(frame);prompt && !interaction_cooldown(frame,*prompt)) {
+        result.value=InteractionBanner::ready;
+        return result;
+    }
     const bool hud_visible=game_hud_visible(*hud);
     // Locate the colored panel independently of the white HUD borders, which can
-    // merge into a bright sky. The ready state also requires the adjoining E key.
+    // merge into a bright sky. Cooldowns have no adjoining E key.
     cv::Mat colored(frame.height/4,frame.width,CV_8UC1,cv::Scalar(0));
-    cv::Mat blue=cv::Mat::zeros(colored.size(),CV_8UC1);
     for (int y=0;y<colored.rows;++y) for (int x=frame.width/4;x<frame.width*3/4;++x) {
         const auto i=(std::size_t(y)*frame.width+x)*4;
         const int r=frame.rgba[i],g=frame.rgba[i+1],b=frame.rgba[i+2];
         if (r>=100 && r>g*1.3 && r>b*1.15) colored.at<unsigned char>(y,x)=255;
-        if (b>=100 && b>r*1.3 && b>g*1.15) blue.at<unsigned char>(y,x)=255;
     }
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(colored,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
-    std::vector<std::vector<cv::Point>> blue_contours;
-    cv::findContours(blue,blue_contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
-    for (auto& contour:blue_contours) contours.push_back(std::move(contour));
     std::vector<InteractionBanner> found;
     for (const auto& contour:contours) {
         const auto box=cv::boundingRect(contour);
@@ -194,15 +194,7 @@ Reading<InteractionBanner> read_interaction_banner(const Frame& frame,std::uint6
             || cv::contourArea(contour)<box.area()*.8) continue;
         // A solid panel or world geometry is not a text-bearing action banner.
         const Rect region{double(box.x)/frame.width,double(box.y)/frame.height,double(box.width)/frame.width,double(box.height)/frame.height};
-        if (!interaction_cooldown(frame,region)) {
-            bool key=false;
-            for (double gap:{.04,.1,.16}) {
-                const cv::Rect button(box.x-box.height-int(box.height*gap),box.y,box.height,box.height);
-                if (button.x>=0 && interact_key(frame,button)) { key=true; break; }
-            }
-            if (key) found.push_back(InteractionBanner::ready);
-            continue;
-        }
+        if (!interaction_cooldown(frame,region)) continue;
         if (!hud_visible) continue;
         const auto text=interaction_text_image(frame,region);
         cv::Mat ink(text.height,text.width,CV_8UC1,cv::Scalar(0));

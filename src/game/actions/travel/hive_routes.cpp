@@ -53,7 +53,7 @@ std::shared_ptr<const workflows::RouteCatalog> accessible_routes(const workflows
         const bool cannon=std::any_of(path.begin(),path.end(),[](const auto& p) { return p.detector=="transport.red-cannon"; });
         if (cannon && (!access.cannon || access.bees<25)) continue;
         routes.push_back({route,path});
-        for (const auto& station:game::stations()) if (station.location==route.to && station.interaction==game::StationInteraction::activate) {
+        for (const auto& station:game::stations()) if (station.location==route.to) {
             auto& scoped=routes.back();
             if (scoped.checkpoints.back().detector==route.to) {
                 // The route supplies identity; the shared visual banner supplies proximity.

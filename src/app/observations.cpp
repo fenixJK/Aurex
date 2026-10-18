@@ -57,7 +57,7 @@ std::vector<game::DetectorConfig> game_detectors(std::shared_ptr<game::Inventory
     std::vector<hive::game::DetectorConfig> detectors{
         {"honey",hive::game::honey_detector(),hive::Time(hive::reporting::sample_interval_ms)},
         {"enemies",hive::game::enemy_detector()},
-        {"memory-board",hive::game::memory_match_detector()},
+        {"memory-board",hive::game::memory_match_detector(),hive::Time(250),hive::game::DetectionMode::pixels},
         {"daylight",hive::game::daylight_detector(),hive::Time(2000),hive::game::DetectionMode::pixels,true},
         {"item-menu",hive::game::item_menu_detector(),hive::Time(750),hive::game::DetectionMode::text,true},
         {"buff-upkeep",hive::game::buff_detector(),hive::Time(6000),hive::game::DetectionMode::pixels},

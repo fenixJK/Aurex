@@ -20,7 +20,7 @@ public:
     std::vector<Rect> text_regions(const std::string& id) const override {
         const auto& name=stations_.at(id);
         const auto* definition=game::station_definition(name);
-        if (definition && definition->interaction==game::StationInteraction::activate) return {};
+        if (definition) return {};
         return {game::station_target(name).region};
     }
     Observation<bool> read(const std::string& id,const View& view) const override {
@@ -28,7 +28,7 @@ public:
         if (it==stations_.end() || !view.observations) return {};
         const auto& name=it->second;
         const auto* definition=game::station_definition(name);
-        if (definition && definition->interaction==game::StationInteraction::activate) {
+        if (definition) {
             // A generic banner identifies readiness only at the destination of the completed route.
             if (!view.route_position || !view.route_position->usable(view.context)
                 || view.route_position->location!=definition->location) return {};
@@ -344,7 +344,10 @@ public:
             if (evidence_[index_].confirmed) return finish_member(view);
             else {
                 const auto readiness=available(view);
-                if (readiness==Availability::waiting && !plan_.visits[index_].action_program) return emit(Wait{Time(100),"Checking activity availability after travel"});
+                // Station actions already wait for E; do not put a second wait in front of them.
+                if (readiness==Availability::waiting && !plan_.visits[index_].action_program
+                    && !std::holds_alternative<UseStation>(plan_.visits[index_].action))
+                    return emit(Wait{Time(100),"Checking activity availability after travel"});
                 if (readiness==Availability::skip) return finish_member(view);
                 phase_=Phase::action; stage(VisitStage::working);
                 if (const auto create=plan_.visits[index_].action_program)
