@@ -5,7 +5,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 const stateBranch = 'download-counter-state';
 const stateFile = 'downloads.json';
 const perRunLimit = 50; // Leave larger bursts queued for the next scheduled check.
-const avatar = 'https://cdn.discordapp.com/avatars/487431320314576937/bd64361e4ba6313d561d54e78c9e7171.png';
+const avatar = 'https://raw.githubusercontent.com/fenixJK/Aurex/main/assets/aurex.png';
 
 export function githubClient(repository, token, request = fetch) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? '') || !token)

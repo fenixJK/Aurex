@@ -26,7 +26,7 @@ def payload(release):
         embed["timestamp"] = release["published_at"]
     return {
         "username": "Aurex",
-        "avatar_url": "https://cdn.discordapp.com/avatars/487431320314576937/bd64361e4ba6313d561d54e78c9e7171.png",
+        "avatar_url": "https://raw.githubusercontent.com/fenixJK/Aurex/main/assets/aurex.png",
         "content": "||@everyone||",
         "allowed_mentions": {"parse": ["everyone"]},
         "embeds": [embed],
