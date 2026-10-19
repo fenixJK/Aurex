@@ -164,7 +164,17 @@ class Execution final : public automation::Program {
         if (harvest_) { harvest_confirmed_=true; phase_=Phase::looting; publish(ExecutionStage::looting); }
         else { phase_=Phase::placed; publish(ExecutionStage::confirming); }
     }
+    void settle_placement() {
+        if (!controller_ || !controller_->ledger().pending || controller_->ledger().pending->operation!=Operation::place) return;
+        // Dragging only opens the purchase dialog. Before its answer is issued,
+        // an inventory failure or cancellation cannot have placed a planter.
+        if (phase_==Phase::acting && action_step_==1 && std::holds_alternative<DragInventoryItem>(steps_.front()))
+            controller_->abandon_unstarted_placement(controller_->ledger().pending->ticket,wall());
+        else controller_->reserve_unconfirmed_placement();
+        publish(ExecutionStage::checking);
+    }
     Step defer_result(const View& view,std::string reason="Planter outcome is unclear; check Timers before retrying") {
+        settle_placement();
         controller_->interrupt();
         deferred_result_=true;
         finish_reason_=std::move(reason);
@@ -380,6 +390,7 @@ public:
     }
     bool resume_after_reconnect(const View& view) override {
         if (worker_.joinable()) { cancelled_=true; worker_.join(); }
+        settle_placement();
         if (controller_) controller_->interrupt();
         planned_=false; cancelled_=false; error_={}; decision_={};
         assignment_.reset(); harvest_.reset(); steps_.clear(); inspection_.reset(); placement_inventory_.reset();
@@ -436,11 +447,6 @@ public:
             return wait("Preparing planter placement");
         }
         if (phase_==Phase::locating) {
-            if (reconcile_ && controller_->ledger().pending->operation==Operation::place) {
-                // An uncertain placement gets one local outcome read, not an inventory scan and field search.
-                begin_baseline(view);
-                return wait("Reading the previous placement result");
-            }
             const auto snapshot=source_->read_at(view,selected_.field);
             const auto& local=snapshot.placements;
             const bool nearby=snapshot.harvest_prompt.has_value(view.context,Time(2000),minimum_)
@@ -503,6 +509,10 @@ public:
         if (phase_==Phase::select) {
             if (controller_->ledger().pending) {
                 selected_=controller_->ledger().pending->plant.stats;
+                if (controller_->ledger().pending->operation==Operation::place) {
+                    settle_placement();
+                    return emit(ReportActivity{{"Planter not confirmed",selected_.field+" · slot reserved; correct or remove its timer",ActivityKind::failure}});
+                }
                 if (!plan_.destinations.contains(selected_.field)) return Defer{"The saved planter needs access to "+selected_.field};
                 reconcile_=true; return travel(view);
             }
@@ -590,10 +600,6 @@ public:
                 // Existing Harvest prompts must never confirm a new placement.
                 if (prompt.value) return defer_result(view,"A planter is already here; update Timers before placing another");
             }
-            if (phase_==Phase::reconciling && controller_->ledger().pending->operation==Operation::place
-                && snapshot.placements.has_value(view.context,Time(2000),minimum_)
-                && snapshot.placements.value.field==selected_.field && !snapshot.placements.value.complete
-                && !snapshot.placements.value.identities.contains(identity(selected_))) return defer_result(view);
             if (!scan(view,snapshot)) {
                 if (view.context.now>=deadline_) {
                     if (harvest_) { mark_missing(); phase_=Phase::placed; return next(view); }
@@ -690,6 +696,7 @@ public:
         }
     }
     void finished(State state) override {
+        settle_placement();
         release(); std::lock_guard lock(results_->mutex_); auto& report=results_->report_; report.state=state;
         if (controller_) { report.pending=controller_->ledger().pending;
             report.growing=std::count_if(controller_->ledger().plants.begin(),controller_->ledger().plants.end(),[](const Plant& plant) { return !plant.missing; }); }

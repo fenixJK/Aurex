@@ -82,7 +82,8 @@ bool banner_color(const Frame& frame,int x,int y) {
     const int r=frame.rgba[i],g=frame.rgba[i+1],b=frame.rgba[i+2];
     return (b>=100 && b>r*1.3 && b>g*1.15) || (r>=100 && r>g*1.3 && r>b*1.15);
 }
-std::optional<Rect> locate_prompt(const Frame& frame,bool captions) {
+struct PromptRegion { Rect bounds; bool key; };
+std::optional<PromptRegion> locate_prompt(const Frame& frame,bool captions) {
     if (!frame.valid()) return {};
     cv::Mat light(frame.height/4,frame.width,CV_8UC1,cv::Scalar(0));
     for (int y=0;y<light.rows;++y) for (int x=frame.width/5;x<frame.width*4/5;++x) {
@@ -92,7 +93,7 @@ std::optional<Rect> locate_prompt(const Frame& frame,bool captions) {
     }
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(light,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
-    std::optional<Rect> found;
+    std::optional<PromptRegion> found;
     for (const auto& contour:contours) {
         const auto key=cv::boundingRect(contour);
         if (cv::contourArea(contour)<key.area()*.7) continue;
@@ -106,7 +107,7 @@ std::optional<Rect> locate_prompt(const Frame& frame,bool captions) {
             colored+=banner_color(frame,left+int((right-left)*dx),y+int(height*dy));
         if (colored<4) continue;
         if (found) return {};
-        found=Rect{double(left)/frame.width,double(y)/frame.height,double(right-left)/frame.width,double(height)/frame.height};
+        found=PromptRegion{{double(left)/frame.width,double(y)/frame.height,double(right-left)/frame.width,double(height)/frame.height},true};
     }
     if (found || !captions) return found;
     for (int y=0;y<frame.height/6;++y) {
@@ -130,28 +131,101 @@ std::optional<Rect> locate_prompt(const Frame& frame,bool captions) {
                 if (top+height>frame.height) continue;
                 const Rect region{x/frame.width,top/frame.height,width/frame.width,height/frame.height};
                 // Cooldown captions keep the banner below the HUD, but hide the E key.
-                if (interaction_cooldown(frame,region)) return region;
+                if (interaction_cooldown(frame,region)) return PromptRegion{region,false};
                 const auto label=interaction_label(interaction_text_image(frame,region));
-                if (label && label->text=="Collect Pollen") return region;
+                if (label && label->text=="Collect Pollen") return PromptRegion{region,false};
             }
         }
     }
     return {};
 }
+bool cooldown_caption(const Frame& frame,Rect region) {
+    if (!interaction_cooldown(frame,region)) return false;
+    const double height=region.height*frame.height,width=region.width*frame.width;
+    const int left=std::floor(region.x*frame.width),top=std::floor(region.y*frame.height);
+    const int right=std::min(frame.width,int(std::ceil((region.x+region.width)*frame.width)));
+    const int bottom=std::min(frame.height,int(std::ceil((region.y+region.height)*frame.height)));
+    cv::Mat ink(bottom-top,right-left,CV_8UC1,cv::Scalar(0));
+    for (int y=0;y<ink.rows;++y) for (int x=0;x<ink.cols;++x) {
+        const auto i=(std::size_t(top+y)*frame.width+left+x)*4;
+        const int r=frame.rgba[i],g=frame.rgba[i+1],b=frame.rgba[i+2];
+        if (std::min({r,g,b})>180 && std::max({r,g,b})-std::min({r,g,b})<50) ink.at<unsigned char>(y,x)=255;
+    }
+    std::vector<std::vector<cv::Point>> letters;
+    cv::findContours(ink,letters,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
+    std::vector<cv::Rect> glyphs; int baseline=0;
+    for (const auto& glyph:letters) {
+        const auto r=cv::boundingRect(glyph);
+        if (r.height<height*.12 || r.height>height*.65 || r.width>height*.7) continue;
+        glyphs.push_back(r); baseline=std::max(baseline,r.y+r.height);
+    }
+    cv::Rect timer; unsigned timer_glyphs=0;
+    for (const auto& r:glyphs) if (r.y+r.height>=baseline-height*.18) { timer|=r; ++timer_glyphs; }
+    if (glyphs.size()<8 || timer_glyphs<3) return false;
+    // A short centered second line is the wrapped timer. Small punctuation can
+    // disappear when the game is scaled down, so use its layout in this case.
+    if (glyphs.size()-timer_glyphs>=4 && timer.width<width*.75
+        && std::abs(timer.x+timer.width/2.-ink.cols/2.)<=width*.15) return true;
+    // Inline timers instead end with a colon followed by two seconds digits. No
+    // station name or timer value needs to be read.
+    const int padding=std::max(1,int(std::ceil(timer.height*.3)));
+    const auto area=(timer+cv::Size(padding*2,padding*2)-cv::Point(padding,padding)) & cv::Rect(0,0,ink.cols,ink.rows);
+    cv::Mat line(area.height,area.width,CV_8UC1,cv::Scalar(0));
+    // Retain faint antialiased punctuation after locating the line with its
+    // bright letters; a low threshold alone merges small caption letters.
+    for (int y=0;y<line.rows;++y) for (int x=0;x<line.cols;++x) {
+        const auto i=(std::size_t(top+area.y+y)*frame.width+left+area.x+x)*4;
+        const int r=frame.rgba[i],g=frame.rgba[i+1],b=frame.rgba[i+2];
+        if (std::min({r,g,b})>100 && std::max({r,g,b})-std::min({r,g,b})<120) line.at<unsigned char>(y,x)=255;
+    }
+    std::vector<std::vector<cv::Point>> marks;
+    cv::findContours(line,marks,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
+    std::vector<cv::Rect> parts;
+    for (const auto& mark:marks) parts.push_back(cv::boundingRect(mark));
+    // Bright dot cores remain separate when antialiased edges touch a digit.
+    cv::findContours(ink(area),marks,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
+    for (const auto& mark:marks) {
+        const auto r=cv::boundingRect(mark);
+        if (r.height<=timer.height*.3 && r.width<=timer.height*.3) parts.push_back(r);
+    }
+    for (const auto& a:parts) for (const auto& b:parts) {
+        if (a.x<line.cols*.5 || a.height>timer.height*.3 || b.height>timer.height*.3
+            || a.width>timer.height*.3 || b.width>timer.height*.3
+            || std::abs(a.x+a.width/2.-b.x-b.width/2.)>std::max(1.,timer.height*.1)
+            || b.y-a.y<timer.height*.2 || b.y-a.y>std::ceil(timer.height*.65)) continue;
+        unsigned after=0;
+        for (const auto& part:parts) if (part.height>=timer.height*.5 && part.x>=a.x+a.width) ++after;
+        const int tail=line.cols-a.x-padding;
+        if (after>=2 && tail>=timer.height && tail<=timer.height*4) return true;
+    }
+    return false;
 }
-std::optional<Rect> interaction_prompt_region(const Frame& frame) { return locate_prompt(frame,false); }
-std::optional<Rect> interaction_text_region(const Frame& frame) { return locate_prompt(frame,true); }
+}
+std::optional<Rect> interaction_prompt_region(const Frame& frame) {
+    const auto prompt=locate_prompt(frame,false);
+    return prompt?std::optional(prompt->bounds):std::nullopt;
+}
+std::optional<Rect> interaction_text_region(const Frame& frame) {
+    const auto prompt=locate_prompt(frame,true);
+    return prompt?std::optional(prompt->bounds):std::nullopt;
+}
 Reading<InteractionBanner> read_interaction_banner(const Frame& frame,std::uint64_t generation,const HudFeatures* hud) {
     if (!frame.valid() || !generation) return {};
     const auto inspected=hud?HudFeatures{}:inspect_hud(frame,generation);
     if (!hud) hud=&inspected;
     Reading<InteractionBanner> result{Knowledge::present,InteractionBanner::none,frame.captured,frame.window,generation};
-    // Locate E itself: the blue panel can blend into the world behind it.
-    if (const auto prompt=interaction_prompt_region(frame);prompt && !interaction_cooldown(frame,*prompt)) {
-        result.value=InteractionBanner::ready;
-        return result;
-    }
     const bool hud_visible=game_hud_visible(*hud);
+    // E and the HUD locate the panel even when its color merges into the scenery.
+    if (const auto prompt=locate_prompt(frame,true)) {
+        if (prompt->key && !interaction_cooldown(frame,prompt->bounds)) {
+            result.value=InteractionBanner::ready;
+            return result;
+        }
+        if (cooldown_caption(frame,prompt->bounds)) {
+            result.value=InteractionBanner::cooldown;
+            return result;
+        }
+    }
     // Locate the colored panel independently of the white HUD borders, which can
     // merge into a bright sky. Cooldowns have no adjoining E key.
     cv::Mat colored(frame.height/4,frame.width,CV_8UC1,cv::Scalar(0));
@@ -170,25 +244,7 @@ Reading<InteractionBanner> read_interaction_banner(const Frame& frame,std::uint6
             || cv::contourArea(contour)<box.area()*.8) continue;
         // A solid panel or world geometry is not a text-bearing action banner.
         const Rect region{double(box.x)/frame.width,double(box.y)/frame.height,double(box.width)/frame.width,double(box.height)/frame.height};
-        if (!interaction_cooldown(frame,region)) continue;
-        if (!hud_visible) continue;
-        const auto text=interaction_text_image(frame,region);
-        cv::Mat ink(text.height,text.width,CV_8UC1,cv::Scalar(0));
-        for (int y=0;y<text.height;++y) for (int x=0;x<text.width;++x)
-            if (text.rgba[(std::size_t(y)*text.width+x)*4]==0) ink.at<unsigned char>(y,x)=255;
-        std::vector<std::vector<cv::Point>> letters;
-        cv::findContours(ink,letters,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
-        std::vector<cv::Rect> glyphs; int baseline=0;
-        for (const auto& glyph:letters) {
-            const auto r=cv::boundingRect(glyph);
-            if (r.height<box.height*.12 || r.height>box.height*.65 || r.width>box.height*.7) continue;
-            glyphs.push_back(r); baseline=std::max(baseline,r.y+r.height);
-        }
-        cv::Rect timer; unsigned timer_glyphs=0;
-        for (const auto& r:glyphs) if (r.y+r.height>=baseline-box.height*.18) { timer|=r; ++timer_glyphs; }
-        // A centered timer line below a caption distinguishes cooldowns from red warnings.
-        if (glyphs.size()>=8 && timer_glyphs>=3 && glyphs.size()-timer_glyphs>=4 && timer.width<box.width*.75
-            && std::abs(timer.x+timer.width/2.-ink.cols/2.)<=box.width*.15)
+        if (hud_visible && cooldown_caption(frame,region))
             found.push_back(InteractionBanner::cooldown);
 
     }

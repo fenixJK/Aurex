@@ -66,6 +66,7 @@ public:
     void record_travel(const std::string& field,double seconds);
     void exclude_offline(WallTime begin,WallTime end);
     void abandon_unstarted_placement(std::uint64_t ticket,WallTime wall);
+    void reserve_unconfirmed_placement();
     bool reconcile_returned(const ObservationContext& context,WallTime wall,const Observation<ReturnedPlanter>& returned);
     bool reconcile(const ObservationContext& context,WallTime wall,const Observation<Placements>& placements);
 private:

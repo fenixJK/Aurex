@@ -154,7 +154,7 @@ public:
         const auto& frame=input.frame; const auto generation=input.generation;
         const ObservationContext context{frame.window,generation,frame.captured};
         const auto layout=layout_->read(input);
-        if (layout.has_value(context,Time(0))) return layout.value.open?std::vector<Rect>{layout.value.viewport}:std::vector<Rect>{};
+        if (layout.has_value(context,Time(0)) && layout.value.open) return {layout.value.viewport};
         if (previous_.has_value(context,Time(2000)) && previous_.value.open) return {previous_.value.viewport};
         const auto sidebar=sidebar_region(input,MenuTab::inventory);
         return sidebar?std::vector<Rect>{*sidebar}:std::vector<Rect>{};
@@ -179,12 +179,9 @@ public:
     void request_quantities(const ObservationContext& c,std::span<const std::string> names) const override {
         if (requests_) requests_->quantities(c,names);
     }
-    Observation<InventoryView> read(const ObservationContext& c,const State& state) const override {
-        if (state.menus.has_value(c,Time(1000))) for (const auto& control:state.menus.value)
-            if (control.tab==MenuTab::inventory && control.selected==false) {
-                InventoryView closed; closed.toggle=control.center();
-                return {Knowledge::present,std::move(closed),state.menus.captured,state.menus.window,state.menus.generation};
-            }
+    Observation<InventoryView> read(const ObservationContext& c,const State&) const override {
+        // Reading the channel also requests its next frame. Let the layout reader
+        // resolve the panel and toggle together instead of overriding it here.
         auto result=source_->read(); if (!result || !result->error.empty()) return {};
         const auto inventory=std::dynamic_pointer_cast<const InventoryDetection>(result->value);
         if (!inventory || !inventory->view.has_value(result->context,Time(0))) return {};
