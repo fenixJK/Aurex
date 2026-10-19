@@ -1,5 +1,7 @@
 #include "item_menu.hpp"
 #include "conversation.hpp"
+#include "visual_labels.hpp"
+#include <array>
 #include "text.hpp"
 #include <opencv2/imgproc.hpp>
 #include <algorithm>
@@ -191,8 +193,13 @@ public:
         for (const auto phrase:{"does not have","not enough","cannot donate","canceled the donation","cancelled the donation","error player"})
             if (message.find(phrase)!=std::string::npos) result->error="The game could not complete this item transaction";
         for (const auto& panel:panels(f)) {
+            static constexpr std::array<std::string_view,8> controls{"Confirm","Donate","End Crafting","Cancel","Blender","Wind Shrine","Sticker Printer","Sticker Stack"};
+            const Rect region{double(panel.x)/f.width,double(panel.y)/f.height,double(panel.width)/f.width,double(panel.height)/f.height};
             std::vector<TextLine> panel_text;
-            for (const auto& line:input.text) if (contains(panel,line.pixels)) panel_text.push_back(line);
+            for (const auto& line:input.text) if (contains(panel,line.pixels)
+                && std::none_of(controls.begin(),controls.end(),[&](const auto& name) {return words(line.text)==words(name);})) panel_text.push_back(line);
+            const auto fixed=fixed_ui_labels(f,region,controls);
+            panel_text.insert(panel_text.end(),fixed.begin(),fixed.end());
             const auto rows=text_candidates(panel_text,1);
             std::string text;
             for (const auto& line:rows) if (line.text.size()<512) text+=words(line.text)+" ";

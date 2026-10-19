@@ -1,5 +1,7 @@
 #include "results.hpp"
 #include "game/detection/dialog.hpp"
+#include "game/detection/visual_labels.hpp"
+#include <array>
 #include "game/detection/text.hpp"
 #include <algorithm>
 #include <cctype>
@@ -94,7 +96,8 @@ bool matches(const Bee& r,const BeeFilter& f) {
     return f.names.contains(r.name);
 }
 Observation<Amulet> read_amulet(const ObservationContext& c,const game::State& state) {
-    const auto& observed=state.text;
+    static constexpr std::array<std::string_view,2> controls{"Keep Old","Replace"};
+    const auto observed=game::with_fixed_labels(c,state.text,state.fixed_labels,controls);
     Observation<Amulet> result{Knowledge::unknown,{},observed.captured,observed.window,observed.generation};
     const auto buttons=game::read_dialog(c,observed,{{"Supreme Star Amulet"},{.1,.1,.8,.85},.5f,game::PromptMatch::phrase},{"Keep Old","Replace"});
     if (!buttons.has_value(c,Time(2000))) return result;
@@ -141,7 +144,8 @@ Observation<Amulet> read_amulet(const ObservationContext& c,const game::State& s
     return result;
 }
 Observation<JellyResult> read_jelly(const ObservationContext& c,const game::State& state) {
-    const auto& observed=state.text;
+    static constexpr std::array<std::string_view,1> controls{"Use Another Royal Jelly"};
+    const auto observed=game::with_fixed_labels(c,state.text,state.fixed_labels,controls);
     Observation<JellyResult> result{Knowledge::unknown,{},observed.captured,observed.window,observed.generation};
     if (!observed.has_value(c,Time(2000)) || observed.value.width<=0 || observed.value.height<=0
         || observed.value.lines.empty() || observed.value.lines.size()>4096) return result;

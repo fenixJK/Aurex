@@ -1,5 +1,6 @@
 #include "plan.hpp"
 #include <algorithm>
+#include <array>
 #include "game/detection/dialog.hpp"
 
 namespace hive::features::combat {
@@ -22,6 +23,9 @@ public:
     }
     automation::RunConfig config() const override { return {enemy_.keep_old?enemy_.fight.duration+Time(15000):std::chrono::hours(8),speed_,{},true,true}; }
     std::vector<Rect> text_regions() const override { return !enemy_.amulet.empty() && !amulet_kept_?std::vector<Rect>{{.1,.1,.8,.85}}:std::vector<Rect>{}; }
+    std::vector<game::FixedLabelQuery> fixed_labels() const override {
+        return !enemy_.amulet.empty() && !amulet_kept_?std::vector<game::FixedLabelQuery>{{{.1,.1,.8,.85},{"Keep Old","Replace"}}}:std::vector<game::FixedLabelQuery>{};
+    }
     WorkActivity activity() const noexcept override { return engaged_ && !complete_ && !session_finished_?WorkActivity::fighting:WorkActivity::other; }
     ActivityStatus activity_status() const override { return {"Fighting",enemy_.id}; }
     std::optional<automation::SharedActivity> shared_activity() const override {
@@ -82,7 +86,9 @@ public:
         Observation<game::DialogButtons> buttons;
         if (!enemy_.amulet.empty() && !amulet_kept_ && view.observations) {
             const game::PromptLandmark title{{enemy_.amulet},{.1,.1,.8,.85},.7f,game::PromptMatch::phrase};
-            buttons=game::read_dialog(view.context,view.observations->text,title,{"Keep Old","Replace"});
+            static constexpr std::array<std::string_view,2> controls{"Keep Old","Replace"};
+            const auto text=game::with_fixed_labels(view.context,view.observations->text,view.observations->fixed_labels,controls);
+            buttons=game::read_dialog(view.context,text,title,{"Keep Old","Replace"});
             if (buttons.has_value(view.context,Time(2000),entered_)) {
                 complete_=true; amulet_seen_=true;
                 if (!completed_at_) {

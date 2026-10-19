@@ -124,6 +124,7 @@ public:
         }
         return stage_==Stage::locate || stage_==Stage::observe?std::vector<Rect>{game::hive_proximity_prompt().region}:std::vector<Rect>{};
     }
+    std::vector<game::FixedLabelQuery> fixed_labels() const override { return child_?child_->fixed_labels():std::vector<game::FixedLabelQuery>{}; }
     bool expects_respawn() const noexcept override { return child_ && child_->expects_respawn(); }
     ProgramFactory recovery(Interruption reason,const View&) override {
         if (!options_.recovery || (reason!=Interruption::death && reason!=Interruption::lost_observations

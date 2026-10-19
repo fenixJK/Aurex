@@ -315,8 +315,8 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
             const bool connected=observations.connection.has_value(c,Time(2000),context_.now)
                 && observations.connection.value==game::Connection::connected;
             if (!hud && !connected) {
-                if (observations.text.has_value(c,Time(2000),context_.now)
-                    && game::client_home_screen(observations.text.value)) {
+                if (observations.client_home.has_value(c,Time(2000),context_.now)
+                    && observations.client_home.value) {
                     interrupt(Interruption::client_rejoin,c,observations,"Roblox is on its home screen"); return;
                 }
                 if (c.now-context_.now>=Time(30000)) interrupt(Interruption::client_rejoin,c,observations,"Bee Swarm did not finish loading");

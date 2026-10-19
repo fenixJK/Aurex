@@ -56,7 +56,7 @@ bool Session::begin_client_rejoin(Time now,bool requested) {
     if (!requested && !feature_->needs_client_rejoin() && !feature_->expects_reconnect() && desktop_.client_running(active_window_.process)) return false;
     const auto observed=observer_.latest(false).state;
     const ObservationContext context{active_window_,tasks_.generation(),now};
-    const bool home=observed.text.has_value(context,Time(2000)) && game::client_home_screen(observed.text.value)
+    const bool home=observed.client_home.has_value(context,Time(2000)) && observed.client_home.value
         && !(observed.game_hud.has_value(context,Time(2000)) && observed.game_hud.value);
     if (!feature_->prepare_client_rejoin(now)) return false;
     observer_.stop(); runtime_.stop("Preparing Roblox rejoin");

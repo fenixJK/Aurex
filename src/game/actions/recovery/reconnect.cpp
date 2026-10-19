@@ -13,7 +13,6 @@ public:
         if (!source_) throw std::invalid_argument("Reconnect needs game-view observations");
     }
     RunConfig config() const override { return {Time(120000),28,{},true,true}; }
-    std::vector<Rect> text_regions() const override { return joining_?std::vector<Rect>{}:std::vector<Rect>{{.2,.2,.6,.65}}; }
     std::string activity_label() const override { return "Rejoining Bee Swarm"; }
     bool expects_respawn() const noexcept override { return true; }
     bool expects_reconnect() const noexcept override { return true; }
@@ -23,7 +22,7 @@ public:
         if (!clicked_ && c.now-minimum_>=Time(10000)) throw ClientRejoinRequired("Reconnect button or returned game view could not be confirmed");
         if (!view.observations) return Wait{Time(100),"Reading reconnect state"};
         const auto& state=*view.observations;
-        const auto target=game::read_reconnect(c,state.text);
+        const auto target=state.reconnect;
         if (!joining_ && c.now>=retry_at_ && target.has_value(c,Time(2000),std::max(minimum_,retry_at_))) {
             if (target.captured<=last_) return Wait{Time(100),"Confirming reconnect button"};
             last_=target.captured;
@@ -34,7 +33,7 @@ public:
         const auto game_view=source_->read(c);
         const bool hud=state.game_hud.has_value(c,Time(2000),minimum_) && state.game_hud.value;
         const bool observed_game=game_view.has_value(c,Time(2000),minimum_)
-            && (game_view.value.screen==game::RespawnScreen::game || game_view.value.screen==game::RespawnScreen::controls);
+            && (game_view.value.screen==game::RespawnScreen::game);
         if ((hud || observed_game)
             && !target.has_value(c,Time(2000))
             && !(state.connection.has_value(c,Time(2000)) && state.connection.value==game::Connection::disconnected)

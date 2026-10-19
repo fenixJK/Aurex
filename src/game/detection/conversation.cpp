@@ -1,35 +1,25 @@
 #include "conversation.hpp"
-#include "text.hpp"
+#include "visual_labels.hpp"
 #include <algorithm>
-#include <cctype>
+#include <array>
 
 namespace hive::game {
 namespace {
-std::string words(const std::string& text) {
-    std::string result;
-    for (unsigned char c:text) {
-        if (std::isalnum(c)) result+=char(std::tolower(c));
-        else if (!result.empty() && result.back()!=' ') result+=' ';
-    }
-    if (!result.empty() && result.back()==' ') result.pop_back();
-    return result;
-}
 class ConversationDetector final : public Detector {
 public:
-    std::vector<Rect> text_regions(const Frame&,std::uint64_t) const override { return {{.05,.5,.9,.5}}; }
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         const auto& f=input.frame;
-        if (!f.valid() || input.text.size()>2048) return {};
+        if (!f.valid() || (input.cancelled && input.cancelled())) return {};
         auto result=std::make_shared<ConversationDetection>();
-        const auto rows=text_candidates(input.text,1);
+        static constexpr std::array<std::string_view,1> labels{"Click to continue"};
+        const auto rows=fixed_ui_labels(f,{.05,.5,.9,.5},labels);
         const TextLine* footer=nullptr;
         for (const auto& line:rows) {
             if (input.cancelled && input.cancelled()) return {};
             const auto r=line.pixels;
             if (!r.valid() || r.x<0 || r.x+r.width>f.width || r.y<f.height*.5 || r.y+r.height>f.height
                 || r.height<6 || line.text.size()>80) continue;
-            if (words(line.text)!="click to continue") continue;
-            result->view.visible=true;
+            if (line.text!="Click to continue") continue;
             if (line.confidence && (!std::isfinite(*line.confidence) || *line.confidence<.8f || *line.confidence>1)) return result;
             if (footer) return result;
             footer=&line;
@@ -48,10 +38,11 @@ public:
             int a=middle,b=middle;
             while (a>0 && blue(a-1,y)) --a;
             while (b<f.width && blue(b,y)) ++b;
-            if (b-a<r.height*15 || b-a>r.height*90 || b-a>f.width*.95 || a>r.x || b<r.x+r.width) continue;
+            if (b-a<r.height*15 || b-a>f.width*.95 || a>r.x || b<r.x+r.width) continue;
             baseline=y; break;
         }
         if (!baseline) return result;
+        result->view.visible=true;
         result->view.next=Point{(r.x+r.width/2)/f.width,(r.y+r.height/2)/f.height};
         return result;
     }

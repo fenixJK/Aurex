@@ -1,4 +1,5 @@
 #include "inventory.hpp"
+#include "menus.hpp"
 #include "text.hpp"
 #include <algorithm>
 #include <cctype>
@@ -155,7 +156,8 @@ public:
         const auto layout=layout_->read(input);
         if (layout.has_value(context,Time(0))) return layout.value.open?std::vector<Rect>{layout.value.viewport}:std::vector<Rect>{};
         if (previous_.has_value(context,Time(2000)) && previous_.value.open) return {previous_.value.viewport};
-        return {{0,0,1,1}};
+        const auto sidebar=sidebar_region(input,MenuTab::inventory);
+        return sidebar?std::vector<Rect>{*sidebar}:std::vector<Rect>{};
     }
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         if (input.cancelled && input.cancelled()) return {};

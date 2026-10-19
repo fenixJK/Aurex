@@ -2,7 +2,7 @@
 #include "detection.hpp"
 
 namespace hive::game {
-enum class RespawnScreen { controls,menu,confirmation,game,respawning };
+enum class RespawnScreen { menu,confirmation,game,respawning };
 struct RespawnView { RespawnScreen screen; std::optional<Point> target; };
 class RespawnSource {
 public:

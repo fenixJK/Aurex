@@ -16,19 +16,21 @@ protected:
         if (view.context.now>=deadline_) { report_.status="Could not read the result; no further roll submitted"; publish(); return Done{report_.status}; }
         return Wait{Time(100),message};
     }
-    bool fresh(const View& view) {
+    bool fresh(const View& view,bool confirmation=false) {
         const auto& c=view.context;
         if (!deadline_.count()) { minimum_=c.now; deadline_=c.now+Time(8000); }
-        if (c.now<minimum_ || !view.observations || !view.observations->text.has_value(c,Time(2000),minimum_)) return false;
-        if (view.observations->text.captured<=frame_) return false;
-        frame_=view.observations->text.captured; return true;
+        if (c.now<minimum_ || !view.observations) return false;
+        const auto& state=*view.observations;
+        const auto captured=confirmation?state.confirmation.captured:state.text.captured;
+        if (!(confirmation?state.confirmation.has_value(c,Time(2000),minimum_):state.text.has_value(c,Time(2000),minimum_)) || captured<=frame_) return false;
+        frame_=captured; return true;
     }
     void publish() { progress_->set(report_); }
     Step finish(std::string text,bool match=false) { report_.matched=match; report_.status=std::move(text); publish(); return Done{report_.status}; }
-    Step click(const View& view,Point point,std::string message) {
+    Step click(const View& view,Point point,std::string message,bool confirmation=false) {
         acted_=true; report_.status=message; publish();
         const auto& text=view.observations->text;
-        return UseControl{{Knowledge::present,point,text.captured,text.window,text.generation},0,std::move(message),game::pointer_rest(view.context,*view.observations)};
+        return UseControl{{Knowledge::present,point,confirmation?view.observations->confirmation.captured:text.captured,view.context.window,view.context.generation},0,std::move(message),game::pointer_rest(view.context,*view.observations)};
     }
 public:
     Rolling(std::shared_ptr<RollProgress> progress):progress_(std::move(progress)) {
@@ -54,6 +56,7 @@ public:
         validate(plan_.filter);
         if (!plan_.honey_billions || plan_.honey_billions>1000000) throw std::invalid_argument("Set a finite honey limit in billions");
     }
+    std::vector<game::FixedLabelQuery> fixed_labels() const override { return {{{.1,.1,.8,.85},{"Keep Old","Replace"}}}; }
     Step next(const View& view) override {
         if (report_.matched) return Done{report_.status};
         if (!fresh(view)) return waiting(view,"Reading SSA");
@@ -98,6 +101,10 @@ public:
         inventory_=inventory_target(plan_.inventory,plan_.target);
         jelly_=plan_.start_with_jelly;
     }
+    std::vector<Rect> text_regions() const override { return stage_==Stage::result?Rolling::text_regions():std::vector<Rect>{}; }
+    std::vector<game::FixedLabelQuery> fixed_labels() const override {
+        return stage_==Stage::result?std::vector<game::FixedLabelQuery>{{{.2,.15,.6,.8},{"Use Another Royal Jelly"}}}:std::vector<game::FixedLabelQuery>{};
+    }
     Step next(const View& view) override {
         if (!plan_.target.belongs_to(view.context.window)) return finish("Game window changed; select the bee again");
         if (stage_==Stage::drag) {
@@ -105,14 +112,13 @@ public:
             stage_=Stage::confirm;
             return DragInventoryItem{{{jelly_?"Royal Jelly":"Basic Egg"},"hive.bee"},inventory_};
         }
-        if (!fresh(view)) return waiting(view,"Reading bee result");
+        if (!fresh(view,stage_==Stage::confirm)) return waiting(view,"Reading bee result");
         if (stage_==Stage::confirm) {
-            const auto dialog=game::read_dialog(view.context,view.observations->text,
-                {{jelly_?"royal jelly":"basic egg"},{.15,.15,.7,.7},.25f,game::PromptMatch::phrase});
+            const auto& dialog=view.observations->confirmation;
             if (!dialog.has_value(view.context,Time(2000),minimum_)) return waiting(view,"Waiting for egg confirmation");
             if (!jelly_) ++report_.attempts;
             stage_=Stage::result;
-            return click(view,dialog.value.yes,jelly_?"Replace Basic Bee with Royal Jelly":"Hatch Basic Egg");
+            return click(view,dialog.value.yes,jelly_?"Replace Basic Bee with Royal Jelly":"Hatch Basic Egg",true);
         }
         const auto result=read_jelly(view.context,*view.observations);
         if (result.knowledge==Knowledge::absent) previous_.reset();
@@ -154,7 +160,10 @@ public:
             inventory_=inventory_target(plan_.inventory,*plan_.target);
         }
     }
-    std::vector<Rect> text_regions() const override { return stage_==Stage::feed?std::vector<Rect>{}:Rolling::text_regions(); }
+    std::vector<Rect> text_regions() const override { return stage_==Stage::result?Rolling::text_regions():std::vector<Rect>{}; }
+    std::vector<game::FixedLabelQuery> fixed_labels() const override {
+        return stage_==Stage::result?std::vector<game::FixedLabelQuery>{{{.2,.15,.6,.8},{"Use Another Royal Jelly"}}}:std::vector<game::FixedLabelQuery>{};
+    }
     Step next(const View& view) override {
         if (plan_.neon && !plan_.target->belongs_to(view.context.window)) return finish("Game window changed; select the bee again");
         if (stage_==Stage::restart) {
@@ -162,13 +171,12 @@ public:
             return DragInventoryItem{{{"Royal Jelly"},"hive.bee"},inventory_};
         }
         if (stage_==Stage::confirm) {
-            if (!fresh(view)) return waiting(view,"Reading Royal Jelly confirmation");
-            const auto dialog=game::read_dialog(view.context,view.observations->text,
-                {{"royal jelly"},{.15,.15,.7,.7},.25f,game::PromptMatch::phrase});
+            if (!fresh(view,true)) return waiting(view,"Reading Royal Jelly confirmation");
+            const auto& dialog=view.observations->confirmation;
             if (!dialog.has_value(view.context,Time(2000),minimum_)) return waiting(view,"Waiting for Royal Jelly confirmation");
             ++report_.attempts; stage_=Stage::result;
             previous_.reset();
-            return click(view,dialog.value.yes,"Use Royal Jelly");
+            return click(view,dialog.value.yes,"Use Royal Jelly",true);
         }
         if (!fresh(view)) return waiting(view,"Reading bee result");
         const auto result=read_jelly(view.context,*view.observations);

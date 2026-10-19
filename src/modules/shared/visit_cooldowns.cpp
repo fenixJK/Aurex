@@ -55,6 +55,7 @@ public:
         auto result=run_.program->recovery(reason,view); flush(); return result;
     }
     std::vector<Rect> text_regions() const override { return run_.program->text_regions(); }
+    std::vector<game::FixedLabelQuery> fixed_labels() const override { return run_.program->fixed_labels(); }
     std::unique_ptr<automation::RunGuard> guard() const override { return run_.program->guard(); }
     bool request_yield() override { return run_.program->request_yield(); }
     bool resume_after_reconnect(const automation::View& view) override { return run_.program->resume_after_reconnect(view); }

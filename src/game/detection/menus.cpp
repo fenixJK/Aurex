@@ -277,4 +277,19 @@ std::vector<MenuControl> menu_controls(const DetectionInput& input,std::optional
 
     return result;
 }
+std::optional<Rect> sidebar_region(const DetectionInput& input,MenuTab tab) {
+    const auto controls=menu_controls(input);
+    for (const auto& control:controls) if (control.tab==tab) {
+        if (control.selected==false) return {};
+        double left=control.bounds.x,right=control.bounds.x+control.bounds.width,bottom=control.bounds.y+control.bounds.height;
+        for (const auto& other:controls) {
+            left=std::min(left,other.bounds.x);right=std::max(right,other.bounds.x+other.bounds.width);
+            bottom=std::max(bottom,other.bounds.y+other.bounds.height);
+        }
+        const double icon=control.bounds.height*input.frame.height/input.frame.width;
+        return Rect{std::max(0.,left-icon),bottom,std::min(1.,right+icon*7)-std::max(0.,left-icon),1-bottom};
+    }
+    return {};
+}
+
 }

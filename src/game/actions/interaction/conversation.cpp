@@ -3,19 +3,17 @@
 namespace hive::automation {
 namespace {
 class Conversation final : public Program {
-    game::PromptLandmark prompt_;
     std::shared_ptr<const game::ConversationSource> source_;
     enum class Stage { prompt,opening,dialogue } stage_{Stage::prompt};
     Time minimum_{},deadline_{},frame_{Time(-1)};
     bool started_{},issued_{};
     unsigned clicks_{};
 public:
-    Conversation(game::PromptLandmark prompt,std::shared_ptr<const game::ConversationSource> source)
-        :prompt_(std::move(prompt)),source_(std::move(source)) {
-        game::validate(prompt_); if (!source_) throw std::invalid_argument("Conversation needs observations");
+    explicit Conversation(std::shared_ptr<const game::ConversationSource> source)
+        :source_(std::move(source)) {
+        if (!source_) throw std::invalid_argument("Conversation needs observations");
     }
-    RunConfig config() const override { return {Time(180000),28,{},true,true}; }
-    std::vector<Rect> text_regions() const override { return {prompt_.region}; }
+    RunConfig config() const override { return {Time(180000),28,{},true,true,true}; }
     Step next(const View& view) override {
         const auto& c=view.context;
         if (!started_) { started_=true; minimum_=c.now; deadline_=c.now+Time(10000); }
@@ -24,13 +22,13 @@ public:
         const auto scene=source_->read(c);
         if (!scene.has_value(c,Time(2000),minimum_) || scene.captured<=frame_) return Wait{};
         frame_=scene.captured;
-        const auto prompt=game::read_prompt_landmark(c,view.observations->text,prompt_);
-        const bool nearby=prompt.has_value(c,Time(2000),minimum_) && prompt.value;
+        const auto& banner=view.observations->interaction_banner;
+        const bool nearby=banner.has_value(c,Time(2000),minimum_) && banner.value==game::InteractionBanner::ready;
         if (stage_==Stage::prompt) {
             if (scene.value.visible) throw std::runtime_error("Close the existing conversation before starting another");
             if (!nearby) return Wait{Time(50),"Waiting for NPC interaction"};
             issued_=true; stage_=Stage::opening;
-            return UsePrompt{prompt_,{{"Click to continue"},{.15,.5,.7,.5},.8f,game::PromptMatch::phrase},Time(10000)};
+            return Hold{{Key::interact},Time(80)};
         }
         if (scene.value.visible) {
             stage_=Stage::dialogue;
@@ -49,7 +47,7 @@ public:
     }
 };
 }
-std::unique_ptr<Program> converse(game::PromptLandmark prompt,std::shared_ptr<const game::ConversationSource> source) {
-    return std::make_unique<Conversation>(std::move(prompt),std::move(source));
+std::unique_ptr<Program> converse(std::shared_ptr<const game::ConversationSource> source) {
+    return std::make_unique<Conversation>(std::move(source));
 }
 }

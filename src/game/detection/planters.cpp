@@ -2,6 +2,7 @@
 #include "nectar.hpp"
 #include "menus.hpp"
 #include "perception.hpp"
+#include "bar_regions.hpp"
 #include <algorithm>
 #include <cctype>
 #include <regex>
@@ -18,7 +19,7 @@ constexpr std::array types{
     std::pair{"petal planter","PetalPlanter"},std::pair{"planter of plenty","PlanterOfPlenty"},
     std::pair{"the planter of plenty","PlanterOfPlenty"},std::pair{"festive planter","FestivePlanter"},
     std::pair{"sticker planter","StickerPlanter"}};
-struct Label { std::string type; double percent,resolution; };
+struct Label { std::string type; };
 std::optional<Label> label(const std::string& text) {
     if (text.size()>100) return {};
     std::string normalized;
@@ -28,28 +29,21 @@ std::optional<Label> label(const std::string& text) {
         else normalized+=static_cast<char>(std::tolower(c));
     }
     if (!normalized.empty() && normalized.back()==' ') normalized.pop_back();
-    static const std::regex pattern(R"(^([a-z -]+) ?\(([0-9]{1,3})(\.[0-9])?%\)$)");
-    std::smatch match;
-    if (!std::regex_match(normalized,match,pattern)) return {};
-    auto name=match[1].str(); if (!name.empty() && name.back()==' ') name.pop_back();
+    const auto suffix=normalized.find('(');
+    auto name=normalized.substr(0,suffix);
+    while (!name.empty() && name.back()==' ') name.pop_back();
     const auto type=std::find_if(types.begin(),types.end(),[&](const auto& t) { return name==t.first; });
-    if (type==types.end()) return {};
-    const auto digits=match[2].str();
-    if (digits.size()>1 && digits.front()=='0') return {};
-    const double percent=std::stod(digits+match[3].str());
-    if (percent>100) return {};
-    return Label{type->second,percent,match[3].matched?.1:1.};
+    return type==types.end()?std::nullopt:std::optional<Label>{{type->second}};
 }
-int color(const Frame& f,int x,int y) {
-    const auto p=(std::size_t(y)*f.width+x)*4;
-    if (f.rgba[p+3]<250) return 0;
-    const int r=f.rgba[p],g=f.rgba[p+1],b=f.rgba[p+2];
-    if (g>=160 && g-r>=40 && g-b>=40) return 1;
-    if (std::abs(r-86)<=15 && std::abs(g-120)<=15 && std::abs(b-72)<=15) return 2;
-    return 0;
+int color(const std::uint8_t* pixel) {
+    const int r=pixel[0],g=pixel[1],b=pixel[2];
+    const bool filled=(g>=160) & (g-r>=40) & (g-b>=40);
+    const bool remaining=(r>=71) & (r<=101) & (g>=105) & (g<=135) & (b>=57) & (b<=87);
+    return (pixel[3]>=250)*(int(filled)+2*int(remaining));
 }
 struct Row { int left,right,y; };
-std::optional<Rect> bar(const DetectionInput& input,const Rect& text,double percent,std::size_t& budget) {
+struct GrowthBar { Rect bounds; double percent; };
+std::optional<GrowthBar> bar(const DetectionInput& input,const Rect& text,std::size_t& budget) {
     const auto& f=input.frame;
     const int left=std::max(0,int(std::floor(text.x-text.height*2))),right=std::min(f.width,int(std::ceil(text.x+text.width+text.height*2)));
     const int top=std::max(0,int(std::floor(text.y-text.height*.7))),bottom=std::min(f.height,int(std::ceil(text.y+text.height*1.7)));
@@ -63,10 +57,10 @@ std::optional<Rect> bar(const DetectionInput& input,const Rect& text,double perc
         if (input.cancelled && input.cancelled()) return {};
         bool found=false;
         for (int x=left;x<right;) {
-            if (!color(f,x,y)) { ++x; continue; }
+            if (!color(f.rgba.data()+(std::size_t(y)*f.width+x)*4)) { ++x; continue; }
             const int first=x; int filled=0,remaining=0; bool reversed=false;
             while (x<right) {
-                const auto c=color(f,x,y); if (!c) break;
+                const auto c=color(f.rgba.data()+(std::size_t(y)*f.width+x)*4); if (!c) break;
                 filled+=c==1; remaining+=c==2;
                 if (c==1 && remaining) reversed=true;
                 ++x;
@@ -74,12 +68,10 @@ std::optional<Rect> bar(const DetectionInput& input,const Rect& text,double perc
             const int width=x-first;
             if (first==left || x==right || reversed || width<text.width*.9 || width>text.width+text.height*3
                 || std::abs((first+x)/2.-(text.x+text.width/2))>text.height*.7) continue;
-            if (percent==100) { if (filled!=width) continue; }
-            else if (std::abs(100.*filled/width-percent)>std::max(3.,200./width)) continue;
             if (previous && previous->y+1==y && std::abs(previous->left-first)<=tolerance && std::abs(previous->right-x)<=tolerance) ++rows;
             else rows=1;
             previous=Row{first,x,y}; found=true;
-            if (rows>=required) return Rect{double(first),double(y+1-rows),double(width),double(rows)};
+            if (rows>=required) return GrowthBar{{double(first),double(y+1-rows),double(width),double(rows)},100.*filled/width};
             break;
         }
         if (!found) { previous.reset(); rows=0; }
@@ -98,6 +90,13 @@ bool valid(const VisiblePlanter& p) {
 Observation<std::string> read_interaction(const DetectionInput& input,const Observation<std::vector<VisiblePlanter>>& visible);
 class PlanterDetector final : public Detector {
 public:
+    std::vector<Rect> text_regions(const Frame& frame,std::uint64_t) const override {
+        std::vector<Rect> regions{{.5,.4,.5,.6}};
+        for (const auto& bar:detail::bar_regions(frame,color)) regions.push_back(detail::label_region(frame,bar,1,1));
+        if (const auto prompt=interaction_text_region(frame)) regions.push_back(*prompt);
+        return regions;
+    }
+
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         auto result=std::make_shared<PlantersDetection>();
         if (!input.frame.valid() || (input.cancelled && input.cancelled())) return result;
@@ -207,9 +206,6 @@ Observation<std::string> read_interaction(const DetectionInput& input,const Obse
     return result;
 }
 }
-Observation<std::string> read_planter_interaction(const DetectionInput& input) {
-    return read_interaction(input,read_planters(input));
-}
 std::shared_ptr<const LandmarkSource> planter_proximity(std::shared_ptr<const PlanterSource> source,std::string type) {
     return std::make_shared<PlanterProximity>(std::move(source),std::move(type));
 }
@@ -226,10 +222,10 @@ Observation<std::vector<VisiblePlanter>> read_planters(const DetectionInput& inp
             || box.height<6 || box.height>f.height*.15 || box.width<box.height*3 || box.width>f.width*.9
             || (line.confidence && (!std::isfinite(*line.confidence) || *line.confidence<.5f || *line.confidence>1))) continue;
         const auto text=label(line.text); if (!text) continue;
-        const auto shape=bar(input,box,text->percent,budget);
+        const auto shape=bar(input,box,budget);
         if (!budget || (input.cancelled && input.cancelled())) return {};
         if (!shape) continue;
-        VisiblePlanter value{text->type,text->percent,text->percent==100?100:std::max(0.,text->percent-text->resolution/2),*shape};
+        VisiblePlanter value{text->type,shape->percent,shape->percent==100?100:std::max(0.,shape->percent-100./shape->bounds.width),shape->bounds};
         const auto duplicate=std::find_if(result.value.begin(),result.value.end(),[&](const auto& p) { return same_bar(value,p); });
         if (duplicate!=result.value.end()) {
             if (duplicate->type!=value.type || duplicate->percent!=value.percent) return {};

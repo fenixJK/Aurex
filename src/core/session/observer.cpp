@@ -60,8 +60,8 @@ void Observer::configure_speed(std::shared_ptr<const MovementSpeedSource> source
     if (speed_source_) speed_source_->reset();
 }
 void Observer::clear_detections() {
-    frame_.reset(); frame_hud_.reset(); capture_error_.clear(); ocr_next_={};
-    speed_observation_={}; connection_regions_.clear();
+    frame_.reset(); frame_hud_.reset(); capture_error_.clear(); labels_error_.clear(); ocr_next_={}; labels_next_={};
+    speed_observation_={};
     if (speed_source_) speed_source_->reset();
     for (auto& entry : detectors_) { entry.channel->clear(); entry.next={}; }
 }
@@ -81,7 +81,7 @@ void Observer::watch(const ObservationContext& context,bool hud,bool connection,
     wake_->changed.notify_all();
 }
 void Observer::stop() {
-    { std::lock_guard lock(mutex_); target_.reset(); latest_={}; text_regions_.clear(); ++revision_; clear_detections(); }
+    { std::lock_guard lock(mutex_); target_.reset(); latest_={}; text_regions_.clear(); label_queries_.clear(); ++label_revision_; ++revision_; clear_detections(); }
     wake_->changed.notify_all();
 }
 void Observer::request_text(std::vector<Rect> regions) {
@@ -95,6 +95,18 @@ void Observer::request_text(std::vector<Rect> regions) {
     }
     wake_->changed.notify_all();
 }
+void Observer::request_labels(std::vector<FixedLabelQuery> queries) {
+    if (queries.size()>16 || std::any_of(queries.begin(),queries.end(),[](const auto& query) {
+        const auto r=query.region;
+        return !r.valid() || r.x<0 || r.y<0 || r.x+r.width>1 || r.y+r.height>1 || query.labels.empty() || query.labels.size()>16;
+    })) throw std::invalid_argument("Invalid fixed UI label request");
+    {
+        std::lock_guard lock(mutex_);
+        if (label_queries_==queries) return;
+        label_queries_=std::move(queries); labels_next_={}; labels_error_.clear(); latest_.state.fixed_labels={}; ++label_revision_; ++wake_->revision;
+    }
+    wake_->changed.notify_all();
+}
 ObservedState Observer::latest(bool request_speed) {
     std::lock_guard lock(mutex_); auto result=latest_;
     if (request_speed && target_ && speed_source_) {
@@ -103,6 +115,7 @@ ObservedState Observer::latest(bool request_speed) {
         catch (...) { result.state.movement_speed={}; result.error="Could not read movement speed"; }
         speed_observation_=result.state.movement_speed;
     } else if (speed_source_) result.state.movement_speed=speed_observation_;
+    if (!labels_error_.empty()) result.error=labels_error_;
     if (!capture_error_.empty()) result.error=capture_error_;
     return result;
 }
@@ -116,6 +129,7 @@ void Observer::capture() {
         const auto demand=wake_->revision.load();
         auto interval=hud_ || !text_regions_.empty()?text_interval:Time::max();
         for (const auto& entry : detectors_) if (!entry.config.on_demand || entry.channel->wanted(monotonic_now())) interval=std::min(interval,entry.config.interval);
+        if (!label_queries_.empty()) interval=std::min(interval,Time(100));
         if (interval==Time::max()) {
             frame_.reset(); frame_hud_.reset();
             wake_->changed.wait_for(lock,Time(250),[this,revision,demand] { return exiting_ || revision!=revision_ || demand!=wake_->revision; }); continue;
@@ -127,7 +141,7 @@ void Observer::capture() {
         Observation<DialogButtons> confirmation;
         Observation<InteractionBanner> interaction_banner;
         Observation<double> backpack;
-        std::vector<Rect> connection_regions;
+        ConnectionView connection_view;
         try {
             auto frame=desktop_.capture(context.window.id);
             if (!frame.valid() || frame.window.id!=context.window.id || frame.window.process!=context.window.process
@@ -143,7 +157,7 @@ void Observer::capture() {
                 menus={Knowledge::present,controls,frame.captured,frame.window,context.generation};
                 game_hud={Knowledge::present,game_hud_visible(*features),frame.captured,frame.window,context.generation};
                 interaction_banner=features->interaction_banner;
-                if (connection) connection_regions=connection_text_regions(frame,game_hud.value);
+                if (connection) connection_view=read_connection_view(frame,context.generation,game_hud.value);
                 const auto health=read_empty_health_bar(frame,context.generation);
                 if (health.knowledge==Knowledge::present && (health.value || game_hud.value)) {
                     alive=health; alive.value=!health.value;
@@ -167,11 +181,11 @@ void Observer::capture() {
             if (result) {
                 if (hud) latest_.state.interaction_banner=interaction_banner;
                 if (hud) { latest_.state.backpack_percent=backpack; latest_.state.alive=alive; latest_.state.game_hud=game_hud; latest_.state.shift_lock=shift_lock; latest_.state.open_menu=open_menu; latest_.state.menus=std::move(menus); latest_.state.confirmation=confirmation; }
-                if (connection_regions_!=connection_regions) {
-                    connection_regions_=std::move(connection_regions); ++wake_->revision;
-                }
-                if (hud && game_hud.value && connection_regions_.empty())
-                    latest_.state.connection={Knowledge::present,Connection::connected,game_hud.captured,game_hud.window,game_hud.generation};
+                if (connection) {
+                    latest_.state.connection=connection_view.connection;
+                    latest_.state.reconnect=connection_view.reconnect;
+                    latest_.state.client_home=connection_view.home;
+                } else if (hud && game_hud.value) latest_.state.connection={Knowledge::present,Connection::connected,game_hud.captured,game_hud.window,game_hud.generation};
                 if (alive.knowledge==Knowledge::present && !alive.value) latest_.state.last_death={Knowledge::present,true,alive.captured,alive.window,alive.generation};
                 frame_=std::move(result); frame_hud_=std::move(features); ++frame_sequence_; wake_->changed.notify_all();
             }
@@ -191,7 +205,9 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
         const auto text_revision=text_revision_.load();
         const auto demand=wake_->revision.load();
         if (watch_revision!=revision) { seen=0; watch_revision=revision; recognition.clear(); prompt_recognition.clear(); }
-        auto due=mode==DetectionMode::text && (!text_regions_.empty() || !connection_regions_.empty())?Time{}:Time::max();
+        auto due=mode==DetectionMode::text && !text_regions_.empty()?Time{}:Time::max();
+        const bool reads_labels=mode==DetectionMode::pixels && priority==DetectionPriority::normal;
+        if (reads_labels && !label_queries_.empty()) due=std::min(due,labels_next_);
         for (const auto& entry : detectors_) if (entry.config.mode==mode && entry.config.priority==priority && (!entry.config.on_demand || entry.channel->wanted(monotonic_now()))) due=std::min(due,entry.next);
         if (due==Time::max()) {
             recognition.clear(); prompt_recognition.clear();
@@ -209,13 +225,15 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
         const auto generation=target_->generation; const auto began=monotonic_now();
         std::vector<Rect> regions;
         if (mode==DetectionMode::text) regions=text_regions_;
-        if (mode==DetectionMode::text) regions.insert(regions.end(),connection_regions_.begin(),connection_regions_.end());
         std::vector<Entry> entries;
         for (auto& entry : detectors_) if (entry.config.mode==mode && entry.config.priority==priority && entry.next<=began && (!entry.config.on_demand || entry.channel->wanted(began))) {
             entries.push_back(entry); entry.next=began+entry.config.interval;
         }
         if (mode==DetectionMode::pixels) std::stable_sort(entries.begin(),entries.end(),[](const auto& a,const auto& b) { return a.config.interval<b.config.interval; });
         if (mode==DetectionMode::text) ocr_next_=began+text_interval;
+        const auto label_queries=reads_labels && labels_next_<=began?label_queries_:std::vector<FixedLabelQuery>{};
+        const auto label_revision=label_revision_;
+        if (!label_queries.empty()) labels_next_=began+Time(100);
         lock.unlock();
         auto cancelled=[this,revision,text_revision,mode] { return revision_.load()!=revision || (mode==DetectionMode::text && text_revision_.load()!=text_revision); };
         std::vector<TextLine> lines; bool readable=true;
@@ -302,6 +320,27 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
             catch (...) { reading.error="Detector failed"; }
             lock.lock();
             if (!cancelled() && !exiting_) entry.channel->publish(std::move(reading));
+            lock.unlock();
+        }
+        if (!label_queries.empty() && !cancelled()) {
+            Reading<TextSnapshot> labels;
+            std::string error;
+            try {
+                labels={Knowledge::present,{frame->width,frame->height,{}},frame->captured,frame->window,generation};
+                for (const auto& query:label_queries) {
+                    std::vector<std::string_view> names(query.labels.begin(),query.labels.end());
+                    auto found=fixed_ui_labels(*frame,query.region,names);
+                    for (auto& line:found) if (std::none_of(labels.value.lines.begin(),labels.value.lines.end(),[&](const auto& prior) {
+                        return prior.text==line.text && prior.pixels==line.pixels;
+                    })) labels.value.lines.push_back(std::move(line));
+                }
+            } catch (const std::exception& e) { labels={}; error=e.what(); }
+            catch (...) { labels={}; error="Could not read fixed UI labels"; }
+            lock.lock();
+            if (!cancelled() && !exiting_ && label_revision==label_revision_) {
+                latest_.state.fixed_labels=std::move(labels);
+                labels_error_=std::move(error);
+            }
             lock.unlock();
         }
         lock.lock();

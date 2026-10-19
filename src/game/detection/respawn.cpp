@@ -1,10 +1,9 @@
 #include "respawn.hpp"
-#include "dialog.hpp"
+#include "visual_labels.hpp"
+#include "landmarks.hpp"
 #include "perception.hpp"
 #include "connection.hpp"
 #include <algorithm>
-#include <set>
-#include <cctype>
 #include <array>
 
 namespace hive::game {
@@ -41,114 +40,56 @@ Observation<bool> read_empty_health_bar(const Frame& frame,std::uint64_t generat
     return result;
 }
 namespace {
-std::string normalized(const std::string& text) {
-    std::string result;
-    for (unsigned char c : text) {
-        if (std::isspace(c)) { if (!result.empty() && result.back()!=' ') result+=' '; }
-        else result+=static_cast<char>(std::tolower(c));
-    }
-    if (!result.empty() && result.back()==' ') result.pop_back();
-    return result;
-}
 struct Packet final : Detection { Observation<RespawnView> view; };
 bool visible_game(const DetectionInput& input) {
     const auto inspected=input.hud?HudFeatures{}:inspect_hud(input.frame,input.generation);
     const auto& hud=input.hud?*input.hud:inspected;
     return (game_hud_visible(hud) || interaction_prompt_region(input.frame).has_value())
-        && connection_text_regions(input.frame,true).empty();
+        && connection_dialog_regions(input.frame).empty();
 }
 class RespawnDetector final : public Detector {
 public:
-    std::vector<Rect> text_regions(const DetectionInput& input) const override {
-        if (!input.frame.valid() || visible_game(input)) return {};
-        return {{.05,.05,.9,.91}};
-    }
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         const auto& f=input.frame;
-        if (!f.valid() || !f.window.id || !input.generation || input.text.size()>2048 || (input.cancelled && input.cancelled())) return {};
+        if (!f.valid() || !f.window.id || !input.generation || (input.cancelled && input.cancelled())) return {};
         auto packet=std::make_shared<Packet>();
         packet->view={Knowledge::unknown,{},f.captured,f.window,input.generation};
+        const auto health=read_empty_health_bar(f,input.generation);
         if (visible_game(input)) {
-            const auto health=read_empty_health_bar(f,input.generation);
             packet->view.knowledge=Knowledge::present;
             packet->view.value={health.value?RespawnScreen::respawning:RespawnScreen::game,{}};
             return packet;
         }
-        const ObservationContext context{f.window,input.generation,f.captured};
-        const Reading<TextSnapshot> text{Knowledge::present,{f.width,f.height,{input.text.begin(),input.text.end()}},f.captured,f.window,input.generation};
-        const PromptLandmark question{{"reset your character","want to respawn"},{.05,.05,.9,.9},.65f,PromptMatch::phrase,true};
-        auto dialog=read_dialog(context,text,question,{"Reset","Cancel"});
-        if (dialog.knowledge!=Knowledge::present) {
-            auto centered=question; centered.region={.2,.15,.6,.7};
-            dialog=read_dialog(context,text,centered,{"Respawn","Don't Respawn"});
+        static constexpr std::array<std::string_view,7> controls{"Reset","Respawn","Cancel","Don't Respawn","Reset Character","Resume","Leave"};
+        const auto labels=fixed_ui_labels(f,{.15,.2,.7,.76},controls);
+        const TextLine *reset=nullptr,*cancel=nullptr,*leave=nullptr,*resume=nullptr;
+        for (const auto& label:labels) {
+            const TextLine** target=label.text=="Cancel" || label.text=="Don't Respawn"?&cancel:
+                label.text=="Leave"?&leave:label.text=="Resume"?&resume:&reset;
+            if (*target) return packet;
+            *target=&label;
         }
-        if (dialog.knowledge==Knowledge::present) {
-            packet->view.knowledge=Knowledge::present; packet->view.value={RespawnScreen::confirmation,dialog.value.yes}; return packet;
-        }
-        const TextLine* pause_reset=nullptr;
-        bool leave{},resume{};
-        for (const auto& line:input.text) {
-            const auto& r=line.pixels;
-            if (!r.valid() || r.y<f.height*.65 || r.y+r.height>f.height*.96
-                || (line.confidence && (!std::isfinite(*line.confidence) || *line.confidence<.65f || *line.confidence>1))) continue;
-            const auto name=normalized(line.text);
-            const auto x=(r.x+r.width/2)/f.width;
-            if (x>.2 && x<.45 && (name=="leave" || name=="l leave")) leave=true;
-            if (x>.55 && x<.8 && (name=="resume" || name=="esc resume")) resume=true;
-            if (x>.4 && x<.6 && (name=="respawn" || name=="r respawn" || name=="reset character" || name=="r reset character")) {
-                if (pause_reset) return packet;
-                pause_reset=&line;
+        auto aligned=[](const Rect& a,const Rect& b) {
+            return std::abs(a.y+a.height/2-b.y-b.height/2)<std::max(a.height,b.height)*.6;
+        };
+        if (reset && cancel) {
+            const auto a=reset->pixels,b=cancel->pixels;
+            if (aligned(a,b) && std::abs(a.x-b.x)>std::max(a.width,b.width)) {
+                packet->view.knowledge=Knowledge::present;
+                packet->view.value={RespawnScreen::confirmation,Point{(a.x+a.width/2)/f.width,(a.y+a.height/2)/f.height}};
             }
+            return packet;
         }
-        if (pause_reset && leave && resume) {
+        if (reset && leave && aligned(reset->pixels,leave->pixels) && reset->pixels.y>f.height*.6
+            && leave->pixels.x<reset->pixels.x && (!resume || (aligned(reset->pixels,resume->pixels) && reset->pixels.x<resume->pixels.x))) {
             packet->view.knowledge=Knowledge::present;
             packet->view.value={RespawnScreen::menu,{}};
             return packet;
         }
-        const auto health=read_empty_health_bar(f,input.generation);
         if (health.knowledge==Knowledge::present && health.value) {
             packet->view.knowledge=Knowledge::present;
-            packet->view.value={RespawnScreen::respawning,{}}; return packet;
+            packet->view.value={RespawnScreen::respawning,{}};
         }
-        const TextLine* respawn=nullptr;
-        std::set<std::string> neighbors; unsigned matches{}; bool honey{},pollen{},modal{};
-        for (const auto& line : input.text) {
-            const auto& r=line.pixels;
-            if (!r.valid() || r.x<0 || r.y<0 || r.x+r.width>f.width || r.y+r.height>f.height || line.text.size()>512) continue;
-            const auto name=normalized(line.text);
-            if (name.find("reset your character")!=std::string::npos || name.find("sure you want")!=std::string::npos || name=="cancel") modal=true;
-            const auto x=(r.x+r.width/2)/f.width,y=(r.y+r.height/2)/f.height;
-            if (x>=.2 && x<=.8 && y>=.2 && y<=.85
-                && (name=="disconnected" || name=="connection error" || name=="reconnect")) modal=true;
-            if (line.confidence && (!std::isfinite(*line.confidence) || *line.confidence<.5f || *line.confidence>1)) continue;
-            honey=honey || (r.y<f.height*.15 && (name=="honey" || name.starts_with("honey ")));
-            pollen=pollen || (r.y<f.height*.15 && (name=="pollen" || name.starts_with("pollen ")));
-            if (line.confidence && *line.confidence<.65f) continue;
-            if (name=="respawn" || name=="r respawn" || name=="reset character" || name=="r reset character") { respawn=&line; ++matches; }
-        }
-        if (modal) return packet;
-        if (matches==1) for (const auto& line : input.text) {
-            const auto name=normalized(line.text); const auto& r=line.pixels;
-            if (!r.valid() || r.x<0 || r.y<0 || r.x+r.width>f.width || r.y+r.height>f.height
-                || (line.confidence && (!std::isfinite(*line.confidence) || *line.confidence<.65f || *line.confidence>1))) continue;
-            static constexpr std::string_view labels[]{"report abuse","leaderboard","inventory","emotes","resume","leave","settings",
-                "friends chat","shop","shop new","self view","switch avatar","music","captures","report"};
-            if (std::find(std::begin(labels),std::end(labels),name)==std::end(labels)) continue;
-            const auto& a=respawn->pixels;
-            if (std::abs(r.x-a.x)<std::max(a.width,r.width)*2 && std::abs(r.y-a.y)<f.height*.7) neighbors.insert(name);
-        }
-        if (matches==1 && neighbors.size()>=2) {
-            const auto& r=respawn->pixels;
-            packet->view.knowledge=Knowledge::present;
-            packet->view.value={RespawnScreen::menu,Point{(r.x+r.width/2)/f.width,(r.y+r.height/2)/f.height}};
-        } else if (!matches) {
-            const auto hive=read_prompt_landmark(context,text,hive_proximity_prompt());
-            if ((honey && pollen) || (hive.knowledge==Knowledge::present && hive.value)) {
-                packet->view.knowledge=Knowledge::present;
-                packet->view.value={RespawnScreen::game,{}};
-            }
-        }
-        if (input.cancelled && input.cancelled()) return {};
         return packet;
     }
 };

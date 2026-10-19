@@ -41,6 +41,7 @@ public:
     bool observes_game() const;
     bool observes_interaction() const;
     std::vector<Rect> text_regions() const;
+    std::vector<game::FixedLabelQuery> fixed_labels() const;
 private:
     std::unique_ptr<Program> program_;
     std::shared_ptr<RecoveryCounts> recovery_counts_;

@@ -29,7 +29,7 @@ public:
             transitioned_=true;
             if (!health || state->alive.captured<=reading.captured) return false;
         }
-        const bool game=observed && (reading.value.screen==game::RespawnScreen::game || reading.value.screen==game::RespawnScreen::controls);
+        const bool game=observed && (reading.value.screen==game::RespawnScreen::game);
         const bool returned=(hud && state->game_hud.value && health) || game;
         // A returned game view after the reset menu, or our own hive prompt, is
         // sufficient even when capture missed the brief empty health bar.

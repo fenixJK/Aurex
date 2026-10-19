@@ -1,4 +1,3 @@
-#include "connection.hpp"
 #include "perception.hpp"
 #include "menus.hpp"
 #include <algorithm>
@@ -125,7 +124,6 @@ bool game_hud_visible(const HudFeatures& hud) {
 State read_game_text(const Frame& frame,const std::vector<TextLine>& lines,std::uint64_t generation) {
     State state;
     if (!frame.valid()) return state;
-    state.connection=read_connection(frame,lines,generation);
     state.text={Knowledge::present,{frame.width,frame.height,lines},frame.captured,frame.window,generation};
     state.hive_prompt=read_hive_prompt(frame,lines,{frame.width*0.15,0,frame.width*0.7,frame.height*0.3},generation);
     if (state.hive_prompt.knowledge==Knowledge::present) {

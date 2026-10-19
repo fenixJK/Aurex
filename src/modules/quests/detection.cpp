@@ -91,7 +91,8 @@ public:
                 && layout_context_.window.bounds==frame.window.bounds && frame.captured>=discovered_
                 && frame.captured-discovered_<Time(5000)) return {*reading_area_};
         }
-        return {{0,0,1,1}};
+        const auto sidebar=game::sidebar_region(input,game::MenuTab::quests);
+        return sidebar?std::vector<Rect>{*sidebar}:std::vector<Rect>{};
     }
     std::shared_ptr<const game::Detection> detect(const game::DetectionInput& input) const override {
         if (desktop_ && same_cards(input.frame,input.generation)) {

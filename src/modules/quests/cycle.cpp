@@ -160,7 +160,7 @@ public:
         if (stage_==Stage::travel) { stage_=Stage::talk; return Navigate{game::npc(giver_).location()}; }
         if (stage_==Stage::talk) {
             ++conversations_; stage_=Stage::verify;
-            return RunProgram{[prompt=game::npc(giver_).prompt(),source=plan_.conversation] { return converse(prompt,source); }};
+            return RunProgram{[source=plan_.conversation] { return converse(source); }};
         }
         if (stage_==Stage::action_start) { stage_=Stage::action_verify; return RunProgram{std::move(action_)}; }
         if (stage_==Stage::action_verify) { retryable_action_.clear(); return scan(view,Stage::action_assess); }

@@ -5,6 +5,7 @@
 #include <atomic>
 #include <map>
 #include "platform/platform.hpp"
+#include "game/detection/visual_labels.hpp"
 #include <condition_variable>
 #include <mutex>
 #include <thread>
@@ -20,6 +21,7 @@ public:
     bool has_detectors() const;
     void watch(const ObservationContext& context,bool hud=true,bool connection=false,bool interaction=false);
     void request_text(std::vector<Rect> regions);
+    void request_labels(std::vector<FixedLabelQuery> queries);
     void stop();
     ObservedState latest(bool request_speed=true);
     std::shared_ptr<const Frame> latest_frame() const;
@@ -39,9 +41,11 @@ private:
     std::shared_ptr<const HudFeatures> frame_hud_;
     std::uint64_t frame_sequence_{};
     bool hud_{true},connection_{},interaction_{};
-    std::vector<Rect> text_regions_,connection_regions_;
-    Time ocr_next_{};
-    std::string capture_error_;
+    std::vector<Rect> text_regions_;
+    std::vector<FixedLabelQuery> label_queries_;
+    std::uint64_t label_revision_{};
+    Time ocr_next_{},labels_next_{};
+    std::string capture_error_,labels_error_;
     void clear_detections();
     bool exiting_{};
     std::thread capture_worker_,pixel_worker_,responsive_worker_,text_worker_;

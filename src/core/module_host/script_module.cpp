@@ -10,6 +10,7 @@ public:
     explicit RoutineRun(std::unique_ptr<automation::Program> program):program_(std::move(program)) {}
     automation::RunConfig config() const override { auto config=program_->config(); config.require_done=true; return config; }
     std::vector<Rect> text_regions() const override { return program_->text_regions(); }
+    std::vector<game::FixedLabelQuery> fixed_labels() const override { return program_->fixed_labels(); }
     std::unique_ptr<automation::RunGuard> guard() const override { return program_->guard(); }
     automation::Step next(const automation::View& view) override { return program_->next(view); }
     void observe(const automation::View& view) override { program_->observe(view); }

@@ -1,5 +1,6 @@
 #include "enemies.hpp"
 #include "game/data/fields.hpp"
+#include "bar_regions.hpp"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -21,13 +22,11 @@ std::string normalized(const std::string& input) {
 bool confidence(const TextLine& line,float minimum) {
     return !line.confidence || (std::isfinite(*line.confidence) && *line.confidence>=minimum && *line.confidence<=1);
 }
-int health_pixel(const Frame& frame,int x,int y) {
-    const auto offset=(static_cast<std::size_t>(y)*frame.width+x)*4;
-    if (frame.rgba[offset+3]<251) return 0;
-    const int r=frame.rgba[offset],g=frame.rgba[offset+1],b=frame.rgba[offset+2];
-    if (std::abs(r-31)<=35 && std::abs(g-231)<=35 && std::abs(b-68)<=40) return 1;
-    if (std::abs(r-107)<=25 && std::abs(g-19)<=18 && std::abs(b-26)<=20) return 2;
-    return 0;
+int health_pixel(const std::uint8_t* pixel) {
+    const int r=pixel[0],g=pixel[1],b=pixel[2];
+    const bool filled=(r<=66) & (g>=196) & (b>=28) & (b<=108);
+    const bool remaining=(r>=82) & (r<=132) & (g>=1) & (g<=37) & (b>=6) & (b<=46);
+    return (pixel[3]>=251)*(int(filled)+2*int(remaining));
 }
 bool notification_ink(const DetectionInput& input,const Rect& box,std::size_t& budget) {
     const auto& frame=input.frame;
@@ -64,7 +63,7 @@ std::optional<HealthBar> health_bar(const DetectionInput& input,const Rect& labe
     for (int y=top;y<bottom;++y) {
         if (input.cancelled && input.cancelled()) return {};
         int first=right,last=left,total=0,green=0;
-        for (int x=left;x<right;++x) if (const auto color=health_pixel(frame,x,y)) {
+        for (int x=left;x<right;++x) if (const auto color=health_pixel(frame.rgba.data()+(std::size_t(y)*frame.width+x)*4)) {
             first=std::min(first,x); last=x; ++total; green+=color==1;
         }
         const int width=last-first+1;
@@ -88,6 +87,12 @@ class Enemies final : public Detector {
     mutable std::vector<EnemyDefeat> recent_;
     mutable std::uint64_t sequence_{};
 public:
+    std::vector<Rect> text_regions(const Frame& frame,std::uint64_t) const override {
+        std::vector<Rect> regions{{.5,.4,.5,.6}};
+        for (const auto& bar:detail::bar_regions(frame,health_pixel)) regions.push_back(detail::label_region(frame,bar,3,0.5));
+        return regions;
+    }
+
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         const auto& frame=input.frame;
         if (!frame.valid() || !input.generation || frame.width>8192 || frame.height>8192 || input.text.size()>4096

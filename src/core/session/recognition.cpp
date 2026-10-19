@@ -2,7 +2,6 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
-#include <span>
 
 namespace hive::game {
 std::vector<Rect> exclude_text_region(std::vector<Rect> regions,Rect excluded) {
@@ -65,43 +64,44 @@ std::vector<TextLine> RecognitionCache::read(Desktop& desktop,const Frame& frame
         }
         next.push_back(std::move(entry));
     }
-    const auto recognize=[&](std::span<const std::size_t> batch,Rect bounds) {
-        check();
-        Frame crop{frame.window,frame.captured,int(bounds.width),int(bounds.height),{}};
-        if (batch.size()==1) crop.rgba=std::move(next[batch.front()].pixels);
-        else {
-            crop.rgba.resize(std::size_t(crop.width)*crop.height*4);
-            for (std::size_t i=3;i<crop.rgba.size();i+=4) crop.rgba[i]=255;
-            for (const auto index:batch) {
-                const auto& entry=next[index]; const auto& r=entry.area;
-                for (int y=0;y<int(r.height);++y) std::memcpy(crop.rgba.data()+(std::size_t(y+int(r.y-bounds.y))*crop.width+int(r.x-bounds.x))*4,
-                    entry.pixels.data()+std::size_t(y)*std::size_t(r.width)*4,std::size_t(r.width)*4);
-            }
-        }
-        auto lines=desktop.recognize(crop,cancelled); check();
-        if (batch.size()==1) next[batch.front()].pixels=std::move(crop.rgba);
-        if (lines.size()>4096) throw std::runtime_error("OCR exceeded text limits");
-        for (auto& line:lines) {
-            line.pixels.x+=bounds.x; line.pixels.y+=bounds.y;
-            const auto& b=line.pixels;
-            for (const auto index:batch) {
-                const auto& r=next[index].area;
-                if (b.x>=r.x && b.y>=r.y && b.x+b.width<=r.x+r.width && b.y+b.height<=r.y+r.height)
-                    next[index].lines.push_back(line);
-            }
-        }
-    };
     if (!changed.empty()) {
+        check();
         auto bounds=next[changed.front()].area;
-        double area=0;
+        int packed_width=0,packed_height=8;
         for (const auto index:changed) {
-            const auto r=next[index].area; area+=r.width*r.height;
+            const auto r=next[index].area;
             bounds={std::min(bounds.x,r.x),std::min(bounds.y,r.y),
                 std::max(bounds.x+bounds.width,r.x+r.width)-std::min(bounds.x,r.x),
                 std::max(bounds.y+bounds.height,r.y+r.height)-std::min(bounds.y,r.y)};
+            packed_width=std::max(packed_width,int(r.width)+16);
+            packed_height+=int(r.height)+8;
         }
-        if (bounds.width*bounds.height<=area*1.5) recognize(changed,bounds);
-        else for (const auto& index:changed) recognize({&index,1},next[index].area);
+        // Disjoint labels use one OCR call, retaining their original screen coordinates.
+        const bool packed=changed.size()>1 && double(packed_width)*packed_height<bounds.width*bounds.height;
+        Frame crop{frame.window,frame.captured,packed?packed_width:int(bounds.width),packed?packed_height:int(bounds.height),{}};
+        std::vector<Rect> placements;
+        const bool single=changed.size()==1;
+        if (!single) crop.rgba.resize(std::size_t(crop.width)*crop.height*4);
+        for (std::size_t i=3;i<crop.rgba.size();i+=4) crop.rgba[i]=255;
+        int cursor=8;
+        for (const auto index:changed) {
+            const auto& entry=next[index]; const auto r=entry.area;
+            Rect box{packed?8:r.x-bounds.x,packed?double(cursor):r.y-bounds.y,r.width,r.height};
+            placements.push_back(box);cursor+=int(r.height)+8;
+            if (single) crop.rgba=std::move(next[index].pixels);
+            else for (int y=0;y<int(r.height);++y) std::memcpy(crop.rgba.data()+(std::size_t(y+int(box.y))*crop.width+int(box.x))*4,
+                entry.pixels.data()+std::size_t(y)*std::size_t(r.width)*4,std::size_t(r.width)*4);
+        }
+        auto lines=desktop.recognize(crop,cancelled);
+        if (single) next[changed.front()].pixels=std::move(crop.rgba);
+        check();
+        if (lines.size()>4096) throw std::runtime_error("OCR exceeded text limits");
+        for (const auto& line:lines) for (std::size_t j=0;j<changed.size();++j) {
+            const auto& b=line.pixels;const auto& box=placements[j];auto& entry=next[changed[j]];
+            if (b.x<box.x || b.y<box.y || b.x+b.width>box.x+box.width || b.y+b.height>box.y+box.height) continue;
+            auto mapped=line;mapped.pixels.x+=entry.area.x-box.x;mapped.pixels.y+=entry.area.y-box.y;
+            entry.lines.push_back(std::move(mapped));
+        }
     }
     std::vector<TextLine> result;
     for (const auto& entry:next) {

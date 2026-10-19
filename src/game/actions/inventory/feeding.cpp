@@ -66,7 +66,11 @@ public:
     }
     RunConfig config() const override { return {std::chrono::minutes(6),28,{},true,true}; }
     std::vector<Rect> text_regions() const override {
-        return stage_==Stage::dialog || stage_==Stage::verify || stage_==Stage::closing?std::vector<Rect>{{.2,.15,.6,.75}}:std::vector<Rect>{};
+        return stage_==Stage::dialog || stage_==Stage::verify?std::vector<Rect>{{.2,.15,.6,.75}}:std::vector<Rect>{};
+    }
+    std::vector<game::FixedLabelQuery> fixed_labels() const override {
+        return stage_==Stage::dialog || stage_==Stage::verify || stage_==Stage::closing?
+            std::vector<game::FixedLabelQuery>{{{.2,.15,.6,.75},{"Feed","Cancel"}}}:std::vector<game::FixedLabelQuery>{};
     }
     Step next(const View& view) override {
         const auto& c=view.context;

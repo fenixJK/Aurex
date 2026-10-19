@@ -1,6 +1,8 @@
 #include "ant_challenge.hpp"
 #include "game/actions/field/shift_lock.hpp"
 #include "game/detection/dialog.hpp"
+#include <array>
+#include <algorithm>
 #include "game/actions/travel/route_helpers.hpp"
 
 namespace hive::automation {
@@ -9,7 +11,7 @@ const game::PromptLandmark score{{"Score:"},{0,0,1,.5},.8f,game::PromptMatch::ph
 const game::PromptLandmark amulet{{"Ant Amulet"},{.15,.1,.7,.85},.8f,game::PromptMatch::phrase};
 class Challenge final : public Program {
     ProgramFactory prepare_,home_,restock_;
-    bool restocked_{},missing_{};
+    bool restocked_{},missing_{},active_{};
     double speed_;
     workflows::CheckpointPlan position_;
     unsigned phase_{};
@@ -21,9 +23,13 @@ public:
         if (!prepare_ || !home_ || !std::isfinite(speed) || speed<8 || speed>200) throw std::invalid_argument("Ant Challenge needs hive preparation and return");
     }
     std::vector<Rect> text_regions() const override {
-        if (phase_==4) return {score.region,{.4,.6,.6,.4}};
-        if (phase_==5 || phase_==6) return {score.region,amulet.region};
+        if (phase_==4) return {{.4,.6,.6,.4}};
+        if ((phase_==5 && !active_) || phase_==6) return {amulet.region};
         return {};
+    }
+    std::vector<game::FixedLabelQuery> fixed_labels() const override {
+        if (phase_<4 || phase_>6) return {};
+        return {{{0,0,1,.5},{"Score"}},{{.15,.1,.7,.85},{"Keep Old","Replace"}}};
     }
     RunConfig config() const override { return {std::chrono::minutes(12),speed_,{},true,true}; }
     void observe(const View& view) override {
@@ -51,8 +57,8 @@ public:
                     catch (const ObservationUnavailable&) { if (unavailable) unavailable(context); throw; }
                 }};
             }
-            if (view.observations && game::read_prompt_landmark(c,view.observations->text,score).has_value(c,Time(2000),start_attempt_+Time(1))) {
-                ++phase_; return FollowPath{position_};
+            if (view.observations && game::read_prompt_landmark(c,view.observations->fixed_labels,score).has_value(c,Time(2000),start_attempt_+Time(1))) {
+                active_=true; ++phase_; return FollowPath{position_};
             }
             if (c.now-start_attempt_>=Time(15000)) throw ObservationUnavailable("Ant Challenge did not start; another pass was not spent");
             return Wait{Time(100),"Waiting for Ant Challenge"};
@@ -62,7 +68,12 @@ public:
         if (!until_.count()) until_=c.now+std::chrono::minutes(5)+Time(15000);
         if (c.now>=until_) throw std::runtime_error("Ant Challenge outcome was not readable; another pass was not spent");
         if (!view.observations) return Wait{};
-        const auto buttons=game::read_dialog(c,view.observations->text,amulet,{"Keep Old","Replace"});
+        active_=game::read_prompt_landmark(c,view.observations->fixed_labels,score).has_value(c,Time(2000))
+            && std::none_of(view.observations->fixed_labels.value.lines.begin(),view.observations->fixed_labels.value.lines.end(),
+                [](const auto& line) { return line.text=="Keep Old" || line.text=="Replace"; });
+        static constexpr std::array<std::string_view,2> labels{"Keep Old","Replace"};
+        const auto text=game::with_fixed_labels(c,view.observations->text,view.observations->fixed_labels,labels);
+        const auto buttons=game::read_dialog(c,text,amulet,{"Keep Old","Replace"});
         if (phase_==6) {
             if (buttons.knowledge==Knowledge::absent && buttons.usable(c,Time(2000)) && buttons.captured>frame_) {
                 frame_=buttons.captured; phase_=7;
@@ -76,7 +87,7 @@ public:
             phase_=6; until_=c.now+Time(10000);
             return UseControl{{Knowledge::present,point,buttons.captured,c.window,c.generation},0,"Keep existing Ant Amulet",Point{.85,.15}};
         }
-        if (!game::read_prompt_landmark(c,view.observations->text,score).has_value(c,Time(2000)) || buttons.knowledge!=Knowledge::absent)
+        if (!active_)
             return Wait{Time(100),"Waiting for Ant Challenge observations"};
         return Hold{{Key::primary},Time(250),Point{.95,.95}};
     }

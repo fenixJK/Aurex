@@ -19,12 +19,15 @@ struct MenuControl {
 };
 struct State {
     Reading<Connection> connection;
+    Reading<Point> reconnect;
+    Reading<bool> client_home;
     Reading<bool> game_hud;
     Reading<bool> alive, at_hive;
     Reading<bool> interaction_prompt;
     Reading<double> backpack_percent;
     Reading<HivePrompt> hive_prompt;
     Reading<TextSnapshot> text;
+    Reading<TextSnapshot> fixed_labels;
     Reading<InteractionCaption> interaction_caption;
     Reading<InteractionBanner> interaction_banner;
     Reading<double> movement_speed;

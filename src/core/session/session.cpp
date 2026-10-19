@@ -85,6 +85,7 @@ Session::Session(Desktop& desktop): desktop_(desktop), observer_(desktop), runti
                             runtime_.tick(monotonic_now(),snapshot);
                             observer_.watch({snapshot.window,tasks_.generation(),monotonic_now()},feature_->observes_game(),bool(connection_reconnect_),feature_->observes_interaction());
                             observer_.request_text(feature_->text_regions());
+                            observer_.request_labels(feature_->fixed_labels());
                             const auto progress=feature_->progress();
                             if (progress.state!=automation::State::running && !(continue_features_ && automation::can_handoff(progress))) { runtime_.stop(progress.message); observer_.stop(); }
                             if (feature_->can_replace_window()) {

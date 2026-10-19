@@ -9,6 +9,7 @@
 #include "game/detection/landmarks.hpp"
 #include "game/detection/localization.hpp"
 #include "game/detection/state.hpp"
+#include "game/detection/visual_labels.hpp"
 #include "game/detection/buffs.hpp"
 #include "game/actions/travel/checkpoint.hpp"
 #include "game/actions/field/sprinkler_placement.hpp"
@@ -115,6 +116,7 @@ public:
     virtual ~Program() = default;
     virtual RunConfig config() const = 0;
     virtual std::vector<Rect> text_regions() const { return {}; }
+    virtual std::vector<game::FixedLabelQuery> fixed_labels() const { return {}; }
     virtual std::span<const std::string> requested_buffs() const { return {}; }
     virtual WorkActivity activity() const noexcept { return WorkActivity::other; }
     virtual std::string field() const { return {}; }

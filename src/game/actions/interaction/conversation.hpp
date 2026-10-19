@@ -3,5 +3,5 @@
 #include "game/detection/conversation.hpp"
 
 namespace hive::automation {
-std::unique_ptr<Program> converse(game::PromptLandmark prompt,std::shared_ptr<const game::ConversationSource> source);
+std::unique_ptr<Program> converse(std::shared_ptr<const game::ConversationSource> source);
 }

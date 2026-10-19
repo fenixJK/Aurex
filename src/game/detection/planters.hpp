@@ -29,7 +29,6 @@ public:
 };
 PromptLandmark planter_harvest_prompt(const std::string& type);
 Observation<std::vector<PlanterReward>> read_planter_rewards(const DetectionInput& input);
-Observation<std::string> read_planter_interaction(const DetectionInput& input);
 std::shared_ptr<const LandmarkSource> planter_proximity(std::shared_ptr<const PlanterSource> source,std::string type);
 Observation<std::vector<VisiblePlanter>> read_planters(const DetectionInput& input);
 std::shared_ptr<const Detector> planter_detector();

@@ -25,7 +25,7 @@ class Detector {
     mutable std::mutex invocation_;
 public:
     virtual ~Detector()=default;
-    virtual std::vector<Rect> text_regions(const Frame&,std::uint64_t) const { return {{0,0,1,1}}; }
+    virtual std::vector<Rect> text_regions(const Frame&,std::uint64_t) const { return {}; }
     virtual std::vector<Rect> text_regions(const DetectionInput& input) const { return text_regions(input.frame,input.generation); }
     virtual std::shared_ptr<const Detection> detect(const DetectionInput& input) const=0;
 };
