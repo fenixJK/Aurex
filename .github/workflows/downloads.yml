@@ -1,7 +1,7 @@
 name: Download counter
 on:
   schedule:
-    - cron: '17 9 * * *'
+    - cron: '17 * * * *'
       timezone: America/New_York
   workflow_dispatch:
     inputs:
