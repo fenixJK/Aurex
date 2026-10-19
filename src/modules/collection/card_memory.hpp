@@ -3,7 +3,7 @@
 
 namespace hive::features::collection {
 class CardMemory {
-    struct Slot { Rect bounds; game::CardImage back; std::optional<game::CardImage> face; bool matched{}; };
+    struct Slot { Rect bounds; std::optional<game::CardImage> face; bool matched{}; };
     std::vector<Slot> slots_;
     std::vector<unsigned> open_;
     std::optional<unsigned> waiting_;

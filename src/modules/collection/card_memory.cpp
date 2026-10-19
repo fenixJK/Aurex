@@ -3,20 +3,24 @@
 
 namespace hive::features::collection {
 namespace {
-bool revealed(const game::CardImage& image,const game::CardImage& back) {
-    if (game::card_distance(image,back)<=12) return false;
+bool revealed(const game::CardImage& image) {
+    // The cropped card back is flat color. Compare against that template with
+    // its average color removed, tolerating hover, cursor and capture noise.
+    constexpr unsigned pixels=game::CardImage{}.size()/3;
+    unsigned difference=0;
     for (unsigned channel=0;channel<3;++channel) {
-        unsigned low=255,high=0;
-        for (unsigned i=channel;i<image.size();i+=3) { low=std::min(low,unsigned(image[i])); high=std::max(high,unsigned(image[i])); }
-        if (high-low>30) return true;
+        unsigned total=0;
+        for (unsigned i=channel;i<image.size();i+=3) total+=image[i];
+        for (unsigned i=channel;i<image.size();i+=3) difference+=std::abs(int(image[i]*pixels)-int(total));
     }
-    return false;
+    return difference>12*image.size()*pixels;
 }
 }
 void CardMemory::begin(const game::MemoryBoard& board) {
     if (board.cards.size()<4 || board.cards.size()>36) throw std::invalid_argument("Invalid memory board");
     slots_.clear(); open_.clear(); waiting_.reset();
-    for (const auto& card:board.cards) slots_.push_back({card.bounds,card.image,{},{}});
+    for (const auto& card:board.cards) slots_.push_back({card.bounds,{},{}});
+    observe(board);
 }
 void CardMemory::observe(const game::MemoryBoard& board) {
     std::vector<unsigned> opened;
@@ -26,13 +30,13 @@ void CardMemory::observe(const game::MemoryBoard& board) {
             return std::abs(card.bounds.x-slot.bounds.x)<slot.bounds.width*.2 && std::abs(card.bounds.y-slot.bounds.y)<slot.bounds.height*.2;
         });
         if (found==board.cards.end()) continue;
-        if (!slot.matched && revealed(found->image,slot.back)) { slot.face=found->image; opened.push_back(i); }
+        if (!slot.matched && revealed(found->image)) { slot.face=found->image; opened.push_back(i); }
     }
     if (waiting_ && std::find(opened.begin(),opened.end(),*waiting_)!=opened.end()) waiting_.reset();
-    if (opened.size()==2 && game::card_distance(*slots_[opened[0]].face,*slots_[opened[1]].face)<6) {
-        for (auto i:opened) slots_[i].matched=true;
-        opened.clear();
-    }
+    for (unsigned a=0;a<opened.size();++a) for (unsigned b=a+1;b<opened.size() && !slots_[opened[a]].matched;++b)
+        if (!slots_[opened[b]].matched && game::card_distance(*slots_[opened[a]].face,*slots_[opened[b]].face)<6)
+            slots_[opened[a]].matched=slots_[opened[b]].matched=true;
+    std::erase_if(opened,[&](unsigned i) { return slots_[i].matched; });
     open_=std::move(opened);
 }
 std::optional<unsigned> CardMemory::choose() const {
