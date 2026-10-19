@@ -230,7 +230,8 @@ Outcome Controller::observe(std::uint64_t ticket,const ObservationContext& c,Wal
     if (outcome==Outcome::confirmed) {
         if (!confirmed_at_) confirmed_at_=wall;
         finish(ledger_.pending->operation==Operation::place,*confirmed_at_);
-    } else if (outcome==Outcome::uncertain) { transaction_.reset(); reset_reconciliation(); }
+    } else if (outcome==Outcome::failed) finish(false,wall);
+    else if (outcome==Outcome::uncertain) { transaction_.reset(); reset_reconciliation(); }
     return outcome;
 }
 void Controller::input_finished(std::uint64_t ticket,const ObservationContext& context) {

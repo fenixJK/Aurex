@@ -230,25 +230,30 @@ void Transaction::input_finished(const ObservationContext& c) {
 Outcome Transaction::observe(const ObservationContext& c,const Observation<Placements>& inventory,const Observation<HarvestEvidence>& harvested) {
     if (outcome_!=Outcome::pending) return outcome_;
     if (c.generation!=started_.generation || c.window.id!=started_.window.id || c.window.process!=started_.window.process
-        || c.window.bounds!=started_.window.bounds || c.now<minimum_ || c.now>deadline_) return outcome_=Outcome::uncertain;
-    if (!input_finished_) return outcome_;
+        || c.window.bounds!=started_.window.bounds || c.now<minimum_) return outcome_=Outcome::uncertain;
+    const auto waiting=[&] { return c.now>=deadline_?outcome_=Outcome::uncertain:outcome_; };
+    if (!input_finished_) return waiting();
     if (operation_==Operation::harvest && harvested.has_value(c,Time(2000),minimum_)
         && harvested.value.identity==identity_ && harvested.captured>minimum_
         && harvested.value.latest>=harvested.captured && harvested.value.latest<=c.now
         && !(inventory.has_value(c,Time(2000),minimum_) && inventory.value.identities.contains(identity_))) {
-        if (harvested.captured<=last_frame_) return outcome_;
+        if (harvested.captured<=last_frame_) return waiting();
         last_frame_=harvested.value.latest;
         outcome_=Outcome::confirmed;
         return outcome_;
     }
     if (!inventory.has_value(c,Time(2000),minimum_) || (operation_==Operation::harvest && !inventory.value.complete)
-        || (!inventory.value.field.empty() && identity_.substr(identity_.find('/')+1)!=inventory.value.field) || inventory.captured<=minimum_) return outcome_;
-    if (inventory.captured<=last_frame_) return outcome_;
+        || (!inventory.value.field.empty() && identity_.substr(identity_.find('/')+1)!=inventory.value.field) || inventory.captured<=minimum_) return waiting();
+    if (inventory.captured<=last_frame_ && c.now<deadline_) return waiting();
     last_frame_=inventory.captured;
     const auto present=inventory.value.identities.contains(identity_);
     if ((operation_==Operation::place && present) || (operation_==Operation::harvest && !present)) {
-        outcome_=Outcome::confirmed;
+        return outcome_=Outcome::confirmed;
     }
-    return outcome_;
+    // Let the placement appear, but a current negative result at the deadline
+    // is a failed attempt, not an unknown planter occupying a slot.
+    if (operation_==Operation::place && inventory.value.complete && c.now>=deadline_)
+        return outcome_=Outcome::failed;
+    return waiting();
 }
 }

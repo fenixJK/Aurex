@@ -53,7 +53,7 @@ public:
     Travel estimate(const std::string& field) const;
 };
 enum class Operation { place, harvest };
-enum class Outcome { pending, confirmed, uncertain };
+enum class Outcome { pending, confirmed, failed, uncertain };
 struct Placements { std::set<std::string> identities; bool complete{}; std::string field; };
 struct HarvestEvidence { std::string identity; Time latest{}; };
 class Transaction {

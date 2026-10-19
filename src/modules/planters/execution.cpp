@@ -650,17 +650,20 @@ public:
         }
         if (phase_==Phase::acting) return emit(steps_.at(action_step_++));
         if (phase_==Phase::confirming) {
-            if (view.context.now>=deadline_) return defer_result(view);
             auto evidence=harvest_ && scan(view,snapshot)?snapshot.placements:Observation<Placements>{};
             if (!harvest_) {
                 const auto prompt=source_->placement_prompt(view);
-                if (prompt.has_value(view.context,Time(2000),minimum_) && prompt.value)
-                    evidence={Knowledge::present,{{identity(selected_)},false,selected_.field},prompt.captured,prompt.window,prompt.generation};
+                if (prompt.usable(view.context,Time(2000),minimum_)) {
+                    Placements local{{},true,selected_.field};
+                    if (prompt.value) local.identities.insert(identity(selected_));
+                    evidence={Knowledge::present,std::move(local),prompt.captured,prompt.window,prompt.generation};
+                }
             }
             auto receipt=harvest_action_?harvest_receipt(selected_,nectar_before_,snapshot,view.context,minimum_):Observation<HarvestEvidence>{};
             if (harvest_action_ && receipt.knowledge!=Knowledge::present)
                 receipt=reward_receipt(selected_,rewards_before_,snapshot,view.context,minimum_);
             const auto result=controller_->observe(controller_->ledger().pending->ticket,view.context,now,evidence,receipt);
+            if (result==Outcome::failed) return defer_result(view,"No planter appeared after placement; no timer was saved");
             if (result==Outcome::uncertain) return defer_result(view);
             if (result==Outcome::confirmed) {
                 complete_action();
