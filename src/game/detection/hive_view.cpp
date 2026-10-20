@@ -49,7 +49,8 @@ bool centered_hive(const Frame& f,double scale,double scale_y) {
             if (f.rgba[offset+3]<251) continue;
             const int red=f.rgba[offset],green=f.rgba[offset+1],blue=f.rgba[offset+2];
             ++samples;
-            if (green>130 && blue>110 && blue*100>red*85 && green*100>red*70) ++cool;
+            // Colored bee cells, not neutral clouds, balloons or white UI.
+            if (green>130 && blue>110 && blue>red+15 && green*100>red*70) ++cool;
             if (red<100 && green<100 && blue<100) ++dark;
             if (red>=140 && green*100>=red*63 && green*100<=red*105 && blue*100<=red*52) ++gold;
         }

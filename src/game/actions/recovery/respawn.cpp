@@ -4,17 +4,23 @@
 namespace hive::automation {
 namespace {
 class RespawnCompletion {
-    bool transitioned_{},away_from_hive_{};
-    Time last_dead_{Time(-1)};
+    bool transitioned_{},away_from_hive_{},origin_known_{};
+    Time last_dead_{Time(-1)},origin_before_{Time(-1)};
     void died(Time captured) {
         transitioned_=true;
         last_dead_=std::max(last_dead_,captured);
     }
 public:
     explicit RespawnCompletion(bool already_died=false):transitioned_(already_died) {}
-    void begin(const View& view) {
+    void begin(Time now) { origin_before_=now; }
+    void observe_origin(const View& view) {
         const auto* state=view.observations;
-        away_from_hive_=state && state->at_hive.usable(view.context,Time(2000)) && !state->at_hive.value;
+        // A pre-reset capture may finish processing after Escape. A missing
+        // prompt in the reset menu is not evidence of having been in a field.
+        if (!origin_known_ && state && state->at_hive.usable(view.context,Time(2000))
+            && state->at_hive.captured<=origin_before_) {
+            away_from_hive_=!state->at_hive.value; origin_known_=true;
+        }
     }
     bool ready(const View& view,const game::RespawnSource& source,Time minimum,Time transition) {
         const auto& c=view.context;
@@ -76,8 +82,9 @@ public:
         const auto& c=view.context;
         if (started_<Time{}) {
             started_=minimum_=c.now;
-            completion_.begin(view);
+            completion_.begin(c.now);
         }
+        completion_.observe_origin(view);
         if (stage_==Stage::done) return Done{"Respawn finished; confirming the hive"};
         if (stage_==Stage::locate && view.observations && view.observations->alive.has_value(c,Time(2000),minimum_)
             && !view.observations->alive.value) {
