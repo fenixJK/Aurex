@@ -73,6 +73,26 @@ inline constexpr std::array<std::uint64_t,128> claim_hive{
     0xf01ffe007800ffc0ULL,0x3e0000f007807c0ULL,0x7fc0003e000f03c0ULL,0x0ULL,
     0xfc0000003f00ULL,0x0ULL,0x1f00000000000000ULL,0x0ULL,
 };
+// Fixed words only; the preceding player name is intentionally excluded.
+inline constexpr int trade_requests_width=112,trade_requests_height=16;
+inline constexpr std::array<std::uint64_t,32> trade_requests{
+    0x1f80000000007fULL,0x0ULL,
+    0x3f80004000007fULL,0x6000000000ULL,
+    0x618000c0000018ULL,0x6000000000ULL,
+    0x38618078fc1e1c18ULL,0x78e3c1c001f0ULL,
+    0x7c6380f8fe3e0e18ULL,0x7df3e3e319f8ULL,
+    0x463f808cc6200608ULL,0xc606233198cULL,
+    0xc61f818cc67e0608ULL,0x18406633198cULL,
+    0xfe3181fcc27f0608ULL,0x7061c7f3198cULL,
+    0x3e3180fcc2630608ULL,0xc04307f3198cULL,
+    0x4621808cc6630608ULL,0x80660233198cULL,
+    0x7c6180f8e6720408ULL,0xccc763e3f1d8ULL,
+    0x38618070fc3e0608ULL,0x7cc3e1c0e1f8ULL,
+    0x0ULL,0x100000000180ULL,
+    0x0ULL,0x180ULL,
+    0x0ULL,0x180ULL,
+    0x0ULL,0x100ULL,
+};
 inline constexpr int trade_request_width=346,trade_request_height=32;
 inline constexpr std::array<std::uint64_t,192> trade_request{
     0x3fcULL,0xfffc00000ULL,0xfc00000000000000ULL,0x3fULL,0x0ULL,0x0ULL,

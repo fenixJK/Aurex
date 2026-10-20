@@ -124,7 +124,7 @@ std::optional<PromptRegion> locate_prompt(const Frame& frame,bool captions) {
             const double bar_width=((b-a)+(d-c))/2.,bar_height=bar_width/8.2;
             if (std::abs(c-frame.width/2.)>bar_height*.5 || c-b>bar_height*.75
                 || std::abs((b-a)-(d-c))>bar_width*.15) continue;
-            const double width=bar_width*1.2,height=bar_height*1.6;
+            const double width=bar_width*1.2,height=bar_height*1.8;
             const double x=frame.width/2.-width/2;
             // Either horizontal HUD border may be visible through the scene.
             for (const double top:{y+bar_height*1.08,y+bar_height*.08}) {
@@ -162,14 +162,15 @@ bool cooldown_caption(const Frame& frame,Rect region) {
     cv::Rect timer; unsigned timer_glyphs=0;
     for (const auto& r:glyphs) if (r.y+r.height>=baseline-height*.18) { timer|=r; ++timer_glyphs; }
     if (glyphs.size()<8 || timer_glyphs<3) return false;
-    // A short centered second line is the wrapped timer. Small punctuation can
-    // disappear when the game is scaled down, so use its layout in this case.
-    if (glyphs.size()-timer_glyphs>=4 && timer.width<width*.75
-        && std::abs(timer.x+timer.width/2.-ink.cols/2.)<=width*.15) return true;
+    // A short centered second line may be a wrapped timer. Small punctuation
+    // can disappear when scaled down, so also inspect the word grouping.
+    const bool wrapped=glyphs.size()-timer_glyphs>=4 && timer.width<width*.75
+        && std::abs(timer.x+timer.width/2.-ink.cols/2.)<=width*.15;
     // Inline timers instead end with a colon followed by two seconds digits. No
     // station name or timer value needs to be read.
-    const int padding=std::max(1,int(std::ceil(timer.height*.3)));
-    const auto area=(timer+cv::Size(padding*2,padding*2)-cv::Point(padding,padding)) & cv::Rect(0,0,ink.cols,ink.rows);
+    const int padding=wrapped?1:std::max(1,int(std::ceil(timer.height*.3)));
+    const auto row=wrapped?cv::Rect(timer.x-2*timer.height,timer.y,timer.width+4*timer.height,timer.height):timer;
+    const auto area=(row+cv::Size(padding*2,padding*2)-cv::Point(padding,padding)) & cv::Rect(0,0,ink.cols,ink.rows);
     cv::Mat line(area.height,area.width,CV_8UC1,cv::Scalar(0));
     // Retain faint antialiased punctuation after locating the line with its
     // bright letters; a low threshold alone merges small caption letters.
@@ -178,6 +179,9 @@ bool cooldown_caption(const Frame& frame,Rect region) {
         const int r=frame.rgba[i],g=frame.rgba[i+1],b=frame.rgba[i+2];
         if (std::min({r,g,b})>100 && std::max({r,g,b})-std::min({r,g,b})<120) line.at<unsigned char>(y,x)=255;
     }
+    // Include faint letters around the bright cores. A timer is one group;
+    // wrapped warnings such as "Trade Requests" contain separate words.
+    if (wrapped) return word_boxes(line,.3).size()==1;
     std::vector<std::vector<cv::Point>> marks;
     cv::findContours(line,marks,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
     std::vector<cv::Rect> parts;
@@ -274,7 +278,10 @@ Frame interaction_text_image(const Frame& frame,Rect region) {
         const auto from=(std::size_t(y+top)*frame.width+x+left)*4;
         const auto to=(std::size_t(y+interaction_text_padding)*crop.width+x+interaction_text_padding)*4;
         const int r=frame.rgba[from],g=frame.rgba[from+1],b=frame.rgba[from+2];
-        const auto value=std::min({r,g,b})>180 && std::max({r,g,b})-std::min({r,g,b})<50?0:255;
+        // Preserve faint antialiased edges for phrase matching, while keeping
+        // the established black/white core used by exact labels.
+        const int brightness=std::min({r,g,b}),contrast=std::max({r,g,b})-brightness;
+        const auto value=brightness>180 && contrast<50?0:brightness>150 && contrast<100?128:255;
         crop.rgba[to]=crop.rgba[to+1]=crop.rgba[to+2]=value;crop.rgba[to+3]=255;
     }
     return crop;
@@ -288,7 +295,8 @@ std::optional<TextLine> interaction_label(const Frame& image,const std::string& 
         if (!cv::countNonZero(ink.row(row))) { ++row; continue; }
         const int top=row++;
         while (row<ink.rows && cv::countNonZero(ink.row(row))) ++row;
-        if (row-top<6) continue; // Exclude a HUD border clipped into the caption crop.
+        // Exclude a HUD border clipped into the caption crop at any UI scale.
+        if (row-top<std::max(6.,image.height*.12)) continue;
         first=cv::boundingRect(ink.rowRange(top,row))+cv::Point(0,top);
         break;
     }
@@ -313,6 +321,7 @@ std::optional<TextLine> interaction_label(const Frame& image,const std::string& 
         Label{"Make Honey",reference(detail::make_honey_width,detail::make_honey_height,detail::make_honey),Match::whole},
         Label{"Claim Hive",reference(detail::claim_hive_width,detail::claim_hive_height,detail::claim_hive),Match::whole},
         Label{"Trade Request",reference(detail::trade_request_width,detail::trade_request_height,detail::trade_request),Match::first_line},
+        Label{"Trade Request",reference(detail::trade_requests_width,detail::trade_requests_height,detail::trade_requests),Match::phrase},
         Label{"Stop Making Honey",reference(detail::stop_honey_width,detail::stop_honey_height,detail::stop_honey),Match::whole},
         Label{"Collect Pollen",reference(detail::flower_fields_width,detail::flower_fields_height,detail::flower_fields),Match::phrase,.87f},
         Label{"Blue Field Booster",reference(detail::blue_booster_width,detail::blue_booster_height,detail::blue_booster),Match::words,.83f,2},
@@ -323,6 +332,7 @@ std::optional<TextLine> interaction_label(const Frame& image,const std::string& 
         Label{"Field Booster",reference(detail::field_booster_clear_width,detail::field_booster_clear_height,detail::field_booster_clear),Match::words,.81f,2},
         Label{"Harvest",reference(detail::harvest_width,detail::harvest_height,detail::harvest),Match::first_word,.87f}};
     std::optional<TextLine> result;
+    cv::Mat phrase_ink;
     for (const auto& label:labels) {
         // A requested prefix identifies an action without replacing its full caption for other readers.
         if (target.empty()?label.match==Match::first_word:target!=label.text) continue;
@@ -333,8 +343,11 @@ std::optional<TextLine> interaction_label(const Frame& image,const std::string& 
             if (words.empty()) continue;
             area=words.front()+first.tl();
         }
+        if (label.match==Match::phrase && phrase_ink.empty()) {
+            cv::extractChannel(rgba,phrase_ink,0);cv::bitwise_not(phrase_ink,phrase_ink);
+        }
         const auto score=label.match==Match::words?words_similarity(first_ink,label.pattern,label.prefix_words)
-            :label.match==Match::phrase?phrase_similarity(ink(area),label.pattern)
+            :label.match==Match::phrase?phrase_similarity(phrase_ink,label.pattern)
             :similarity(label.match==Match::first_line?first_ink:ink(area),label.pattern);
         if (score<label.minimum) continue;
         if (result) return {};
