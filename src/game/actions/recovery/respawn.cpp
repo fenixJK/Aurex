@@ -1,40 +1,44 @@
 #include "respawn.hpp"
+#include <algorithm>
 
 namespace hive::automation {
 namespace {
 class RespawnCompletion {
-    bool transitioned_{},menu_seen_{};
+    bool transitioned_{},away_from_hive_{};
+    Time last_dead_{Time(-1)};
+    void died(Time captured) {
+        transitioned_=true;
+        last_dead_=std::max(last_dead_,captured);
+    }
 public:
     explicit RespawnCompletion(bool already_died=false):transitioned_(already_died) {}
-    void observe_menu(const ObservationContext& c,const Observation<game::RespawnView>& reading) {
-        if (reading.has_value(c,Time(2000)) && (reading.value.screen==game::RespawnScreen::menu
-            || reading.value.screen==game::RespawnScreen::confirmation)) menu_seen_=true;
+    void begin(const View& view) {
+        const auto* state=view.observations;
+        away_from_hive_=state && state->at_hive.usable(view.context,Time(2000)) && !state->at_hive.value;
     }
     bool ready(const View& view,const game::RespawnSource& source,Time minimum,Time transition) {
         const auto& c=view.context;
         const auto* state=view.observations;
-        if (state && state->last_death.has_value(c,Time(25000),transition) && state->last_death.value) transitioned_=true;
+        if (state && state->last_death.has_value(c,Time(25000),transition) && state->last_death.value)
+            died(state->last_death.captured);
         const bool health=state && state->alive.has_value(c,Time(2000),minimum);
-        const bool hud=state && state->game_hud.has_value(c,Time(2000),minimum);
         const auto reading=source.read(c);
         const bool observed=reading.has_value(c,Time(2000),minimum);
-        if (observed && (reading.value.screen==game::RespawnScreen::menu || reading.value.screen==game::RespawnScreen::confirmation)) {
-            menu_seen_=true; return false;
-        }
+        if (observed && (reading.value.screen==game::RespawnScreen::menu || reading.value.screen==game::RespawnScreen::confirmation))
+            return false;
         if (state && state->connection.has_value(c,Time(2000)) && state->connection.value==game::Connection::disconnected) return false;
         if (health && !state->alive.value) {
-            transitioned_=true; return false;
+            died(state->alive.captured); return false;
         }
-        if (observed && reading.value.screen==game::RespawnScreen::respawning) {
-            transitioned_=true;
-            if (!health || state->alive.captured<=reading.captured) return false;
-        }
-        const bool game=observed && (reading.value.screen==game::RespawnScreen::game);
-        const bool returned=(hud && state->game_hud.value && health) || game;
-        // A returned game view after the reset menu, or our own hive prompt, is
-        // sufficient even when capture missed the brief empty health bar.
-        return returned && (transitioned_ || (menu_seen_ && game)
-            || (state && state->at_hive.has_value(c,Time(2000),minimum) && state->at_hive.value));
+        if (observed && reading.value.screen==game::RespawnScreen::respawning) died(reading.captured);
+        const auto after_death=std::max(minimum,last_dead_+Time(1));
+        const bool living=health && state->alive.value && state->alive.captured>last_dead_;
+        const bool hud=state && state->game_hud.has_value(c,Time(2000),after_death) && state->game_hud.value;
+        const bool game=observed && reading.captured>last_dead_ && reading.value.screen==game::RespawnScreen::game;
+        // Menu closure is not respawn. A new hive arrival can cover a missed
+        // death frame, but a prompt that was already here cannot.
+        return ((hud && living) || game) && (transitioned_
+            || (away_from_hive_ && state && state->at_hive.has_value(c,Time(2000),after_death) && state->at_hive.value));
     }
 };
 class AwaitRespawn final : public Program {
@@ -70,7 +74,10 @@ public:
     bool expects_respawn() const noexcept override { return stage_!=Stage::done; }
     Step next(const View& view) override {
         const auto& c=view.context;
-        if (started_<Time{}) started_=minimum_=c.now;
+        if (started_<Time{}) {
+            started_=minimum_=c.now;
+            completion_.begin(view);
+        }
         if (stage_==Stage::done) return Done{"Respawn finished; confirming the hive"};
         if (stage_==Stage::locate && view.observations && view.observations->alive.has_value(c,Time(2000),minimum_)
             && !view.observations->alive.value) {
@@ -83,7 +90,6 @@ public:
             stage_=Stage::done; return next(view);
         }
         const auto reading=source_->read(c);
-        completion_.observe_menu(c,reading);
         if (stage_==Stage::select) {
             stage_=Stage::confirm; issued_=true;
             return TapMenuKey{Key::respawn,"Select respawn"};
