@@ -42,7 +42,8 @@ std::vector<TextLine> fixed_ui_labels(const Frame& frame,Rect region,std::span<c
         const int r=frame.rgba[i],g=frame.rgba[i+1],b=frame.rgba[i+2];
         const auto lo=std::min({r,g,b}),hi=std::max({r,g,b});
         if (!light.empty()) light.at<unsigned char>(y,x)=lo>=160 && hi-lo<=55?255:0;
-        if (!dark.empty()) dark.at<unsigned char>(y,x)=hi<=100 && hi-lo<=55?255:0;
+        // Dark blue UI lettering has colored antialiased edges on bright buttons.
+        if (!dark.empty()) dark.at<unsigned char>(y,x)=hi<=140 && hi-lo<=80?255:0;
     }
     static const auto patterns=[] {
         std::vector<cv::Mat> result;

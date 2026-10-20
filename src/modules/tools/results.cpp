@@ -49,10 +49,13 @@ const TextLine* unique(std::span<const TextLine> lines,const std::string& name,c
     return result;
 }
 bool numeric(const std::string& text,double& value,std::string& suffix,char& unit) {
-    static const std::regex pattern(R"(^([+x]?)([0-9]+(?:\.[0-9]+)?)(%?)\s*(.+)$)");
+    static const std::regex pattern(R"(^([+x]?)\s*([0-9]+(?:\s*\.\s*[0-9]+)?)\s*(%?)\s*(.+)$)");
     std::smatch match;
-    if (!std::regex_match(text,match,pattern) || match[2].length()>8) return false;
-    value=std::stod(match[2]); suffix=match[4]; unit=match[3]=="%"?'%':match[1]=="x"?'x':'+';
+    if (!std::regex_match(text,match,pattern)) return false;
+    auto number=match[2].str();
+    std::erase_if(number,[](unsigned char ch) { return std::isspace(ch); });
+    if (number.size()>8) return false;
+    value=std::stod(number); suffix=match[4]; unit=match[3]=="%"?'%':match[1]=="x"?'x':'+';
     return std::isfinite(value);
 }
 }
@@ -115,9 +118,13 @@ Observation<Amulet> read_amulet(const ObservationContext& c,const game::State& s
     for (const auto& line:game::text_candidates(rows,1)) {
         if (!usable(line)) return result;
         auto value=words(line.text);
-        if (value.starts_with("+passive ")) value.erase(0,9);
-        else if (value.starts_with("passive ")) value.erase(0,8);
-        auto passive=std::find_if(passives().begin(),passives().end(),[&](const auto& name) { return same_label(value,words(name)); });
+        std::string_view passive_label=value;
+        if (passive_label.starts_with("+")) {
+            passive_label.remove_prefix(1);
+            while (passive_label.starts_with(" ")) passive_label.remove_prefix(1);
+        }
+        if (passive_label.starts_with("passive ")) passive_label.remove_prefix(8);
+        auto passive=std::find_if(passives().begin(),passives().end(),[&](const auto& name) { return same_label(passive_label,words(name)); });
         if (passive!=passives().end()) { if (!result.value.passives.insert(*passive).second) return result; continue; }
         double amount{}; std::string name; char unit{};
         if (!numeric(value,amount,name,unit)) return result;
@@ -144,7 +151,7 @@ Observation<Amulet> read_amulet(const ObservationContext& c,const game::State& s
     return result;
 }
 Observation<JellyResult> read_jelly(const ObservationContext& c,const game::State& state) {
-    static constexpr std::array<std::string_view,1> controls{"Use Another Royal Jelly"};
+    static constexpr std::array<std::string_view,1> controls{"Use Another"};
     const auto observed=game::with_fixed_labels(c,state.text,state.fixed_labels,controls);
     Observation<JellyResult> result{Knowledge::unknown,{},observed.captured,observed.window,observed.generation};
     if (!observed.has_value(c,Time(2000)) || observed.value.width<=0 || observed.value.height<=0
@@ -153,7 +160,7 @@ Observation<JellyResult> read_jelly(const ObservationContext& c,const game::Stat
     const TextLine* button=nullptr; const TextLine* heading=nullptr;
     for (const auto& line:text.lines) if (usable(line) && in(line.pixels,area)) {
         const auto label=words(line.text);
-        if (label=="use another royal jelly") { if (button) return result; button=&line; }
+        if (label=="use another") { if (button) return result; button=&line; }
         if (label.starts_with("transformed") || label.find(" transformed into")!=std::string::npos || label.starts_with("you hatched")) { if (heading) return result; heading=&line; }
     }
     if (!heading && !button) { result.knowledge=Knowledge::absent; return result; }
@@ -164,7 +171,8 @@ Observation<JellyResult> read_jelly(const ObservationContext& c,const game::Stat
     for (const auto& line:text.lines) if (usable(line) && in(line.pixels,card)) {
         auto label=words(line.text);
         bool gifted=label.starts_with("gifted "); if (gifted) label.erase(0,7);
-        if (label.ends_with(" bee")) label.resize(label.size()-4);
+        // The name carries the identity; OCR can turn the trailing "Bee!" into "Beel".
+        if (const auto suffix=label.find(" bee");suffix!=std::string::npos) label.resize(suffix);
         const auto name=std::find_if(bees().begin(),bees().end(),[&](const auto& bee) { return words(bee)==label; });
         if (name!=bees().end() || label=="basic") {
             if (!result.value.bee.name.empty()) return result;

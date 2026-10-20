@@ -329,7 +329,7 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
                 labels={Knowledge::present,{frame->width,frame->height,{}},frame->captured,frame->window,generation};
                 for (const auto& query:label_queries) {
                     std::vector<std::string_view> names(query.labels.begin(),query.labels.end());
-                    auto found=fixed_ui_labels(*frame,query.region,names);
+                    auto found=fixed_ui_labels(*frame,query.region,names,query.ink);
                     for (auto& line:found) if (std::none_of(labels.value.lines.begin(),labels.value.lines.end(),[&](const auto& prior) {
                         return prior.text==line.text && prior.pixels==line.pixels;
                     })) labels.value.lines.push_back(std::move(line));

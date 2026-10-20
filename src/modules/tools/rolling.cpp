@@ -103,7 +103,7 @@ public:
     }
     std::vector<Rect> text_regions() const override { return stage_==Stage::result?Rolling::text_regions():std::vector<Rect>{}; }
     std::vector<game::FixedLabelQuery> fixed_labels() const override {
-        return stage_==Stage::result?std::vector<game::FixedLabelQuery>{{{.2,.15,.6,.8},{"Use Another Royal Jelly"}}}:std::vector<game::FixedLabelQuery>{};
+        return stage_==Stage::result?std::vector<game::FixedLabelQuery>{{{.2,.15,.6,.8},{"Use Another"},game::LabelInk::dark}}:std::vector<game::FixedLabelQuery>{};
     }
     Step next(const View& view) override {
         if (!plan_.target.belongs_to(view.context.window)) return finish("Game window changed; select the bee again");
@@ -162,7 +162,7 @@ public:
     }
     std::vector<Rect> text_regions() const override { return stage_==Stage::result?Rolling::text_regions():std::vector<Rect>{}; }
     std::vector<game::FixedLabelQuery> fixed_labels() const override {
-        return stage_==Stage::result?std::vector<game::FixedLabelQuery>{{{.2,.15,.6,.8},{"Use Another Royal Jelly"}}}:std::vector<game::FixedLabelQuery>{};
+        return stage_==Stage::result?std::vector<game::FixedLabelQuery>{{{.2,.15,.6,.8},{"Use Another"},game::LabelInk::dark}}:std::vector<game::FixedLabelQuery>{};
     }
     Step next(const View& view) override {
         if (plan_.neon && !plan_.target->belongs_to(view.context.window)) return finish("Game window changed; select the bee again");
