@@ -31,10 +31,8 @@ public:
         view.available.erase("hive.camera.prepared");
         for (unsigned slot=1;slot<=6;++slot) view.available.erase("hive.slot."+std::to_string(slot));
         if (view.observations.conflicting_anchors) return view;
-        const auto setup=setup_->read();
-        if (!setup || !setup->claimed_slot || setup->context.generation!=c.generation || setup->context.window.id!=c.window.id
-            || setup->context.window.process!=c.window.process || setup->context.window.bounds!=c.window.bounds
-            || setup->context.now>c.now || !c.generation || !c.window.id || !c.window.bounds.valid()
+        const auto setup=setup_->read(c,&state);
+        if (!setup || !setup->claimed_slot
             || (state.alive.has_value(c,Time(2000)) && !state.alive.value)
             || (state.connection.has_value(c,Time(2000)) && state.connection.value==game::Connection::disconnected)) return view;
         view.available.insert("hive.slot."+std::to_string(*setup->claimed_slot));

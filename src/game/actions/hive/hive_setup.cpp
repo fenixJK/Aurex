@@ -3,6 +3,15 @@
 
 namespace hive::automation {
 std::optional<HiveSetupSnapshot> HiveSetupResult::read() const { std::lock_guard lock(mutex_); return value_; }
+std::optional<HiveSetupSnapshot> HiveSetupResult::read(const ObservationContext& c,const game::State* state) const {
+    auto value=read();
+    if (!value || !c.generation || !Observation<bool>{Knowledge::present,true,value->context.now,
+        value->context.window,value->context.generation}.has_value(c,Time::max())) return {};
+    // Respawn preserves hive ownership, but invalidates any earlier camera alignment.
+    if (state && state->last_death.has_value(c,Time::max(),value->context.now) && state->last_death.value)
+        value->camera_prepared=false;
+    return value;
+}
 void HiveSetupResult::reset() { std::lock_guard lock(mutex_); value_.reset(); joined_.reset(); }
 void HiveSetupResult::joined(const Window& window,Time now) {
     std::lock_guard lock(mutex_); value_.reset(); joined_=std::pair{window,now};

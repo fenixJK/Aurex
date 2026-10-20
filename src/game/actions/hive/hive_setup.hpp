@@ -22,6 +22,7 @@ class HiveSetupResult {
     std::optional<std::pair<Window,Time>> joined_;
 public:
     std::optional<HiveSetupSnapshot> read() const;
+    std::optional<HiveSetupSnapshot> read(const ObservationContext& context,const game::State* state) const;
     void reset();
     void joined(const Window& window,Time now);
     void clear_join();

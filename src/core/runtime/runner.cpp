@@ -274,9 +274,14 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
             interrupt(Interruption::disconnected,c,observations,"Game disconnected"); return;
         }
         if (expects_respawn() || expects_reconnect()) clock_started_=true;
-        if (observations.alive.has_value(c,Time(2000),context_.now) && observations.alive.captured>death_seen_) {
-            death_seen_=observations.alive.captured;
-            if (!observations.alive.value && !expects_respawn()) {
+        Time death{Time(-1)};
+        if (observations.last_death.has_value(c,Time::max(),context_.now) && observations.last_death.value)
+            death=observations.last_death.captured;
+        if (observations.alive.has_value(c,Time(2000),context_.now) && !observations.alive.value)
+            death=std::max(death,observations.alive.captured);
+        if (death>death_seen_) {
+            death_seen_=death;
+            if (!expects_respawn()) {
                 interrupt(Interruption::death,c,observations,"Player respawning");
                 return;
             }

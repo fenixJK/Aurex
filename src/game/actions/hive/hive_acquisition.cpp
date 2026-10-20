@@ -20,7 +20,7 @@ public:
     }
     RunConfig config() const override { return {Time(reentry_==Reentry::reconnect?360000:300000),speed_,{},true,true}; }
     std::string activity_label() const override { return reentry_==Reentry::reconnect?"Rejoining Bee Swarm":"Returning to hive"; }
-    bool expects_respawn() const noexcept override { return phase_<2; }
+    bool expects_respawn() const noexcept override { return phase_==0; }
     bool expects_reconnect() const noexcept override { return reentry_==Reentry::reconnect && !phase_; }
     ProgramFactory recovery(Interruption reason,const View&) override {
         if (reason!=Interruption::death) return {};
@@ -35,7 +35,7 @@ public:
             return RunProgram{reset_};
         }
         if (phase_==1) return RunProgram{acquire_};
-        const auto result=result_->read();
+        const auto result=result_->read(view.context,view.observations);
         if (!result || !result->claimed_slot || !result->camera_prepared
             || !Observation<bool>{Knowledge::present,true,result->context.now,result->context.window,result->context.generation}.has_value(view.context,Time(2000)))
             throw std::runtime_error("Return did not confirm a hive slot and prepared camera");
@@ -152,14 +152,9 @@ public:
         if (!started_) {
             if (options_.result) {
                 options_.confirmed_spawn=options_.result->consume_join(view.context) || options_.confirmed_spawn;
-                const auto previous=options_.result->read();
                 const auto& current=view.context;
-                if (previous && previous->claimed_slot && previous->camera_prepared
-                    && previous->context.generation==current.generation
-                    && previous->context.window.id==current.window.id
-                    && previous->context.window.process==current.window.process
-                    && previous->context.window.bounds==current.window.bounds
-                    && current.now>=previous->context.now)
+                const auto previous=options_.result->read(current,view.observations);
+                if (previous && previous->claimed_slot && previous->camera_prepared)
                     return Done{"Hive view is already prepared"};
                 options_.result->begin_preparation(current);
             }
