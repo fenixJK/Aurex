@@ -2,6 +2,7 @@
 #include "game/detection/dialog.hpp"
 #include "game/detection/menus.hpp"
 #include "game/actions/inventory/feeding.hpp"
+#include <algorithm>
 
 namespace hive::features::tools {
 namespace {
@@ -21,15 +22,15 @@ protected:
         if (!deadline_.count()) { minimum_=c.now; deadline_=c.now+Time(8000); }
         if (c.now<minimum_ || !view.observations) return false;
         const auto& state=*view.observations;
-        const auto captured=confirmation?state.confirmation.captured:state.text.captured;
-        if (!(confirmation?state.confirmation.has_value(c,Time(2000),minimum_):state.text.has_value(c,Time(2000),minimum_)) || captured<=frame_) return false;
+        const auto captured=confirmation?state.confirmation.captured:state.fixed_labels.captured;
+        if (!(confirmation?state.confirmation.has_value(c,Time(2000),minimum_):state.fixed_labels.has_value(c,Time(2000),minimum_)) || captured<=frame_) return false;
         frame_=captured; return true;
     }
     void publish() { progress_->set(report_); }
     Step finish(std::string text,bool match=false) { report_.matched=match; report_.status=std::move(text); publish(); return Done{report_.status}; }
     Step click(const View& view,Point point,std::string message,bool confirmation=false) {
         acted_=true; report_.status=message; publish();
-        const auto& text=view.observations->text;
+        const auto& text=view.observations->fixed_labels;
         return UseControl{{Knowledge::present,point,confirmation?view.observations->confirmation.captured:text.captured,view.context.window,view.context.generation},0,std::move(message),game::pointer_rest(view.context,*view.observations)};
     }
 public:
@@ -38,7 +39,7 @@ public:
         report_.status="Waiting for the open result"; publish();
     }
     RunConfig config() const override { return {std::chrono::hours(8),28,{},true,true}; }
-    std::vector<Rect> text_regions() const override { return {{.1,0,.8,.95}}; }
+    std::vector<Rect> text_regions() const override { return {}; }
     void step_completed(const View& view) override {
         if (!acted_) return;
         acted_=false; minimum_=view.context.now; frame_=minimum_; deadline_=minimum_+Time(8000);
@@ -51,18 +52,31 @@ class Ssa final : public Rolling {
     SsaPlan plan_;
     enum class Stage { current,purchase,result } stage_{Stage::current};
     bool pressed_{};
+    std::vector<Rect> number_regions_;
 public:
     Ssa(SsaPlan plan,std::shared_ptr<RollProgress> progress):Rolling(std::move(progress)),plan_(std::move(plan)) {
         validate(plan_.filter);
         if (!plan_.honey_billions || plan_.honey_billions>1000000) throw std::invalid_argument("Set a finite honey limit in billions");
     }
-    std::vector<game::FixedLabelQuery> fixed_labels() const override { return {{{.1,.1,.8,.85},{"Keep Old","Replace"}}}; }
+    std::vector<Rect> text_regions() const override { return number_regions_; }
+    std::vector<game::FixedLabelQuery> fixed_labels() const override {
+        if (stage_==Stage::purchase && pressed_) return {};
+        auto labels=amulet_labels();
+        if (stage_==Stage::current) {
+            labels.push_back({{.15,0,.7,.15},{"Generate a Supreme Star Amulet"},game::LabelInk::light});
+            labels.push_back({{.15,.15,.7,.7},{"guarantee 2 passive abilities?"},game::LabelInk::light});
+        }
+        return labels;
+    }
     Step next(const View& view) override {
         if (report_.matched) return Done{report_.status};
-        if (!fresh(view)) return waiting(view,"Reading SSA");
+        if (view.observations) number_regions_=stage_==Stage::purchase?std::vector<Rect>{}:amulet_number_regions(view.context,*view.observations);
+        if (!fresh(view,stage_==Stage::purchase && pressed_)) return waiting(view,"Reading SSA");
         const auto& c=view.context;
         const auto& state=*view.observations;
-        const auto purchase=game::read_dialog(c,state.text,{{"guarantee 2 passive abilities"},{.15,.15,.7,.7},.25f,game::PromptMatch::phrase});
+        const auto& purchase=state.confirmation;
+        const bool purchase_ready=purchase.has_value(c,Time(2000),minimum_) && (pressed_
+            || game::read_prompt_landmark(c,state.fixed_labels,{{"passive abilities"},{.15,.15,.7,.7},.8f,game::PromptMatch::phrase}).has_value(c,Time(2000),minimum_));
         const auto result=read_amulet(c,state);
         if (!purchase.has_value(c,Time(2000),minimum_) && stage_!=Stage::purchase && result.has_value(c,Time(2000),minimum_)) {
             report_.result.clear(); for (const auto& name:result.value.passives) { if (!report_.result.empty()) report_.result+=" / "; report_.result+=name; }
@@ -75,12 +89,14 @@ public:
         const unsigned cost=plan_.filter.double_passive?500:10;
         if (stage_==Stage::purchase || stage_==Stage::current) {
             if (report_.attempts>=plan_.honey_billions/cost) return finish("Honey limit reached");
-            if (purchase.has_value(c,Time(2000),minimum_)) {
+            if (purchase_ready) {
                 ++report_.attempts; stage_=Stage::result; pressed_=false;
-                return click(view,plan_.filter.double_passive?purchase.value.yes:purchase.value.no,"Roll SSA");
+                return click(view,plan_.filter.double_passive?purchase.value.yes:purchase.value.no,"Roll SSA",true);
             }
-            if (!pressed_ && (result.has_value(c,Time(2000),minimum_) || game::read_prompt_landmark(c,state.text,
-                {{"Generate a Supreme Star Amulet"},{.15,0,.7,.3},.5f,game::PromptMatch::phrase}).has_value(c,Time(2000),minimum_))) {
+            const bool result_visible=std::any_of(state.fixed_labels.value.lines.begin(),state.fixed_labels.value.lines.end(),[&](const auto& line){return line.text=="Keep Old" || line.text=="Replace"
+                || (line.text=="Supreme Star Amulet" && line.pixels.y>=state.fixed_labels.value.height*.15);});
+            if (!pressed_ && (result.has_value(c,Time(2000),minimum_) || (!result_visible && game::read_prompt_landmark(c,state.fixed_labels,
+                {{"Supreme Star Amulet"},{.15,0,.7,.15},.8f,game::PromptMatch::phrase}).has_value(c,Time(2000),minimum_)))) {
                 stage_=Stage::purchase; pressed_=true; acted_=true;
                 return Hold{{Key::interact},Time(80)};
             }
@@ -101,9 +117,9 @@ public:
         inventory_=inventory_target(plan_.inventory,plan_.target);
         jelly_=plan_.start_with_jelly;
     }
-    std::vector<Rect> text_regions() const override { return stage_==Stage::result?Rolling::text_regions():std::vector<Rect>{}; }
+    std::vector<Rect> text_regions() const override { return {}; }
     std::vector<game::FixedLabelQuery> fixed_labels() const override {
-        return stage_==Stage::result?std::vector<game::FixedLabelQuery>{{{.2,.15,.6,.8},{"Use Another"},game::LabelInk::dark}}:std::vector<game::FixedLabelQuery>{};
+        return stage_==Stage::result?bee_labels():std::vector<game::FixedLabelQuery>{};
     }
     Step next(const View& view) override {
         if (!plan_.target.belongs_to(view.context.window)) return finish("Game window changed; select the bee again");
@@ -160,9 +176,9 @@ public:
             inventory_=inventory_target(plan_.inventory,*plan_.target);
         }
     }
-    std::vector<Rect> text_regions() const override { return stage_==Stage::result?Rolling::text_regions():std::vector<Rect>{}; }
+    std::vector<Rect> text_regions() const override { return stage_==Stage::result && plan_.require_mutation?std::vector<Rect>{{.2,.15,.6,.8}}:std::vector<Rect>{}; }
     std::vector<game::FixedLabelQuery> fixed_labels() const override {
-        return stage_==Stage::result?std::vector<game::FixedLabelQuery>{{{.2,.15,.6,.8},{"Use Another"},game::LabelInk::dark}}:std::vector<game::FixedLabelQuery>{};
+        return stage_==Stage::result?bee_labels():std::vector<game::FixedLabelQuery>{};
     }
     Step next(const View& view) override {
         if (plan_.neon && !plan_.target->belongs_to(view.context.window)) return finish("Game window changed; select the bee again");

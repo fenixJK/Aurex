@@ -98,7 +98,8 @@ void Observer::request_text(std::vector<Rect> regions) {
 void Observer::request_labels(std::vector<FixedLabelQuery> queries) {
     if (queries.size()>16 || std::any_of(queries.begin(),queries.end(),[](const auto& query) {
         const auto r=query.region;
-        return !r.valid() || r.x<0 || r.y<0 || r.x+r.width>1 || r.y+r.height>1 || query.labels.empty() || query.labels.size()>16;
+        return !r.valid() || (query.anchor.empty() && (r.x<0 || r.y<0 || r.x+r.width>1 || r.y+r.height>1))
+            || query.labels.empty() || query.labels.size()>128;
     })) throw std::invalid_argument("Invalid fixed UI label request");
     {
         std::lock_guard lock(mutex_);
@@ -328,8 +329,7 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
             try {
                 labels={Knowledge::present,{frame->width,frame->height,{}},frame->captured,frame->window,generation};
                 for (const auto& query:label_queries) {
-                    std::vector<std::string_view> names(query.labels.begin(),query.labels.end());
-                    auto found=fixed_ui_labels(*frame,query.region,names,query.ink);
+                    auto found=fixed_ui_labels(*frame,query,labels.value.lines);
                     for (auto& line:found) if (std::none_of(labels.value.lines.begin(),labels.value.lines.end(),[&](const auto& prior) {
                         return prior.text==line.text && prior.pixels==line.pixels;
                     })) labels.value.lines.push_back(std::move(line));

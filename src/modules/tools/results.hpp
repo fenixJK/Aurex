@@ -1,5 +1,6 @@
 #pragma once
 #include "game/detection/state.hpp"
+#include "game/detection/visual_labels.hpp"
 #include <map>
 #include <set>
 
@@ -25,6 +26,9 @@ void validate(const BeeFilter& filter,bool allow_any=false);
 bool matches(const Amulet& result,const AmuletFilter& filter);
 bool matches(const Bee& result,const BeeFilter& filter);
 Observation<Amulet> read_amulet(const ObservationContext&,const game::State&);
+std::vector<game::FixedLabelQuery> amulet_labels();
+std::vector<Rect> amulet_number_regions(const ObservationContext&,const game::State&);
+std::vector<game::FixedLabelQuery> bee_labels();
 struct JellyResult { Bee bee; std::optional<Point> again; };
 Observation<JellyResult> read_jelly(const ObservationContext&,const game::State&);
 }

@@ -1,7 +1,6 @@
 #include "results.hpp"
 #include "game/detection/dialog.hpp"
 #include "game/detection/visual_labels.hpp"
-#include <array>
 #include "game/detection/text.hpp"
 #include <algorithm>
 #include <cctype>
@@ -27,19 +26,6 @@ bool usable(const TextLine& line,float confidence=.5f) {
 bool in(const Rect& line,const Rect& region) {
     return line.x>=region.x && line.y>=region.y && line.x+line.width<=region.x+region.width && line.y+line.height<=region.y+region.height;
 }
-bool same_label(std::string_view observed,std::string_view expected) {
-    if (observed==expected) return true;
-    if (expected.size()<6 || std::abs(int(observed.size())-int(expected.size()))>1) return false;
-    std::size_t i=0,j=0; bool changed=false;
-    while (i<observed.size() && j<expected.size()) {
-        if (observed[i]==expected[j]) { ++i; ++j; continue; }
-        if (changed) return false;
-        changed=true;
-        if (observed.size()>=expected.size()) ++i;
-        if (expected.size()>=observed.size()) ++j;
-    }
-    return !changed || (i==observed.size() && j==expected.size());
-}
 const TextLine* unique(std::span<const TextLine> lines,const std::string& name,const Rect& region) {
     const TextLine* result=nullptr;
     for (const auto& line:lines) if (usable(line,.25f) && in(line.pixels,region) && words(line.text)==name) {
@@ -48,14 +34,14 @@ const TextLine* unique(std::span<const TextLine> lines,const std::string& name,c
     }
     return result;
 }
-bool numeric(const std::string& text,double& value,std::string& suffix,char& unit) {
-    static const std::regex pattern(R"(^([+x]?)\s*([0-9]+(?:\s*\.\s*[0-9]+)?)\s*(%?)\s*(.+)$)");
+bool numeric(const std::string& text,double& value,char& unit,std::string& suffix) {
+    static const std::regex pattern(R"(^([+x]?)\s*([0-9]+(?:\s*\.\s*[0-9]+)?)\s*(%?)\s*(.*)$)");
     std::smatch match;
     if (!std::regex_match(text,match,pattern)) return false;
     auto number=match[2].str();
     std::erase_if(number,[](unsigned char ch) { return std::isspace(ch); });
     if (number.size()>8) return false;
-    value=std::stod(number); suffix=match[4]; unit=match[3]=="%"?'%':match[1]=="x"?'x':'+';
+    suffix=match[4]; value=std::stod(number); unit=match[3]=="%"?'%':match[1]=="x"?'x':'+';
     return std::isfinite(value);
 }
 }
@@ -99,24 +85,30 @@ bool matches(const Bee& r,const BeeFilter& f) {
     return f.names.contains(r.name);
 }
 Observation<Amulet> read_amulet(const ObservationContext& c,const game::State& state) {
-    static constexpr std::array<std::string_view,2> controls{"Keep Old","Replace"};
-    const auto observed=game::with_fixed_labels(c,state.text,state.fixed_labels,controls);
+    const auto& observed=state.fixed_labels;
     Observation<Amulet> result{Knowledge::unknown,{},observed.captured,observed.window,observed.generation};
     const auto buttons=game::read_dialog(c,observed,{{"Supreme Star Amulet"},{.1,.1,.8,.85},.5f,game::PromptMatch::phrase},{"Keep Old","Replace"});
-    if (!buttons.has_value(c,Time(2000))) return result;
+    if (!buttons.has_value(c,Time(2000)) || !state.text.has_value(c,Time(2000))
+        || state.text.value.width!=observed.value.width || state.text.value.height!=observed.value.height) return result;
+    result.captured=std::min(result.captured,state.text.captured);
     const auto& text=observed.value; const Rect area{text.width*.1,text.height*.1,text.width*.8,text.height*.85};
     const auto labels=game::text_candidates(text.lines,1);
-    const auto old=unique(labels,"old",area),fresh=unique(labels,"new",area);
-    if (!old || !fresh || old->pixels.x+old->pixels.width>=fresh->pixels.x || std::abs(old->pixels.y-fresh->pixels.y)>fresh->pixels.height) return result;
     const auto divider=(buttons.value.yes.x+buttons.value.no.x)*text.width/2;
-    if (fresh->pixels.x<divider || old->pixels.x>divider) return result;
     const double bottom=buttons.value.no.y*text.height;
-    Rect stats{divider,fresh->pixels.y+fresh->pixels.height,(buttons.value.no.x-buttons.value.yes.x)*text.width,bottom-fresh->pixels.y-fresh->pixels.height};
+    // The generator caption can remain above the result. Associate the title
+    // nearest the result controls rather than requiring it to be unique on screen.
+    const TextLine* title=nullptr;
+    for (const auto& line:labels) if (usable(line) && in(line.pixels,area)
+        && words(line.text)=="supreme star amulet" && line.pixels.y+line.pixels.height<bottom
+        && (!title || line.pixels.y>title->pixels.y)) title=&line;
+    if (!title) return result;
+    const double top=title->pixels.y+title->pixels.height*2;
+    Rect stats{divider,top,(buttons.value.no.x-buttons.value.yes.x)*text.width,bottom-top};
     std::vector<TextLine> rows;
     for (const auto& line:text.lines) if (in(line.pixels,stats)) rows.push_back(line);
     bool capacity=false;
     for (const auto& line:game::text_candidates(rows,1)) {
-        if (!usable(line)) return result;
+        if (!line.text.empty() && !usable(line)) return result;
         auto value=words(line.text);
         std::string_view passive_label=value;
         if (passive_label.starts_with("+")) {
@@ -124,24 +116,35 @@ Observation<Amulet> read_amulet(const ObservationContext& c,const game::State& s
             while (passive_label.starts_with(" ")) passive_label.remove_prefix(1);
         }
         if (passive_label.starts_with("passive ")) passive_label.remove_prefix(8);
-        auto passive=std::find_if(passives().begin(),passives().end(),[&](const auto& name) { return same_label(passive_label,words(name)); });
+        auto passive=std::find_if(passives().begin(),passives().end(),[&](const auto& name) { return passive_label==words(name); });
         if (passive!=passives().end()) { if (!result.value.passives.insert(*passive).second) return result; continue; }
-        double amount{}; std::string name; char unit{};
-        if (!numeric(value,amount,name,unit)) return result;
+        double amount{}; char unit{}; bool read=false;
+        // Visual labels identify the row. Its existing OCR crop supplies the value,
+        // and can identify a tiny label that image matching could not resolve.
+        for (const auto& candidate:state.text.value.lines) {
+            const auto a=line.pixels,b=candidate.pixels;
+            if (!usable(candidate) || b.x<a.x-a.height || b.x>a.x+a.height
+                || std::abs(b.y+b.height/2-a.y-a.height/2)>std::max(a.height,b.height)*.5) continue;
+            double next{}; char next_unit{}; std::string suffix;
+            if (!numeric(words(candidate.text),next,next_unit,suffix)) continue;
+            if (line.text.empty() && read && value!=suffix) return result;
+            if (value.empty()) value=std::move(suffix);
+            if (read && (next!=amount || next_unit!=unit)) return result;
+            amount=next;unit=next_unit;read=true;
+        }
+        if (!read) return result;
+        const auto& name=value;
         if (name=="capacity") { if (capacity || unit!='x' || std::abs(amount-2.5)>.001) return result; capacity=true; continue; }
-        const auto stat=std::find_if(amulet_stats().begin(),amulet_stats().end(),[&](const auto& s) { return same_label(name,words(s.name)); });
+        const auto stat=std::find_if(amulet_stats().begin(),amulet_stats().end(),[&](const auto& s) { return name==words(s.name); });
         if (stat==amulet_stats().end() || unit!=(stat->multiplier?'x':'%') || amount<stat->minimum || amount>stat->maximum
             || !result.value.stats.emplace(stat->name,amount).second) return result;
     }
     if (capacity && result.value.stats.size()==5 && !result.value.passives.empty() && result.value.passives.size()<=2) {
         result.knowledge=Knowledge::present;
-        const auto title=unique(labels,"supreme star amulet",area),button=unique(labels,"keep old",area);
-        if (title && button) {
+        const auto button=unique(labels,"keep old",area);
+        if (button) {
             const double half=(buttons.value.no.x-buttons.value.yes.x)*text.width;
             double top=title->pixels.y-half*.8;
-            for (const auto& line:text.lines) if (usable(line,.25f) && words(line.text).starts_with("you created a")
-                && line.pixels.x>=divider-half && line.pixels.x+line.pixels.width<=divider+half && line.pixels.y<title->pixels.y)
-                top=line.pixels.y-line.pixels.height*.25;
             const double left=std::max(0.,divider-half),right=std::min(double(text.width),divider+half);
             top=std::max(0.,top);
             const double bottom=std::min(double(text.height),button->pixels.y+button->pixels.height*1.25);
@@ -151,27 +154,20 @@ Observation<Amulet> read_amulet(const ObservationContext& c,const game::State& s
     return result;
 }
 Observation<JellyResult> read_jelly(const ObservationContext& c,const game::State& state) {
-    static constexpr std::array<std::string_view,1> controls{"Use Another"};
-    const auto observed=game::with_fixed_labels(c,state.text,state.fixed_labels,controls);
+    const auto& observed=state.fixed_labels;
     Observation<JellyResult> result{Knowledge::unknown,{},observed.captured,observed.window,observed.generation};
     if (!observed.has_value(c,Time(2000)) || observed.value.width<=0 || observed.value.height<=0
-        || observed.value.lines.empty() || observed.value.lines.size()>4096) return result;
+        || observed.value.lines.size()>4096) return result;
     const auto& text=observed.value; const Rect area{text.width*.2,text.height*.15,text.width*.6,text.height*.8};
-    const TextLine* button=nullptr; const TextLine* heading=nullptr;
-    for (const auto& line:text.lines) if (usable(line) && in(line.pixels,area)) {
-        const auto label=words(line.text);
-        if (label=="use another") { if (button) return result; button=&line; }
-        if (label.starts_with("transformed") || label.find(" transformed into")!=std::string::npos || label.starts_with("you hatched")) { if (heading) return result; heading=&line; }
-    }
-    if (!heading && !button) { result.knowledge=Knowledge::absent; return result; }
-    if (!heading || (button && button->pixels.y<=heading->pixels.y)) return result;
-    const auto x=button?button->pixels.x+button->pixels.width/2:heading->pixels.x+heading->pixels.width/2;
-    const auto bottom=button?button->pixels.y:area.y+area.height;
-    const Rect card{std::max(area.x,x-text.width*.23),heading->pixels.y,text.width*.46,bottom-heading->pixels.y};
+    const auto* button=unique(text.lines,"use another",area);
+    if (!button) { result.knowledge=Knowledge::absent; return result; }
+    const auto x=button->pixels.x+button->pixels.width/2;
+    const auto bottom=button->pixels.y;
+    const auto top=std::max(area.y,bottom-button->pixels.width*3);
+    const Rect card{std::max(area.x,x-text.width*.23),top,text.width*.46,bottom-top};
     for (const auto& line:text.lines) if (usable(line) && in(line.pixels,card)) {
         auto label=words(line.text);
         bool gifted=label.starts_with("gifted "); if (gifted) label.erase(0,7);
-        // The name carries the identity; OCR can turn the trailing "Bee!" into "Beel".
         if (const auto suffix=label.find(" bee");suffix!=std::string::npos) label.resize(suffix);
         const auto name=std::find_if(bees().begin(),bees().end(),[&](const auto& bee) { return words(bee)==label; });
         if (name!=bees().end() || label=="basic") {
@@ -179,10 +175,39 @@ Observation<JellyResult> read_jelly(const ObservationContext& c,const game::Stat
             result.value.bee.name=name==bees().end()?"Basic":*name; result.value.bee.gifted=gifted;
             result.value.bee.mythic=name!=bees().end() && name>=bees().end()-6;
         }
-
     }
     if (result.value.bee.name.empty()) return result;
-    if (button) result.value.again=Point{x/text.width,(button->pixels.y+button->pixels.height/2)/text.height};
+    result.value.again=Point{x/text.width,(button->pixels.y+button->pixels.height/2)/text.height};
     result.knowledge=Knowledge::present; return result;
+}
+std::vector<Rect> amulet_number_regions(const ObservationContext& c,const game::State& state) {
+    const auto& labels=state.fixed_labels;
+    if (!labels.has_value(c,Time(2000))) return {};
+    std::optional<Rect> bounds;
+    for (const auto& line:labels.value.lines) {
+        if (!line.text.empty() && line.text!="Capacity" && std::none_of(amulet_stats().begin(),amulet_stats().end(),[&](const auto& stat){return stat.name==line.text;})) continue;
+        const auto b=line.pixels;
+        if (!bounds) bounds=b;
+        else {const auto a=*bounds;bounds=Rect{std::min(a.x,b.x),std::min(a.y,b.y),std::max(a.x+a.width,b.x+b.width)-std::min(a.x,b.x),std::max(a.y+a.height,b.y+b.height)-std::min(a.y,b.y)};}
+    }
+    if (!bounds) return {};
+    const auto b=*bounds;const double pad=std::max(4.,b.width*.025);
+    const double left=std::max(0.,b.x-pad),top=std::max(0.,b.y-pad);
+    const double right=std::min(double(labels.value.width),b.x+b.width+pad),bottom=std::min(double(labels.value.height),b.y+b.height+pad);
+    return {{left/labels.value.width,top/labels.value.height,(right-left)/labels.value.width,(bottom-top)/labels.value.height}};
+}
+std::vector<game::FixedLabelQuery> amulet_labels() {
+    game::FixedLabelQuery query{{-.3,-1.3,1.5,1.3},{"Capacity"},game::LabelInk::dark,"Replace",true};
+    for (const auto& stat:amulet_stats()) query.labels.push_back(stat.name);
+    for (const auto& passive:passives()) query.labels.push_back("+Passive: "+passive);
+    return {{{.1,.1,.8,.85},{"Keep Old","Replace"},game::LabelInk::light},
+        {{.1,.1,.8,.85},{"Supreme Star Amulet"},game::LabelInk::dark},std::move(query)};
+}
+std::vector<game::FixedLabelQuery> bee_labels() {
+    game::FixedLabelQuery query{{-.75,-2.59,2.1,.32},{"Basic Bee!","Gifted Basic Bee!"},game::LabelInk::light,"Use Another",true};
+    for (const auto& bee:bees()) {
+        query.labels.push_back(bee+" Bee!");query.labels.push_back("Gifted "+bee+" Bee!");
+    }
+    return {{{.2,.15,.6,.8},{"Use Another"},game::LabelInk::dark},std::move(query)};
 }
 }

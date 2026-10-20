@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <cmath>
+#include <opencv2/imgproc.hpp>
 
 namespace hive::game {
 std::vector<Rect> exclude_text_region(std::vector<Rect> regions,Rect excluded) {
@@ -92,13 +94,32 @@ std::vector<TextLine> RecognitionCache::read(Desktop& desktop,const Frame& frame
             else for (int y=0;y<int(r.height);++y) std::memcpy(crop.rgba.data()+(std::size_t(y+int(box.y))*crop.width+int(box.x))*4,
                 entry.pixels.data()+std::size_t(y)*std::size_t(r.width)*4,std::size_t(r.width)*4);
         }
-        auto lines=desktop.recognize(crop,cancelled);
+        // Compact text crops are enlarged together. This keeps native
+        // engines from receiving unreadably tiny text and preserves one OCR call.
+        double scale=1;
+        if (crop.width<=320 && crop.height<=320)
+            scale=std::clamp(std::floor(640./std::max(crop.width,crop.height)),1.,4.);
+        Frame enlarged;
+        if (scale>1) {
+            enlarged={crop.window,crop.captured,int(crop.width*scale),int(crop.height*scale),{}};
+            enlarged.rgba.resize(std::size_t(enlarged.width)*enlarged.height*4);
+            cv::Mat source(crop.height,crop.width,CV_8UC4,crop.rgba.data());
+            cv::Mat dest(enlarged.height,enlarged.width,CV_8UC4,enlarged.rgba.data());
+            cv::resize(source,dest,dest.size(),0,0,cv::INTER_CUBIC);
+        }
+        auto lines=desktop.recognize(scale>1?enlarged:crop,cancelled);
+        if (scale>1) for (auto& line:lines) {
+            line.pixels.x/=scale;line.pixels.y/=scale;line.pixels.width/=scale;line.pixels.height/=scale;
+        }
         if (single) next[changed.front()].pixels=std::move(crop.rgba);
         check();
         if (lines.size()>4096) throw std::runtime_error("OCR exceeded text limits");
         for (const auto& line:lines) for (std::size_t j=0;j<changed.size();++j) {
             const auto& b=line.pixels;const auto& box=placements[j];auto& entry=next[changed[j]];
-            if (b.x<box.x || b.y<box.y || b.x+b.width>box.x+box.width || b.y+b.height>box.y+box.height) continue;
+            // Native OCR can return -0.000001 at a crop edge after coordinate conversion.
+            constexpr double rounding=1e-4;
+            if (b.x+rounding<box.x || b.y+rounding<box.y
+                || b.x+b.width>box.x+box.width+rounding || b.y+b.height>box.y+box.height+rounding) continue;
             auto mapped=line;mapped.pixels.x+=entry.area.x-box.x;mapped.pixels.y+=entry.area.y-box.y;
             entry.lines.push_back(std::move(mapped));
         }
