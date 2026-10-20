@@ -184,14 +184,17 @@ std::vector<Rect> amulet_number_regions(const ObservationContext& c,const game::
     const auto& labels=state.fixed_labels;
     if (!labels.has_value(c,Time(2000))) return {};
     std::optional<Rect> bounds;
+    double pad=4;
     for (const auto& line:labels.value.lines) {
         if (!line.text.empty() && line.text!="Capacity" && std::none_of(amulet_stats().begin(),amulet_stats().end(),[&](const auto& stat){return stat.name==line.text;})) continue;
         const auto b=line.pixels;
+        // Include antialiased glyph edges beyond the darker visual mask.
+        pad=std::max(pad,b.height*.5);
         if (!bounds) bounds=b;
         else {const auto a=*bounds;bounds=Rect{std::min(a.x,b.x),std::min(a.y,b.y),std::max(a.x+a.width,b.x+b.width)-std::min(a.x,b.x),std::max(a.y+a.height,b.y+b.height)-std::min(a.y,b.y)};}
     }
     if (!bounds) return {};
-    const auto b=*bounds;const double pad=std::max(4.,b.width*.025);
+    const auto b=*bounds;
     const double left=std::max(0.,b.x-pad),top=std::max(0.,b.y-pad);
     const double right=std::min(double(labels.value.width),b.x+b.width+pad),bottom=std::min(double(labels.value.height),b.y+b.height+pad);
     return {{left/labels.value.width,top/labels.value.height,(right-left)/labels.value.width,(bottom-top)/labels.value.height}};
