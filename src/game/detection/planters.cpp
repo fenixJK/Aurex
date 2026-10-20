@@ -87,6 +87,43 @@ bool valid(const VisiblePlanter& p) {
         && std::isfinite(p.percent) && p.percent>=0 && p.percent<=100
         && std::isfinite(p.minimum_percent) && p.minimum_percent>=0 && p.minimum_percent<=p.percent && p.bar.valid();
 }
+bool labelled_growth_bar(const Frame& frame,const Rect& bar) {
+    const int left=int(bar.x),top=int(bar.y),right=int(bar.x+bar.width),bottom=int(bar.y+bar.height);
+    int first_x=right,last_x=left,first_y=bottom,last_y=top,white=0;
+    for (int y=top;y<bottom;++y) for (int x=left;x<right;++x) {
+        const auto* p=frame.rgba.data()+(std::size_t(y)*frame.width+x)*4;
+        if (p[3]<250 || std::min({p[0],p[1],p[2]})<190
+            || std::max({p[0],p[1],p[2]})-std::min({p[0],p[1],p[2]})>35) continue;
+        ++white; first_x=std::min(first_x,x); last_x=std::max(last_x,x);
+        first_y=std::min(first_y,y); last_y=std::max(last_y,y);
+    }
+    // The empty part of a new planter bar is still green. Its white label,
+    // enclosed by that bar, separates it from grass, walls and unlabelled health bars.
+    return white>=bar.width*bar.height*.025 && white<=bar.width*bar.height*.4
+        && last_x-first_x>=bar.width*.35 && last_y-first_y>=bar.height*.25
+        && first_x>left && last_x<right-1 && first_y>top && last_y<bottom-1;
+}
+class PlanterPresenceDetector final : public Detector {
+public:
+    std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
+        const auto& frame=input.frame;
+        if (!frame.valid() || !input.generation || (input.cancelled && input.cancelled())) return {};
+        auto result=std::make_shared<Landmarks>();
+        auto& visible=result->readings["planter.present"];
+        visible={Knowledge::unknown,false,frame.captured,frame.window,input.generation};
+        bool present=false;
+        for (const auto& bar:detail::bar_regions(frame,color)) {
+            if (input.cancelled && input.cancelled()) return {};
+            if (labelled_growth_bar(frame,bar)) { present=true; break; }
+        }
+        if (!present) if (const auto region=interaction_prompt_region(frame))
+            present=interaction_label(interaction_text_image(frame,*region),"Harvest").has_value();
+        if (!present && !game_hud_visible(input.hud?*input.hud:inspect_hud(frame,input.generation))) return result;
+        visible.knowledge=present?Knowledge::present:Knowledge::absent;
+        visible.value=present;
+        return result;
+    }
+};
 Observation<std::string> read_interaction(const DetectionInput& input,const Observation<std::vector<VisiblePlanter>>& visible);
 class PlanterDetector final : public Detector {
 public:
@@ -288,6 +325,7 @@ Observation<std::vector<PlanterReward>> read_planter_rewards(const DetectionInpu
     return result;
 }
 std::shared_ptr<const Detector> planter_detector() { return std::make_shared<PlanterDetector>(); }
+std::shared_ptr<const Detector> planter_presence_detector() { return std::make_shared<PlanterPresenceDetector>(); }
 std::shared_ptr<const PlanterSource> planter_source(std::shared_ptr<const DetectionSource> source) {
     if (!source) throw std::invalid_argument("Planter observations need a detection source");
     return std::make_shared<ObservedPlanters>(std::move(source));

@@ -7,17 +7,17 @@ class ObservedSource final : public Source {
     std::shared_ptr<const game::NectarSource> nectar_;
     std::shared_ptr<const Source> field_;
     std::shared_ptr<const game::PlanterSource> planters_;
-    std::shared_ptr<const game::LandmarkSource> placement_prompt_;
+    std::shared_ptr<const game::LandmarkSource> placement_visible_;
 public:
     ObservedSource(std::shared_ptr<const game::NectarSource> nectar,std::shared_ptr<const Source> field,std::shared_ptr<const game::PlanterSource> planters,
-        std::shared_ptr<const game::LandmarkSource> placement_prompt)
-        :nectar_(std::move(nectar)),field_(std::move(field)),planters_(std::move(planters)),placement_prompt_(std::move(placement_prompt)) {
+        std::shared_ptr<const game::LandmarkSource> placement_visible)
+        :nectar_(std::move(nectar)),field_(std::move(field)),planters_(std::move(planters)),placement_visible_(std::move(placement_visible)) {
         if (!nectar_ || !field_) throw std::invalid_argument("Planters needs nectar and field observations");
     }
     Snapshot read(const automation::View& view) const override { return sample(view,field_->read(view),false); }
     Snapshot read_at(const automation::View& view,const std::string& field) const override { return sample(view,field_->read_at(view,field),true); }
-    Observation<bool> placement_prompt(const automation::View& view) const override {
-        return placement_prompt_?placement_prompt_->read(view.context):Observation<bool>{};
+    Observation<bool> placement_visible(const automation::View& view) const override {
+        return placement_visible_?placement_visible_->read(view.context):Observation<bool>{};
     }
     Snapshot sample(const automation::View& view,Snapshot snapshot,bool at_field) const {
         if (planters_ && at_field) {
@@ -112,13 +112,13 @@ Observation<HarvestEvidence> reward_receipt(const Stats& planter,const Observati
     return {};
 }
 std::shared_ptr<const Source> interaction_source(std::shared_ptr<const game::NectarSource> nectar,std::shared_ptr<const game::PlanterSource> planters,
-    std::shared_ptr<const game::LandmarkSource> placement_prompt) {
-    if (!placement_prompt) throw std::invalid_argument("Planter placement needs visual prompt observations");
+    std::shared_ptr<const game::LandmarkSource> placement_visible) {
+    if (!placement_visible) throw std::invalid_argument("Planter placement needs visual presence observations");
     auto field=std::make_shared<InteractionSource>(planters);
-    return observed_source(std::move(nectar),std::move(field),std::move(planters),std::move(placement_prompt));
+    return observed_source(std::move(nectar),std::move(field),std::move(planters),std::move(placement_visible));
 }
 std::shared_ptr<const Source> observed_source(std::shared_ptr<const game::NectarSource> nectar,std::shared_ptr<const Source> field,
-    std::shared_ptr<const game::PlanterSource> planters,std::shared_ptr<const game::LandmarkSource> placement_prompt) {
-    return std::make_shared<ObservedSource>(std::move(nectar),std::move(field),std::move(planters),std::move(placement_prompt));
+    std::shared_ptr<const game::PlanterSource> planters,std::shared_ptr<const game::LandmarkSource> placement_visible) {
+    return std::make_shared<ObservedSource>(std::move(nectar),std::move(field),std::move(planters),std::move(placement_visible));
 }
 }

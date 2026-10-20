@@ -352,7 +352,12 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
         if (step_ && std::holds_alternative<Walk>(*step_)) speed_->observe(c,observations.movement_speed);
         if (!pending_.empty()) for (const auto& result : tasks_.results(scope_)) if (result.id==pending_) {
             pending_.clear();
-            if (result.outcome!=TaskOutcome::executed) { finish(State::failed,"Movement interrupted; reposition before restarting"+(result.reason.empty()?std::string{}:": "+result.reason)); return; }
+            if (result.outcome!=TaskOutcome::executed) {
+                if (result.outcome==TaskOutcome::expired)
+                    interrupt(Interruption::lost_route,c,observations,"Input timed out before the action finished");
+                else finish(State::failed,"Input interrupted"+(result.reason.empty()?std::string{}:": "+result.reason));
+                return;
+            }
             const bool walking=step_ && std::holds_alternative<Walk>(*step_);
             if (!walking) hold_left_-=result.execution_time;
             if (walking || hold_left_<=Time::zero()) {

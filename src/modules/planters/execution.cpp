@@ -595,9 +595,9 @@ public:
         if (phase_==Phase::baseline || phase_==Phase::reconciling) {
             if ((reconcile_ || !harvest_) && view.context.now>=deadline_) return defer_result(view);
             if (phase_==Phase::baseline && !harvest_) {
-                const auto prompt=source_->placement_prompt(view);
+                const auto prompt=source_->placement_visible(view);
                 if (!prompt.usable(view.context,Time(2000),minimum_)) return wait("Reading placement location");
-                // Existing Harvest prompts must never confirm a new placement.
+                // A planter already visible before the drag cannot confirm a new placement.
                 if (prompt.value) return defer_result(view,"A planter is already here; update Timers before placing another");
             }
             if (!scan(view,snapshot)) {
@@ -652,7 +652,7 @@ public:
         if (phase_==Phase::confirming) {
             auto evidence=harvest_ && scan(view,snapshot)?snapshot.placements:Observation<Placements>{};
             if (!harvest_) {
-                const auto prompt=source_->placement_prompt(view);
+                const auto prompt=source_->placement_visible(view);
                 if (prompt.usable(view.context,Time(2000),minimum_)) {
                     Placements local{{},true,selected_.field};
                     if (prompt.value) local.identities.insert(identity(selected_));

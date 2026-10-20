@@ -32,5 +32,6 @@ Observation<std::vector<PlanterReward>> read_planter_rewards(const DetectionInpu
 std::shared_ptr<const LandmarkSource> planter_proximity(std::shared_ptr<const PlanterSource> source,std::string type);
 Observation<std::vector<VisiblePlanter>> read_planters(const DetectionInput& input);
 std::shared_ptr<const Detector> planter_detector();
+std::shared_ptr<const Detector> planter_presence_detector();
 std::shared_ptr<const PlanterSource> planter_source(std::shared_ptr<const DetectionSource> source);
 }

@@ -24,6 +24,7 @@ public:
     bool expects_reconnect() const noexcept override { return reentry_==Reentry::reconnect && !phase_; }
     ProgramFactory recovery(Interruption reason,const View&) override {
         if (reason!=Interruption::death) return {};
+        result_->invalidate_camera();
         phase_=1;
         return [source=respawn_] { return wait_for_respawn(source); };
     }

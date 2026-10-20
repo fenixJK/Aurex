@@ -453,7 +453,7 @@ public:
         native_modules_.planters.detection=hive::game::planter_source(channels.at("planters"));
         native_modules_.planters.observations=hive::features::planters::interaction_source(
             hive::game::nectar_source(channels.at("nectar")),native_modules_.planters.detection,
-            hive::game::landmark_source(channels.at("planter-harvest"),"interaction.prompt"));
+            hive::game::landmark_source(channels.at("planter-presence"),"planter.present"));
         const auto sprinkler_references=channels.at("sprinkler-reference");
         const auto spawn_view=hive::game::landmark_source(channels.at("spawn-view"),"spawn.reference");
         const auto hive_slots=hive::game::hive_slots_source(channels.at("hive-slots"));
