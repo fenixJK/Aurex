@@ -85,15 +85,17 @@ class AcquireHive final : public Program {
         }
         if (!child_running_) child_running_=view.context.now;
         if (local.elapsed>=child_->config().duration) {
-            if (stage_==Stage::prepare) return recover(view);
+            if (stage_==Stage::prepare) return Defer{"Hive camera alignment timed out; departure skipped"};
             if (stage_==Stage::recover) throw ClientRejoinRequired("Hive reset timed out; rejoining Bee Swarm");
             throw ObservationUnavailable("Hive setup phase timed out");
         }
         Step step;
         try { step=child_->next(local); }
-        catch (const HiveAlignmentError&) {
+        catch (const HiveAlignmentError& error) {
             if (stage_!=Stage::prepare) throw;
-            return recover(view);
+            // Preparation starts only after ownership is confirmed. A camera
+            // failure is not evidence that the server or hive was lost.
+            return Defer{std::string(error.what())+"; departure skipped"};
         }
         if (std::holds_alternative<Done>(step)) {
             child_->finished(State::completed); child_.reset(); child_guard_.reset();

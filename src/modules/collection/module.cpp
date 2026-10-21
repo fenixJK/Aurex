@@ -221,12 +221,12 @@ extensions::Factory module_factory(Plan plan,automation::NavigationServices navi
         std::map<std::string,std::string> targets;
         for (const auto& station:plan.stations) if (!station.action) targets.emplace(station.id,station.interaction.name);
         demand=[requests=std::move(requests),targets=std::move(targets)](const ObservationContext& context) {
-            std::set<std::string> selected;
+            features::visits::RequestedVisits selected;
             const auto inbox=requests->channels(context.now,context.generation);
             if (const auto channel=inbox.find("stations"); channel!=inbox.end()) for (const auto& request:channel->second) {
                 if (request.generation!=context.generation || request.expires<=context.now) continue;
                 const auto& name=std::get<std::string>(request.data.at("station"));
-                for (const auto& [id,station]:targets) if (station==name) selected.insert(id);
+                for (const auto& [id,station]:targets) if (station==name) selected[id].insert(request.owner);
             }
             return selected;
         };

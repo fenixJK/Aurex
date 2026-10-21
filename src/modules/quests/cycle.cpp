@@ -154,6 +154,12 @@ public:
                     return next(view);
                 }
             }
+            for (const auto& giver:plan_.givers) {
+                giver_=giver;
+                const auto current=card(view);
+                if (!current || !current->complete_view || std::any_of(current->objectives.begin(),current->objectives.end(),[](const auto& row) { return !row.known; }))
+                    return Defer{"Could not read all objectives for "+giver+"; retry after other work"};
+            }
             return Done{"Quest objectives refreshed"};
         }
         if (stage_==Stage::prepare) { stage_=Stage::travel; return RunProgram{plan_.prepare}; }

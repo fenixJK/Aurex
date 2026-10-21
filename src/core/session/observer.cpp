@@ -286,6 +286,10 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
                     lines.insert(lines.end(),isolated.begin(),isolated.end());
                 } else prompt_recognition.clear();
                 if (requested) result.state=read_game_text(*frame,lines,generation);
+                // A visible game with no interaction banner is known to be
+                // away from the hive prompt, even when there is no OCR text.
+                if (hive_requested && !prompt && features && game_hud_visible(*features))
+                    result.state.at_hive={Knowledge::absent,false,frame->captured,frame->window,generation};
                 if (hive_requested) result.state.interaction_prompt={Knowledge::present,prompt.has_value(),frame->captured,frame->window,generation};
             } catch (const std::exception& e) { result.error=e.what(); readable=false; }
             catch (...) { result.error="Could not read game window"; readable=false; }

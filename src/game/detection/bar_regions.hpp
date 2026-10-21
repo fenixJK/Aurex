@@ -6,7 +6,7 @@
 
 namespace hive::game::detail {
 // Locate the colored geometry before reading the label associated with it.
-template<class Color> std::vector<Rect> bar_regions(const Frame& frame,Color color) {
+template<class Color> std::vector<Rect> bar_regions(const Frame& frame,Color color,bool labelled=false) {
     if (!frame.valid()) return {};
     cv::Mat mask(frame.height,frame.width,CV_8UC1,cv::Scalar(0));
     const auto end=std::size_t(frame.width)*frame.height;
@@ -15,13 +15,18 @@ template<class Color> std::vector<Rect> bar_regions(const Frame& frame,Color col
     // Contiguous RGBA reads let the compiler vectorize the color classification.
     for (auto i=std::size_t(frame.height/10)*frame.width;i<end;++i)
         output[i]=color(pixels+i*4)?255:0;
+    if (labelled) {
+        // Keep horizontal label bars separate from thin foliage and particles.
+        cv::morphologyEx(mask,mask,cv::MORPH_OPEN,
+            cv::getStructuringElement(cv::MORPH_RECT,{std::max(3,frame.width/256),1}));
+    }
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(mask,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
     std::vector<Rect> result;
     for (const auto& contour:contours) {
         const auto b=cv::boundingRect(contour);
         if (b.width<frame.width*.015 || b.width>frame.width*.6 || b.height<2 || b.height>frame.height*.08
-            || b.width<b.height*4 || b.width>b.height*65 || cv::contourArea(contour)<b.area()*.65) continue;
+            || b.width<b.height*4 || b.width>b.height*65 || cv::contourArea(contour)<b.area()*(labelled?.25:.65)) continue;
         result.push_back({double(b.x),double(b.y),double(b.width),double(b.height)});
     }
     return result;

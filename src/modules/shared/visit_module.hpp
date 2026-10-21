@@ -10,7 +10,8 @@ namespace hive::features::visits {
 automation::ProgramFactory station_request(automation::VisitPlan plan,const std::string& id,
     std::shared_ptr<const game::RouteNetwork> network,std::shared_ptr<const automation::AvailabilitySource> availability,
     std::shared_ptr<Cooldowns> saved={});
-using Demand=std::function<std::set<std::string>(const ObservationContext&)>;
+using RequestedVisits=std::map<std::string,std::set<std::string>>;
+using Demand=std::function<RequestedVisits(const ObservationContext&)>;
 std::string selection_key(std::string_view identity);
 class AvailableSettings {
     std::set<std::string> unavailable_;

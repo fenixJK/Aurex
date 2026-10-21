@@ -159,7 +159,7 @@ class VisitModule final : public extensions::Module {
         if (report.generation!=generation_ || report.window.id!=window_.id || report.window.process!=window_.process) {
             ready_.clear(); retry_after_.clear(); generation_=report.generation; window_=report.window;
         }
-        const auto requested=now>=Time{} && demand_?demand_({report.window,report.generation,now}):std::set<std::string>{};
+        const auto requested=now>=Time{} && demand_?demand_({report.window,report.generation,now}):RequestedVisits{};
         for (const auto& visit:report.visits) {
             if (visit.observed_ready_at) ready_[visit.id]=*visit.observed_ready_at;
             else if (visit.confirmed_at && visit.estimated_ready_at) ready_[visit.id]=*visit.estimated_ready_at;
@@ -284,7 +284,7 @@ public:
         if (!started_) return {};
         remember_run(view.now);
         if (generation_ && generation_!=view.generation) { ready_.clear(); retry_after_.clear(); }
-        const auto requested=demand_?demand_({{},view.generation,view.now}):std::set<std::string>{};
+        const auto requested=demand_?demand_({{},view.generation,view.now}):RequestedVisits{};
         std::optional<extensions::WorkEstimate> next;
         for (const auto& visit:plan_.visits) {
             if (demand_ && !selected_.contains(visit.id) && !requested.contains(visit.id)) continue;
@@ -300,8 +300,10 @@ public:
             if (!visit.group.empty()) for (const auto& member:plan_.visits)
                 if (member.id!=visit.id && member.group==visit.group) duration+=std::get<automation::Pattern>(member.action).duration;
             extensions::WorkEstimate work{visit.id,visit.destination,duration,ready,{}};
+            if (const auto request=requested.find(visit.id);request!=requested.end()) work.requested_by=request->second;
             if (visit.scheduled) work.finish_by=ready+duration;
-            if (!next || std::tie(work.ready,work.duration,work.label)<std::tie(next->ready,next->duration,next->label)) next=std::move(work);
+            const auto order=[](const auto& work) { return std::tuple(work.ready,work.requested_by.empty(),work.duration,work.label); };
+            if (!next || order(work)<order(*next)) next=std::move(work);
         }
         planned_visit_=next?next->label:std::string{};
         return next;

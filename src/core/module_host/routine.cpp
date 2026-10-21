@@ -27,15 +27,27 @@ Routine::Readiness Routine::readiness(Host& host,const SessionView& view,const W
     if (!found->second.executable()) return {};
     return {pending,p.fallback || (p.demand_only?pending:(due_[index]<=view.now || (p.reactive && pending)))};
 }
+RoutineParticipation Routine::participation(const WorkSnapshot& schedule,std::size_t index) const {
+    auto result=entries_[index].participation;
+    // Requested work keeps the requesting module's scheduling preferences.
+    // Only the offered visit inherits them, not every task in its provider.
+    if (const auto* work=schedule.find(entries_[index].id)) for (const auto& entry:entries_)
+        if (work->requested_by.contains(entry.id)) {
+            result.priority=std::max(result.priority,entry.participation.priority);
+            result.interrupt_gather=result.interrupt_gather || entry.participation.interrupt_gather;
+        }
+    return result;
+}
 bool Routine::should_yield(Host& host,const SessionView& view) const {
     if (!active_ || !view.feature || view.feature->state!=automation::State::running) return false;
     const bool gathering=entries_[*active_].participation.fallback;
-    const auto priority=entries_[*active_].participation.priority;
     const auto schedule=host.work_schedule()->read();
+    const auto priority=participation(schedule,*active_).priority;
     for (std::size_t i=0;i<entries_.size();++i) if (i!=*active_ && !entries_[i].participation.fallback) {
         const auto* estimate=schedule.find(entries_[i].id);
         const bool urgent=estimate && estimate->finish_by && *estimate->finish_by-estimate->duration<=view.now;
-        if (gathering?!entries_[i].participation.interrupt_gather:(!urgent && entries_[i].participation.priority<=priority)) continue;
+        const auto requested=participation(schedule,i);
+        if (gathering?!requested.interrupt_gather:(!urgent && requested.priority<=priority)) continue;
         const auto work=readiness(host,view,schedule,i);
         if (work.eligible && work.pending && schedule.wait_until(entries_[i].id,view.now)<=view.now
             && (gathering || urgent || !entries_[i].participation.demand_only || !pending_at_dispatch_[i])) return true;
@@ -83,6 +95,7 @@ std::optional<automation::Launch> Routine::next(Host& host,const SessionView& vi
         for (std::size_t i=0;i<entries_.size();++i) {
             if (idle_retry && after_work_[i]<=completed_work_) continue;
             const auto& e=entries_[i];
+            const auto requested=participation(schedule,i);
             const auto work=readiness(host,view,schedule,i,idle_retry);
             pending_at_dispatch_[i]=work.pending;
             if (!work.eligible) continue;
@@ -93,8 +106,8 @@ std::optional<automation::Launch> Routine::next(Host& host,const SessionView& vi
                     options.push_back({e.id,e.participation.priority,due_[i]});
             }
             else {
-                options.push_back({e.id,e.participation.priority,std::min(due_[i],view.now)});
-                interrupt_gather=interrupt_gather || (e.participation.interrupt_gather && work.pending);
+                options.push_back({e.id,requested.priority,std::min(due_[i],view.now)});
+                interrupt_gather=interrupt_gather || (requested.interrupt_gather && work.pending);
             }
         }
         if (!options.empty() || fallback) break;

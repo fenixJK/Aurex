@@ -5,7 +5,9 @@ namespace hive::extensions {
 void validate(const WorkEstimate& work) {
     if (work.label.empty() || work.label.size()>160 || work.destination.size()>80
         || work.duration<Time{} || work.duration>std::chrono::hours(24) || work.ready<Time{}
-        || (work.finish_by && *work.finish_by<Time{})) throw std::invalid_argument("Invalid work estimate");
+        || (work.finish_by && *work.finish_by<Time{}) || work.requested_by.size()>32
+        || std::any_of(work.requested_by.begin(),work.requested_by.end(),[](const auto& owner) { return owner.empty() || owner.size()>80; }))
+        throw std::invalid_argument("Invalid work estimate");
 }
 void validate(const WorkWindow& window) {
     if (window.label.empty() || window.label.size()>160 || window.until<Time{}) throw std::invalid_argument("Invalid work window");

@@ -38,7 +38,8 @@ std::optional<Label> label(const std::string& text) {
 int color(const std::uint8_t* pixel) {
     const int r=pixel[0],g=pixel[1],b=pixel[2];
     const bool filled=(g>=160) & (g-r>=40) & (g-b>=40);
-    const bool remaining=(r>=71) & (r<=101) & (g>=105) & (g<=135) & (b>=57) & (b<=87);
+    const bool remaining=(r>=60) & (r<=140) & (g>=85) & (g<=155) & (b>=40) & (b<=130)
+        & (g-r>=8) & (g-b>=8);
     return (pixel[3]>=250)*(int(filled)+2*int(remaining));
 }
 struct Row { int left,right,y; };
@@ -87,21 +88,43 @@ bool valid(const VisiblePlanter& p) {
         && std::isfinite(p.percent) && p.percent>=0 && p.percent<=100
         && std::isfinite(p.minimum_percent) && p.minimum_percent>=0 && p.minimum_percent<=p.percent && p.bar.valid();
 }
-bool labelled_growth_bar(const Frame& frame,const Rect& bar) {
-    const int left=int(bar.x),top=int(bar.y),right=int(bar.x+bar.width),bottom=int(bar.y+bar.height);
+bool labelled_growth_bar(const Frame& frame,Rect bar) {
+    const int left=int(bar.x),right=int(bar.x+bar.width);
+    int top=int(bar.y+bar.height),bottom=int(bar.y);
+    // Compression can attach a few pixels of foliage to the bar. Its solid
+    // horizontal edges bound the label more reliably than that contour's height.
+    for (int y=int(bar.y);y<int(bar.y+bar.height);++y) {
+        int colored=0;
+        for (int x=left;x<right;++x) colored+=color(frame.rgba.data()+(std::size_t(y)*frame.width+x)*4)!=0;
+        if (colored>=bar.width*.7) { top=std::min(top,y); bottom=y+1; }
+    }
+    if (bottom-top<4 || bar.width<(bottom-top)*6.5) return false;
+    bar.y=top; bar.height=bottom-top;
     int first_x=right,last_x=left,first_y=bottom,last_y=top,white=0;
-    for (int y=top;y<bottom;++y) for (int x=left;x<right;++x) {
+    const int inset=std::max(1,int(bar.height*.15));
+    const int radius=std::max(1,int(std::ceil(bar.height*.12)));
+    for (int y=top+inset;y<bottom-inset;++y) for (int x=left+inset;x<right-inset;++x) {
         const auto* p=frame.rgba.data()+(std::size_t(y)*frame.width+x)*4;
-        if (p[3]<250 || std::min({p[0],p[1],p[2]})<190
-            || std::max({p[0],p[1],p[2]})-std::min({p[0],p[1],p[2]})>35) continue;
+        if (p[3]<250 || std::min({p[0],p[1],p[2]})<120
+            || std::max({p[0],p[1],p[2]})-std::min({p[0],p[1],p[2]})>40) continue;
+        bool outlined=false;
+        for (int dy=-radius;dy<=radius && !outlined;++dy) for (int dx=-radius;dx<=radius;++dx) {
+            const int nx=x+dx,ny=y+dy;
+            if (nx<left || nx>=right || ny<top || ny>=bottom) continue;
+            const auto* edge=frame.rgba.data()+(std::size_t(ny)*frame.width+nx)*4;
+            if (std::max({edge[0],edge[1],edge[2]})<100 && edge[1]<p[1]*.65) { outlined=true; break; }
+        }
+        if (!outlined) continue;
         ++white; first_x=std::min(first_x,x); last_x=std::max(last_x,x);
         first_y=std::min(first_y,y); last_y=std::max(last_y,y);
     }
-    // The empty part of a new planter bar is still green. Its white label,
-    // enclosed by that bar, separates it from grass, walls and unlabelled health bars.
-    return white>=bar.width*bar.height*.025 && white<=bar.width*bar.height*.4
-        && last_x-first_x>=bar.width*.35 && last_y-first_y>=bar.height*.25
-        && first_x>left && last_x<right-1 && first_y>top && last_y<bottom-1;
+    // Outlined name/percentage lettering is centered inside the bar. The
+    // short HP count and unoutlined world textures don't have that structure.
+    const int ink_width=last_x-first_x+1,ink_height=last_y-first_y+1;
+    return white>=std::max(8.,bar.width*bar.height*.015) && white<=bar.width*bar.height*.4
+        && ink_width>=bar.width*.4 && ink_width>=ink_height*8
+        && ink_height>=bar.height*.2 && ink_height<=bar.height*.8
+        && first_x>=left+bar.width*.05 && last_x<right-bar.width*.05 && first_y>top && last_y<bottom-1;
 }
 class PlanterPresenceDetector final : public Detector {
 public:
@@ -112,7 +135,7 @@ public:
         auto& visible=result->readings["planter.present"];
         visible={Knowledge::unknown,false,frame.captured,frame.window,input.generation};
         bool present=false;
-        for (const auto& bar:detail::bar_regions(frame,color)) {
+        for (const auto& bar:detail::bar_regions(frame,color,true)) {
             if (input.cancelled && input.cancelled()) return {};
             if (labelled_growth_bar(frame,bar)) { present=true; break; }
         }

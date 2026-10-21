@@ -1,12 +1,14 @@
 #pragma once
 #include "core/runtime/model.hpp"
 #include <mutex>
+#include <set>
 
 namespace hive::extensions {
 struct WorkEstimate {
     std::string label,destination;
     Time duration{},ready{};
     std::optional<Time> finish_by;
+    std::set<std::string> requested_by;
 };
 struct WorkWindow { std::string label; Time until{}; };
 struct WorkOffer { std::string owner; WorkEstimate work; };

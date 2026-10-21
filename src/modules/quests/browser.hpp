@@ -33,7 +33,10 @@ class ScanResults {
     std::optional<ScannedQuests> snapshot_;
 public:
     ScanReport read() const { std::lock_guard lock(mutex_); return report_; }
-    std::optional<ScannedQuests> snapshot() const { std::lock_guard lock(mutex_); return snapshot_; }
+    std::optional<ScannedQuests> snapshot(Time after=Time(-1)) const {
+        std::lock_guard lock(mutex_);
+        return snapshot_ && snapshot_->context.now>after?snapshot_:std::nullopt;
+    }
     void complete(ScannedQuests snapshot) { std::lock_guard lock(mutex_); snapshot_=std::move(snapshot); }
     void publish(ScanReport report) { std::lock_guard lock(mutex_); report_=std::move(report); }
 };

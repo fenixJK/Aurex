@@ -286,10 +286,10 @@ extensions::Factory module_factory(Plan plan,automation::NavigationServices navi
         std::map<std::string,std::string> types;
         for (const auto& enemy : plan.enemies) if (!enemy.species.empty()) types.emplace(enemy.id,enemy.species);
         demand=[goals=std::move(goals),types=std::move(types)](const ObservationContext& c) {
-            std::set<std::string> requested;
+            features::visits::RequestedVisits requested;
             for (const auto& goal : goals->enemies(c.now,c.generation)) {
                 if (goal.generation!=c.generation || goal.expires<=c.now) continue;
-                for (const auto& [id,species] : types) if (goal.enemy==species) requested.insert(id);
+                for (const auto& [id,species] : types) if (goal.enemy==species) requested[id].insert(goal.owner);
             }
             return requested;
         };

@@ -138,7 +138,7 @@ public:
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
         case Stage::pitch_limit: return MoveCamera{{Key::pitch_up,10}};
         case Stage::pitch: return MoveCamera{{Key::pitch_down,4}};
-        case Stage::turn: return MoveCamera{{Key::rotate_right,1}};
+        case Stage::turn: return MoveCamera{{Key::rotate_right,1,Time(100),Time(50)}};
         case Stage::alternate: return MoveCamera{{Key::pitch_down,1}};
         case Stage::reference: return AdoptHeading{0,heading_};
         case Stage::restore: return MoveCamera{{Key::pitch_up,1}};
@@ -162,6 +162,8 @@ public:
             else throw HiveAlignmentError("Hive reference was not found at either camera pitch");
             return next(view);
         }
+        if (c.now-minimum_>=Time(2000))
+            throw HiveAlignmentError("No fresh hive camera frame; alignment was not confirmed");
         return Wait{Time(50),"Checking the settled hive view"};
     }
     void step_completed(const View& view) override {

@@ -13,6 +13,7 @@ class RespawnCompletion {
 public:
     explicit RespawnCompletion(bool already_died=false):transitioned_(already_died) {}
     void begin(Time now) { origin_before_=now; }
+    bool origin_known() const { return origin_known_; }
     void observe_origin(const View& view) {
         const auto* state=view.observations;
         // A pre-reset capture may finish processing after Escape. A missing
@@ -82,8 +83,8 @@ public:
         const auto& c=view.context;
         if (started_<Time{}) {
             started_=minimum_=c.now;
-            completion_.begin(c.now);
         }
+        if (stage_==Stage::locate) completion_.begin(c.now);
         completion_.observe_origin(view);
         if (stage_==Stage::done) return Done{"Respawn finished; confirming the hive"};
         if (stage_==Stage::locate && view.observations && view.observations->alive.has_value(c,Time(2000),minimum_)
@@ -97,6 +98,9 @@ public:
             stage_=Stage::done; return next(view);
         }
         const auto reading=source_->read(c);
+        if (stage_==Stage::locate && !completion_.origin_known() && c.now-started_<Time(1000)
+            && (!reading.has_value(c,Time(2000),minimum_) || reading.value.screen==game::RespawnScreen::game))
+            return Wait{Time(50),"Recording location before reset"};
         if (stage_==Stage::select) {
             stage_=Stage::confirm; issued_=true;
             return TapMenuKey{Key::respawn,"Select respawn"};

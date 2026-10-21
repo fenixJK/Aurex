@@ -131,6 +131,8 @@ State read_game_text(const Frame& frame,const std::vector<TextLine>& lines,std::
         if (state.connection.knowledge==Knowledge::unknown)
             state.connection={Knowledge::present,Connection::connected,frame.captured,frame.window,generation};
     }
+    else if (state.hive_prompt.knowledge==Knowledge::absent)
+        state.at_hive={Knowledge::absent,false,frame.captured,frame.window,generation};
     return state;
 }
 }

@@ -11,6 +11,7 @@ class QuestModule final : public extensions::Module {
     Tracker tracker_;
     Report report_;
     Time freshness_,since_{},last_{};
+    mutable Time scan_seen_{Time(-1)};
     std::uint64_t generation_{},revision_{};
     std::string state_{"Stopped"};
     bool started_{},other_running_{};
@@ -83,6 +84,19 @@ public:
             }
         }
         if (revision_==std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("Quest request revisions exhausted");
+        // The browser may scroll away before the host observes the same page.
+        // Consume its completed scan directly, preserving each card's capture time.
+        if (const auto completed=scan_->snapshot(scan_seen_)) {
+            scan_seen_=completed->context.now;
+            const auto& c=completed->context;
+            if (c.generation==generation_ && c.now>=since_ && c.now<=view.now && view.now-c.now<=freshness_) {
+                ObservationContext current{c.window,c.generation,view.now};
+                for (const auto& card:completed->cards)
+                    if (card.captured>=since_ && (!cycle_ || std::find(cycle_->givers.begin(),cycle_->givers.end(),card.value.giver)!=cycle_->givers.end()))
+                        tracker_.observe(current,card);
+                context_=current;
+            }
+        }
         const bool gathering=view.feature && view.feature->state==automation::State::running && view.feature->activity==WorkActivity::gathering;
         auto snapshot=browser_ && !gathering?source_->peek():source_->read();
         if (!snapshot || snapshot->context.generation!=generation_ || snapshot->context.now<since_
@@ -199,7 +213,7 @@ public:
     std::unique_ptr<automation::Program> program() const override {
         if (!browser_) return {};
         acknowledge_scan();
-        auto results=std::make_shared<ScanResults>(); auto run=cycle_?cycle_program(*cycle_,browser_,results,cycle_results_):browser_program(browser_,results,false); scan_=std::move(results); return run;
+        scan_seen_=Time(-1); auto results=std::make_shared<ScanResults>(); auto run=cycle_?cycle_program(*cycle_,browser_,results,cycle_results_):browser_program(browser_,results,false); scan_=std::move(results); return run;
     }
     game::Requests requests() const override {
         auto requests=report_.requests;
