@@ -93,6 +93,25 @@ inline constexpr std::array<std::uint64_t,32> trade_requests{
     0x0ULL,0x180ULL,
     0x0ULL,0x100ULL,
 };
+inline constexpr int unlocked_trading_width=127,unlocked_trading_height=16;
+inline constexpr std::array<std::uint64_t,32> unlocked_trading{
+    0x20000000083ULL,0x8000000fe00ULL,
+    0x200001800c3ULL,0x8800000fe01ULL,
+    0x200001800c3ULL,0x8000001803ULL,
+    0xe070021c1e187cc3ULL,0x7c1f98f83c381803ULL,
+    0xf8f83a3e1f18fcc3ULL,0x7e3f98fc7c1c1803ULL,
+    0x188c1f0331998cc3ULL,0x633198c4600c1803ULL,
+    0x19cc1e0331998cc3ULL,0x633198867c0c1803ULL,
+    0x9fc3e0331998cc3ULL,0x633198c67e0c1803ULL,
+    0x18fc320331998cc3ULL,0x63219886660c1803ULL,
+    0x188c620331998447ULL,0x63319884620c1803ULL,
+    0x98f8623e1f19847eULL,0x662198cc660c1803ULL,
+    0xf070421c0e19843cULL,0x7e2198f8780c1003ULL,
+    0x0ULL,0x6800000000000000ULL,
+    0x0ULL,0x6000000000000000ULL,
+    0x0ULL,0x3000000000000000ULL,
+    0x0ULL,0x1000000000000000ULL,
+};
 inline constexpr int trade_request_width=346,trade_request_height=32;
 inline constexpr std::array<std::uint64_t,192> trade_request{
     0x3fcULL,0xfffc00000ULL,0xfc00000000000000ULL,0x3fULL,0x0ULL,0x0ULL,

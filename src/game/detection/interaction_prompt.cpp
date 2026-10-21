@@ -325,6 +325,7 @@ std::optional<TextLine> interaction_label(const Frame& image,const std::string& 
         Label{"Claim Hive",reference(detail::claim_hive_width,detail::claim_hive_height,detail::claim_hive),Match::whole},
         Label{"Trade Request",reference(detail::trade_request_width,detail::trade_request_height,detail::trade_request),Match::first_line},
         Label{"Trade Request",reference(detail::trade_requests_width,detail::trade_requests_height,detail::trade_requests),Match::phrase},
+        Label{"Trade Request",reference(detail::unlocked_trading_width,detail::unlocked_trading_height,detail::unlocked_trading),Match::phrase},
         Label{"Stop Making Honey",reference(detail::stop_honey_width,detail::stop_honey_height,detail::stop_honey),Match::whole},
         Label{"Collect Pollen",reference(detail::flower_fields_width,detail::flower_fields_height,detail::flower_fields),Match::phrase,.87f},
         Label{"Blue Field Booster",reference(detail::blue_booster_width,detail::blue_booster_height,detail::blue_booster),Match::words,.83f,2},

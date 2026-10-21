@@ -143,6 +143,16 @@ public:
                 const auto current=card(view); if (!current) continue;
                 for (const auto& objective:current->objectives) {
                     if (!objective.known || objective.collected>=objective.required || attempted_actions_.contains(giver+"/"+objective.target)) continue;
+                    // Field-specific petals also advance the same color's
+                    // unrestricted total. Do that shared work before a trip to
+                    // the default field for the unrestricted objective.
+                    if (objective.kind==Kind::petals && std::any_of(current->objectives.begin(),current->objectives.end(),[&](const auto& other) {
+                        const auto provider=plan_.actions.find(other.target);
+                        return other.kind==Kind::petals && other.known && other.collected<other.required
+                            && other.petal_color==objective.petal_color && other.target.starts_with(objective.target+" in ")
+                            && !attempted_actions_.contains(giver+"/"+other.target) && provider!=plan_.actions.end()
+                            && provider->second.program && (!provider->second.available || provider->second.available());
+                    })) continue;
                     const auto provider=plan_.actions.find(objective.target);
                     if (provider==plan_.actions.end() || !provider->second.program || (provider->second.available && !provider->second.available())) continue;
                     attempted_actions_.insert(giver+"/"+objective.target);

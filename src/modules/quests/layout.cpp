@@ -115,25 +115,34 @@ public:
                 r.width+std::min(.5,r.x)+std::min(.5,f.width-r.x-r.width),
                 r.height+std::min(.5,r.y)+std::min(.5,f.height-r.y-r.height)};
             CardRegion card{h.giver,h.text.text,unit(title),{}};
-            int top=-1,last=-1,previous=begin,blank=0;
+            int top=-1,last=-1,previous=begin,blank=0,bar_left=h.left,bar_right=h.right;
             for (int y=begin;y<=limit;++y) {
                 if (input.cancelled && input.cancelled()) return {};
                 int colored=0,samples=0;
                 if (y<limit) for (int x=left;x<right;x+=std::max(1,(right-left)/64)) { ++samples; colored+=pixels.progress(x,y); }
                 int edges=0;
                 if (y<limit) for (double part:{.025,.03,.035,.04,.96,.965,.97,.975}) edges+=pixels.progress(left+int((right-left)*part),y);
-                const bool bar=(samples && colored>=samples*.35) || edges>=6;
+                // Once the bar starts, sample its actual margins. A long text
+                // line can cover the header-relative samples and split one row.
+                const int margin=std::max(1,(bar_right-bar_left)/100);
+                const bool margins=top>=0 && y<limit && pixels.progress(bar_left+margin,y)
+                    && pixels.progress(bar_right-1-margin,y);
+                const bool bar=(samples && colored>=samples*.35) || edges>=6 || margins;
                 bool empty=!bar && y<limit;
                 if (empty) for (double part:{.025,.04,.96,.975}) empty=empty && pixels.panel(left+int((right-left)*part),y);
                 blank=empty?blank+1:0;
-                if (bar) { if (top<0) top=y; last=y; }
+                if (bar) {
+                    if (top<0) {
+                        top=y; bar_left=h.left; bar_right=h.right;
+                        while (bar_left<bar_right && !pixels.progress(bar_left,top)) ++bar_left;
+                        while (bar_right>bar_left && !pixels.progress(bar_right-1,top)) --bar_right;
+                    }
+                    last=y;
+                }
                 if (top>=0 && ((!bar && y-last>gap) || y==limit)) {
                     const int height=last-top+1;
                     if (height<r.height*.9) { top=-1; continue; }
                     if (height>r.height*4.5 || top-previous>r.height*3 || last>=limit-gap) break;
-                    int bar_left=h.left,bar_right=h.right;
-                    while (bar_left<bar_right && !pixels.progress(bar_left,top)) ++bar_left;
-                    while (bar_right>bar_left && !pixels.progress(bar_right-1,top)) --bar_right;
                     if (bar_right-bar_left<width*.5) break;
                     card.rows.push_back({"row-"+std::to_string(card.rows.size()+1),unit({double(bar_left),double(top),double(bar_right-bar_left),double(height)})});
                     if (card.rows.size()==16) break;

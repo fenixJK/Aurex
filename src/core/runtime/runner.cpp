@@ -82,6 +82,8 @@ bool Runner::same_context(const ObservationContext& c) const {
         && c.window.process==context_.window.process && c.window.bounds==context_.window.bounds;
 }
 bool Runner::waiting_for_game_view() const noexcept {
+    if (progress_.state==State::running && window_replaced_ && recovery_)
+        return recovery_->waiting_for_game_view();
     return progress_.state==State::running && startup_pending_ && !progress_.steps && !step_
         && !recovery_ && !child_ && !pattern_ && !owned_ && pending_.empty();
 }
@@ -89,7 +91,9 @@ void Runner::rebase_startup_window(const ObservationContext& c) {
     if (!waiting_for_game_view() || !c.window.id || !c.window.bounds.valid() || c.generation!=scope_.generation
         || c.window.process!=context_.window.process || c.now<last_)
         throw std::logic_error("Game window cannot change after startup work begins");
-    context_=c; last_=c.now; progress_.elapsed={}; speed_->start(c);
+    if (recovery_) recovery_->rebase_startup_window(c);
+    // Preserve the loading deadline across the client's resize/maximize events.
+    context_.window=c.window; last_=c.now; speed_->start(c);
 }
 void Runner::configure_connection_recovery(ProgramFactory reconnect,ProgramFactory replacement) {
     if (progress_.state!=State::ready) throw std::logic_error("Configure connection recovery before starting");
@@ -226,6 +230,7 @@ void Runner::replace_window(const ObservationContext& c,ModuleScope scope) {
     guard_=program_->guard(); if (!guard_) guard_=observation_guard(config_);
     clock_started_=true;
     recovery_=std::make_unique<Runner>(replacement_(),permissions_,static_cast<TaskPort&>(*this),scope_,navigation_services_,depth_+1); recovery_->configure_conversion(hive_conversion_); recovery_->configure_statistics(recovery_counts_); recovery_->configure_reporting(activity_sink_);
+    recovery_->startup_pending_=true;
     recovery_->start(c); awaiting_window_=false; rejoin_requested_=false; window_replaced_=true;
     progress_.message="Confirming the replacement game window";
 }

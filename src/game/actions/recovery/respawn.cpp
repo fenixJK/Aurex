@@ -42,10 +42,16 @@ public:
         const bool living=health && state->alive.value && state->alive.captured>last_dead_;
         const bool hud=state && state->game_hud.has_value(c,Time(2000),after_death) && state->game_hud.value;
         const bool game=observed && reading.captured>last_dead_ && reading.value.screen==game::RespawnScreen::game;
-        // Menu closure is not respawn. A new hive arrival can cover a missed
-        // death frame, but a prompt that was already here cannot.
+        // Prefer observed death or a new hive arrival. If the brief death frame
+        // was missed, hand a fresh, live owned-hive view to hive acquisition
+        // after settling; do not relaunch a working client merely
+        // because we could not prove the transition. Acquisition still verifies
+        // location and camera before any route can leave.
+        const bool settled_hive=c.now-transition>=Time(8000) && state
+            && state->at_hive.has_value(c,Time(2000),after_death) && state->at_hive.value;
         return ((hud && living) || game) && (transitioned_
-            || (away_from_hive_ && state && state->at_hive.has_value(c,Time(2000),after_death) && state->at_hive.value));
+            || (away_from_hive_ && state && state->at_hive.has_value(c,Time(2000),after_death) && state->at_hive.value)
+            || (settled_hive && hud && living));
     }
 };
 class AwaitRespawn final : public Program {
@@ -91,12 +97,14 @@ public:
             && !view.observations->alive.value) {
             stage_=Stage::transition; started_=c.now; transition_=view.observations->alive.captured;
         }
-        if (c.now-started_>=(stage_==Stage::transition?Time(25000):Time(8000)))
-            throw ClientRejoinRequired(stage_==Stage::transition?"Respawn transition timed out":"Respawn menu could not be confirmed");
         if (stage_==Stage::transition) {
-            if (!completion_.ready(view,*source_,minimum_,transition_)) return Wait{Time(100),"Waiting for player respawn"};
-            stage_=Stage::done; return next(view);
+            if (completion_.ready(view,*source_,minimum_,transition_)) {
+                stage_=Stage::done; return next(view);
+            }
+            if (c.now-started_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return a readable live game view");
+            return Wait{Time(100),"Waiting for player respawn"};
         }
+        if (c.now-started_>=Time(8000)) throw ClientRejoinRequired("Respawn menu could not be confirmed");
         const auto reading=source_->read(c);
         if (stage_==Stage::locate && !completion_.origin_known() && c.now-started_<Time(1000)
             && (!reading.has_value(c,Time(2000),minimum_) || reading.value.screen==game::RespawnScreen::game))
