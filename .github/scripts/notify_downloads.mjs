@@ -4,7 +4,6 @@ import { setTimeout as sleep } from 'node:timers/promises';
 // Keep the ledger separate from the app's source and from expiring Actions caches.
 const stateBranch = 'download-counter-state';
 const stateFile = 'downloads.json';
-const perRunLimit = 50; // Leave larger bursts queued for the next scheduled check.
 const avatar = 'https://raw.githubusercontent.com/fenixJK/Aurex/main/assets/aurex.png';
 
 export function githubClient(repository, token, request = fetch) {
@@ -98,19 +97,36 @@ export function readState(content) {
   return state;
 }
 
-export function notification(repository, total, asset) {
-  const platform = asset ? (/windows|\.exe$|\.msi$/i.test(asset.name) ? 'Windows'
-    : /macos|\.app$|\.dmg$/i.test(asset.name) ? 'Mac' : 'Release file') : '';
+export function notification(repository, state, assets, previous = null) {
+  const format = count => count.toLocaleString('en-US');
+  const releases = new Map();
+  for (const asset of assets) {
+    const release = releases.get(asset.tag) ?? { total: 0, added: 0, platforms: new Map() };
+    const count = state.assets[asset.id] ?? 0;
+    const platform = /windows|\.exe$|\.msi$/i.test(asset.name) ? 'Windows'
+      : /macos|\.app$|\.dmg$/i.test(asset.name) ? 'Mac' : 'Other files';
+    release.total += count;
+    release.added += previous ? Math.max(0, count - (previous.assets[asset.id] ?? 0)) : 0;
+    release.platforms.set(platform, (release.platforms.get(platform) ?? 0) + count);
+    releases.set(asset.tag, release);
+  }
+  const added = previous ? state.total - previous.total : 0;
   return {
     username: 'Aurex Downloads', avatar_url: avatar, allowed_mentions: { parse: [] },
     embeds: [{
-      title: `${total.toLocaleString('en-US')} total downloads`,
-      url: asset?.releaseUrl ?? `https://github.com/${repository}/releases`,
-      description: asset
-        ? `**+1 · ${platform} · ${asset.tag.slice(0, 100)}**\n${asset.name.slice(0, 200)}`
-        : 'Counter started from the current total. Each new download will appear here.',
+      title: `${format(state.total)} total downloads`,
+      url: `https://github.com/${repository}/releases`,
+      description: previous
+        ? `**${format(added)} new download${added === 1 ? '' : 's'}** since the last update.`
+        : 'Counter started from the current total. New downloads will be grouped into one update.',
+      fields: [...releases].slice(-25).reverse().map(([tag, release]) => ({
+        name: tag.slice(0, 100),
+        value: `**${format(release.total)}** downloads${release.added ? ` · **+${format(release.added)}** new` : ''}\n`
+          + [...release.platforms].map(([platform, count]) => `${platform} ${format(count)}`).join(' · '),
+        inline: true,
+      })),
       color: 0xE8B947,
-      footer: { text: 'Aurex · Release downloads' },
+      footer: { text: releases.size > 25 ? 'Aurex · Latest 25 versions shown · Total includes all versions' : 'Aurex · Total across all versions' },
     }],
   };
 }
@@ -133,36 +149,32 @@ export async function runCounter({ repository, github, discord, initialize = fal
       message: 'Initialize download counter', tree: tree.sha, parents: [],
     } });
     await github('git/refs', { method: 'POST', body: { ref: `refs/heads/${stateBranch}`, sha: commit.sha } });
-    await discord(notification(repository, state.total));
+    await discord(notification(repository, state, assets));
     log(`Initialized at ${state.total} downloads. Past downloads will not be replayed.`);
     return { total: state.total, sent: 0 };
   }
 
-  let state = readState(stored.content);
-  let sha = stored.sha;
-  let sent = 0;
+  const state = readState(stored.content);
+  const next = { ...state, assets: { ...state.assets } };
   for (const asset of assets) {
     // Retain removed assets and ignore temporary downward API corrections.
     // New asset IDs start at zero, so new releases are included automatically.
-    for (let count = (state.assets[asset.id] ?? 0) + 1; count <= asset.download_count; ++count) {
-      if (sent === perRunLimit) {
-        log(`Sent ${sent} messages. Remaining downloads will continue next check.`);
-        return { total: state.total, sent };
-      }
-      const next = { ...state, total: state.total + 1, assets: { ...state.assets, [asset.id]: count } };
-      await discord(notification(repository, next.total, asset));
-      // Checkpoint each confirmed send, rather than replaying a whole batch after an error.
-      const saved = await github(`contents/${stateFile}`, { method: 'PUT', body: {
-        branch: stateBranch, sha, message: `Download total: ${next.total}`,
-        content: Buffer.from(JSON.stringify(next, null, 2) + '\n').toString('base64'),
-      } });
-      sha = saved.content.sha;
-      state = next;
-      ++sent;
-    }
+    const count = Math.max(state.assets[asset.id] ?? 0, asset.download_count);
+    next.total += count - (state.assets[asset.id] ?? 0);
+    next.assets[asset.id] = count;
   }
-  log(`Total: ${state.total}. New download messages: ${sent}.`);
-  return { total: state.total, sent };
+  const added = next.total - state.total;
+  const sent = added > 0 ? 1 : 0;
+  if (added) {
+    await discord(notification(repository, next, assets, state));
+    // Save the whole batch only after Discord confirms the combined message.
+    await github(`contents/${stateFile}`, { method: 'PUT', body: {
+      branch: stateBranch, sha: stored.sha, message: `Download total: ${next.total}`,
+      content: Buffer.from(JSON.stringify(next, null, 2) + '\n').toString('base64'),
+    } });
+  }
+  log(`Total: ${next.total}. New downloads: ${added}. Messages: ${sent}.`);
+  return { total: next.total, sent };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
