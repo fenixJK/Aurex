@@ -19,7 +19,6 @@ class Sprinkler {
     std::string pending_,reason_;
     Time last_tick_{},minimum_{},last_frame_{Time(-1)};
     bool attempted_{};
-    unsigned attempts_{};
     Time input_finished_{};
     void dispatch(TaskPort& tasks,ModuleScope scope);
     void update_attempt(const ObservationContext& context,const game::State& state,TaskPort& tasks,ModuleScope scope);
