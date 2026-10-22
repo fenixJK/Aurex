@@ -26,9 +26,10 @@ end
 function M.cannon(slot)
     local mount=M.motion()
     mount:hold({"right","jump"},100); mount:walk(2,{"right"}); mount:walk(1.5,{"forward","right"})
-    local align={kind="checkpoint",detector="interaction.prompt",timeout=30000,age=2000,attempts=9,
-        continuous=true,approach={},nudge_path={{1.5,"left"}},use_speed=true}
-    for i=1,40 do align.approach[i]={label="Find cannon",keys={"right"},ms=250} end
+    local step,attempts=1.5,9
+    -- Bound the approach to the distance the reverse search can recover.
+    local align={kind="checkpoint",detector="interaction.prompt",timeout=30000,age=2000,attempts=attempts,
+        path={{step*attempts,"right"}},nudge_path={{step,"left"}},use_speed=true}
     return {M.ramp(slot),mount:finish(),align}
 end
 function M.flight(slot)

@@ -25,8 +25,11 @@ template<class Color> std::vector<Rect> bar_regions(const Frame& frame,Color col
     std::vector<Rect> result;
     for (const auto& contour:contours) {
         const auto b=cv::boundingRect(contour);
+        // Label validation can separate a bar from attached scenery; retain a
+        // loose horizontal-shape bound here to exclude compact world objects.
         if (b.width<frame.width*.015 || b.width>frame.width*.6 || b.height<2 || b.height>frame.height*.08
-            || b.width<b.height*4 || b.width>b.height*65 || cv::contourArea(contour)<b.area()*(labelled?.25:.65)) continue;
+            || b.width<b.height*(labelled?3:4) || b.width>b.height*65
+            || (!labelled && cv::contourArea(contour)<b.area()*.65)) continue;
         result.push_back({double(b.x),double(b.y),double(b.width),double(b.height)});
     }
     return result;

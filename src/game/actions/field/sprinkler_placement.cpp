@@ -32,12 +32,14 @@ void Sprinkler::update(const ObservationContext& c,const game::State& state,cons
     if (c.now<last_tick_ || c.generation!=started_.generation || scope.generation!=c.generation || c.window.id!=started_.window.id
         || c.window.process!=started_.window.process || c.window.bounds!=started_.window.bounds) { fail("Sprinkler placement context changed"); return; }
     last_tick_=c.now;
-    if (c.now-started_.now>=plan_.timeout) {
-        fail(plan_.completion==SprinklerCompletion::attempted?"Sprinkler feedback timed out; input stopped":
-            attempted_?"Sprinkler result unconfirmed; placement was not repeated":"Sprinkler prerequisites were not confirmed"); return;
-    }
     if ((state.connection.has_value(c,Time(2000),started_.now) && state.connection.value==game::Connection::disconnected)
         || (state.alive.has_value(c,Time(2000),started_.now) && !state.alive.value)) { fail("Game disconnected or player respawning"); return; }
+    if (c.now-started_.now>=plan_.timeout) {
+        if (plan_.completion==SprinklerCompletion::attempted && attempted_ && pending_.empty())
+            finish(SprinklerStage::completed,"Sprinkler feedback unavailable; continuing without confirmation",tasks,scope);
+        else fail(attempted_?"Sprinkler result unconfirmed; placement was not repeated":"Sprinkler prerequisites were not confirmed");
+        return;
+    }
     try {
         for (const auto& result : tasks.results(scope)) if (result.id==pending_) {
             pending_.clear();
@@ -81,38 +83,32 @@ void Sprinkler::dispatch(TaskPort& tasks,ModuleScope scope) {
     stage_=SprinklerStage::placing; reason_="Placing sprinkler";
 }
 void Sprinkler::update_attempt(const ObservationContext& c,const game::State& state,TaskPort& tasks,ModuleScope scope) {
-    const auto reading=game::read_sprinkler_feedback(c,state,minimum_);
     if (!attempted_) {
-        if (reading.has_value(c,Time(2000),minimum_) && reading.value!=game::SprinklerFeedback::none) return;
+        // A lingering warning belongs to an earlier attempt, not this placement.
         if (tasks.acquire(scope)) dispatch(tasks,scope);
         return;
     }
     if (c.now-input_finished_<Time(500)) return;
-    if (!reading.has_value(c,Time(2000),minimum_)) {
+    const auto reading=game::read_sprinkler_feedback(c,state,minimum_);
+    if (!reading.has_value(c,Time(2000),minimum_) || reading.captured-input_finished_<Time(500) || reading.captured<=last_frame_) {
         // Placement normally produces no message. Optional warning OCR must not veto executed input.
-        if (stage_==SprinklerStage::confirming && c.now-input_finished_>=Time(1500))
+        if (c.now-input_finished_>=Time(1500))
             finish(SprinklerStage::completed,"Sprinkler input sent; no rejection observed",tasks,scope);
         return;
     }
-    if (reading.captured-input_finished_<Time(500)) return;
-    if (reading.captured<=last_frame_) return;
     last_frame_=reading.captured;
     if (reading.value!=game::SprinklerFeedback::none) {
-        if (stage_!=SprinklerStage::confirming) return;
-        const auto adjusted=reading.value==game::SprinklerFeedback::too_high?std::max(Time(50),plan_.jump-Time(50)):
-            reading.value==game::SprinklerFeedback::too_low?std::min(Time(500),plan_.jump+Time(50)):plan_.jump;
-        if (plan_.jump==Time::zero() || attempts_>=3 || adjusted==plan_.jump) {
-            finish(SprinklerStage::failed,"Game rejected sprinkler placement",tasks,scope); return;
+        if (attempts_>=2) {
+            finish(SprinklerStage::completed,"Sprinkler placement rejected after retry; continuing without confirmation",tasks,scope); return;
         }
-        plan_.jump=adjusted; stage_=SprinklerStage::waiting;
-        reason_="Waiting for sprinkler warning to clear before retry";
+        if (reading.value==game::SprinklerFeedback::too_high) plan_.jump=std::max(Time{},plan_.jump-Time(50));
+        else if (reading.value==game::SprinklerFeedback::too_low) plan_.jump=std::clamp(plan_.jump+Time(50),Time(200),Time(500));
+        // Retry once without waiting for a toast to disappear, adjusting jump
+        // height only when the game's warning provides that feedback.
+        dispatch(tasks,scope);
         return;
     }
-    if (stage_==SprinklerStage::confirming) {
-        finish(SprinklerStage::completed,"Sprinkler input sent; placement not visually confirmed",tasks,scope);
-        return;
-    }
-    if (tasks.acquire(scope)) dispatch(tasks,scope);
+    finish(SprinklerStage::completed,"Sprinkler input sent; placement not visually confirmed",tasks,scope);
 }
 
 }

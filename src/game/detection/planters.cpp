@@ -88,43 +88,58 @@ bool valid(const VisiblePlanter& p) {
         && std::isfinite(p.percent) && p.percent>=0 && p.percent<=100
         && std::isfinite(p.minimum_percent) && p.minimum_percent>=0 && p.minimum_percent<=p.percent && p.bar.valid();
 }
-bool labelled_growth_bar(const Frame& frame,Rect bar) {
-    const int left=int(bar.x),right=int(bar.x+bar.width);
-    int top=int(bar.y+bar.height),bottom=int(bar.y);
-    // Compression can attach a few pixels of foliage to the bar. Its solid
-    // horizontal edges bound the label more reliably than that contour's height.
-    for (int y=int(bar.y);y<int(bar.y+bar.height);++y) {
-        int colored=0;
-        for (int x=left;x<right;++x) colored+=color(frame.rgba.data()+(std::size_t(y)*frame.width+x)*4)!=0;
-        if (colored>=bar.width*.7) { top=std::min(top,y); bottom=y+1; }
-    }
-    if (bottom-top<4 || bar.width<(bottom-top)*6.5) return false;
-    bar.y=top; bar.height=bottom-top;
+bool labelled_growth_bar(const Frame& frame,Rect candidate) {
+    const int left=int(candidate.x),right=int(candidate.x+candidate.width);
+    const int top=int(candidate.y),bottom=int(candidate.y+candidate.height);
+    // Scenery can touch the bar. Its outlined label and straight upper edge
+    // identify the UI rectangle without treating that whole contour as the bar.
+    const int radius=std::max(1,int(std::ceil(candidate.height*.12)));
     int first_x=right,last_x=left,first_y=bottom,last_y=top,white=0;
-    const int inset=std::max(1,int(bar.height*.15));
-    const int radius=std::max(1,int(std::ceil(bar.height*.12)));
-    for (int y=top+inset;y<bottom-inset;++y) for (int x=left+inset;x<right-inset;++x) {
-        const auto* p=frame.rgba.data()+(std::size_t(y)*frame.width+x)*4;
-        if (p[3]<250 || std::min({p[0],p[1],p[2]})<120
-            || std::max({p[0],p[1],p[2]})-std::min({p[0],p[1],p[2]})>40) continue;
-        bool outlined=false;
-        for (int dy=-radius;dy<=radius && !outlined;++dy) for (int dx=-radius;dx<=radius;++dx) {
-            const int nx=x+dx,ny=y+dy;
-            if (nx<left || nx>=right || ny<top || ny>=bottom) continue;
-            const auto* edge=frame.rgba.data()+(std::size_t(ny)*frame.width+nx)*4;
-            if (std::max({edge[0],edge[1],edge[2]})<100 && edge[1]<p[1]*.65) { outlined=true; break; }
+    auto labelled=[&] {
+        const int width=last_x-first_x+1,height=last_y-first_y+1;
+        if (white<8 || height<2 || width<height*8 || white>width*height*.65) return false;
+        std::optional<Row> previous;
+        unsigned rows=0;
+        for (int y=std::max(top,first_y-height*2);y<first_y;++y) {
+            const int middle=(first_x+last_x)/2;
+            if (!color(frame.rgba.data()+(std::size_t(y)*frame.width+middle)*4)) { rows=0; previous.reset(); continue; }
+            int a=middle,b=middle+1;
+            while (a>left && color(frame.rgba.data()+(std::size_t(y)*frame.width+a-1)*4)) --a;
+            while (b<right && color(frame.rgba.data()+(std::size_t(y)*frame.width+b)*4)) ++b;
+            const int span=b-a;
+            if (width<span*.35 || first_x<a+span*.05 || last_x>=b-span*.05) { rows=0; previous.reset(); continue; }
+            const int tolerance=std::max(1,height/2);
+            if (previous && std::abs(previous->left-a)<=tolerance && std::abs(previous->right-b)<=tolerance) ++rows;
+            else rows=1;
+            previous=Row{a,b,y};
+            if (rows>=std::max(1,int(std::ceil(height*.2)))) return true;
         }
-        if (!outlined) continue;
-        ++white; first_x=std::min(first_x,x); last_x=std::max(last_x,x);
-        first_y=std::min(first_y,y); last_y=std::max(last_y,y);
+        return false;
+    };
+    for (int y=top;y<=bottom;++y) {
+        int row_first=right,row_last=left,row_white=0;
+        if (y<bottom) for (int x=left;x<right;++x) {
+            const auto* p=frame.rgba.data()+(std::size_t(y)*frame.width+x)*4;
+            if (p[3]<250 || std::min({p[0],p[1],p[2]})<120
+                || std::max({p[0],p[1],p[2]})-std::min({p[0],p[1],p[2]})>40) continue;
+            bool outlined=false;
+            for (int dy=-radius;dy<=radius && !outlined;++dy) for (int dx=-radius;dx<=radius;++dx) {
+                const int nx=x+dx,ny=y+dy;
+                if (nx<left || nx>=right || ny<top || ny>=bottom) continue;
+                const auto* edge=frame.rgba.data()+(std::size_t(ny)*frame.width+nx)*4;
+                if (std::max({edge[0],edge[1],edge[2]})<100 && edge[1]<p[1]*.65) { outlined=true; break; }
+            }
+            if (outlined) { ++row_white; row_first=std::min(row_first,x); row_last=std::max(row_last,x); }
+        }
+        if (row_white>=2) {
+            first_x=std::min(first_x,row_first); last_x=std::max(last_x,row_last);
+            first_y=std::min(first_y,y); last_y=y; white+=row_white;
+        } else {
+            if (labelled()) return true;
+            first_x=right; last_x=left; first_y=bottom; last_y=top; white=0;
+        }
     }
-    // Outlined name/percentage lettering is centered inside the bar. The
-    // short HP count and unoutlined world textures don't have that structure.
-    const int ink_width=last_x-first_x+1,ink_height=last_y-first_y+1;
-    return white>=std::max(8.,bar.width*bar.height*.015) && white<=bar.width*bar.height*.4
-        && ink_width>=bar.width*.4 && ink_width>=ink_height*8
-        && ink_height>=bar.height*.2 && ink_height<=bar.height*.8
-        && first_x>=left+bar.width*.05 && last_x<right-bar.width*.05 && first_y>top && last_y<bottom-1;
+    return false;
 }
 class PlanterPresenceDetector final : public Detector {
 public:
