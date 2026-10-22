@@ -5,7 +5,7 @@ CameraMove pitch_limit(Key direction) {
     if (direction!=Key::pitch_up && direction!=Key::pitch_down)
         throw std::invalid_argument("Camera pitch limit needs an up or down direction");
     // 15-degree taps must cover the entire -80 to +80 degree range.
-    return {direction,11,Time(100),Time(50)};
+    return {direction,11};
 }
 std::optional<CameraMove> heading_move(unsigned from,unsigned to) {
     if (from>7 || to>7) throw std::invalid_argument("Camera headings must be between zero and seven");

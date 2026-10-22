@@ -246,9 +246,6 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         owned_=true; progress_.message=key->label;
         Action action{key->label,{},Time(250),{}};
         action.tap=key->key;
-        // Keep R/Enter down across a frame without extending the existing wait.
-        // Escape must release immediately because it is also the emergency stop.
-        if (key->key!=Key::game_menu) action.tap_duration=Time(50);
         pending_=tasks_.submit(scope_,TaskClass::interaction,{action},Time(1000));
         return true;
     }

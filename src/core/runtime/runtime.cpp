@@ -62,8 +62,7 @@ void Runtime::enqueue(Job job) {
             throw std::invalid_argument("Paced actions require bounded walking and a deadline");
         if (a.tap_count<1 || a.tap_count>8 || (!a.tap && a.tap_count!=1))
             throw std::invalid_argument("Invalid key tap count");
-        if (a.tap_duration<Time{} || (a.tap_duration>Time{} && (!a.tap
-            || (!hotbar_key(*a.tap) && *a.tap!=Key::respawn && *a.tap!=Key::confirm)
+        if (a.tap_duration<Time{} || (a.tap_duration>Time{} && (!a.tap || !hotbar_key(*a.tap)
             || a.tap_count!=1 || a.tap_duration>Time(100) || a.tap_duration>a.duration)))
             throw std::invalid_argument("Invalid held key tap");
         if (a.tap) {
