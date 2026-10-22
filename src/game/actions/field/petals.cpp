@@ -105,7 +105,7 @@ public:
         if (stage_==Stage::prepare) { stage_=Stage::travel; return RunProgram{plan_.prepare}; }
         if (stage_==Stage::travel) { stage_=Stage::camera; return Navigate{plan_.field}; }
         if (stage_==Stage::camera) {
-            stage_=Stage::point; moved_=true; return MoveCamera{{Key::pitch_up,10,Time(100),Time(50)}};
+            stage_=Stage::point; moved_=true; return MoveCamera{game::pitch_limit(Key::pitch_up)};
         }
         if (stage_==Stage::point) {
             stage_=Stage::select; return Hold{{},Time(1),game::pointer_rest(c,view.observations?*view.observations:game::State{})};

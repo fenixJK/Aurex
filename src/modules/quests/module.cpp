@@ -85,7 +85,7 @@ public:
         }
         if (revision_==std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("Quest request revisions exhausted");
         // The browser may scroll away before the host observes the same page.
-        // Consume its completed scan directly, preserving each card's capture time.
+        // Consume its saved pages directly, preserving each card's capture time.
         if (const auto completed=scan_->snapshot(scan_seen_)) {
             scan_seen_=completed->context.now;
             const auto& c=completed->context;

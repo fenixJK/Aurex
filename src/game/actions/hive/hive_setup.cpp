@@ -136,7 +136,7 @@ public:
         }
         case Stage::unlock: return RunProgram{[] { return set_shift_lock(false); }};
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
-        case Stage::pitch_limit: return MoveCamera{{Key::pitch_up,10}};
+        case Stage::pitch_limit: return MoveCamera{game::pitch_limit(Key::pitch_up)};
         case Stage::pitch: return MoveCamera{{Key::pitch_down,4}};
         case Stage::turn: return MoveCamera{{Key::rotate_right,1,Time(100),Time(50)}};
         case Stage::alternate: return MoveCamera{{Key::pitch_down,1}};

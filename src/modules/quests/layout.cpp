@@ -62,7 +62,10 @@ std::optional<Header> header(const Pixels& pixels,const TextLine& line) {
     auto owner=giver(line.text);
     if (line.confidence && (!std::isfinite(*line.confidence) || *line.confidence<.8f || *line.confidence>1)) owner.clear();
     const auto r=line.pixels;
-    for (const auto y : {int(std::floor(r.y-r.height*.12)),int(std::ceil(r.y+r.height+r.height*.12))}) {
+    // OCR engines fit different boxes around the same glyphs. Locate the
+    // header's background outside that box instead of requiring a 12% margin.
+    for (const double margin : {.12,.35,.6}) for (const auto y : {
+        int(std::floor(r.y-r.height*margin)),int(std::ceil(r.y+r.height+r.height*margin))}) {
         const int middle=int(r.x+r.width/2); if (!pixels.title(middle,y)) continue;
         int left=middle,right=middle;
         while (left>0 && pixels.title(left-1,y)) --left;

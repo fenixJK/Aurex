@@ -8,6 +8,7 @@ struct CameraMove {
     Time press{50},release{50};
 };
 std::vector<Action> camera_actions(const CameraMove& move);
+CameraMove pitch_limit(Key direction);
 std::optional<CameraMove> heading_move(unsigned from,unsigned to);
 unsigned turned_heading(unsigned from,const CameraMove& move);
 }

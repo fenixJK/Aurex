@@ -150,8 +150,16 @@ public:
         begin(Stage::recover,view);
     }
     Step recover(const View& view) { begin_recovery(view); return child_step(view); }
+    Step locate_unknown(const View& view) {
+        // World colors can resemble spawn elsewhere in the map. Only survey
+        // from an unlocated client after resetting; a fresh join bypasses this.
+        if (!recovered_) return recover(view);
+        stage_=Stage::zoom;
+        return next(view);
+    }
     Step next(const View& view) override {
         if (!started_) {
+            recovered_=recovered_ || options_.after_respawn;
             if (options_.result) {
                 options_.confirmed_spawn=options_.result->consume_join(view.context) || options_.confirmed_spawn;
                 const auto& current=view.context;
@@ -173,7 +181,7 @@ public:
             throw std::runtime_error("Select your already claimed hive in Setup, or start at spawn to claim one automatically");
         }
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
-        case Stage::pitch_limit: return MoveCamera{{Key::pitch_down,11}};
+        case Stage::pitch_limit: return MoveCamera{game::pitch_limit(Key::pitch_down)};
         case Stage::pitch: return MoveCamera{{Key::pitch_up,5}};
         case Stage::turn:
         case Stage::restore: return MoveCamera{{Key::rotate_right,4}};
@@ -186,12 +194,12 @@ public:
                 return Wait{Time(100),"Waiting for Bee Swarm to load"};
             }
             spawn_->read(c);
-            if (c.now-minimum_>=Time(10000)) { stage_=Stage::zoom; return next(view); }
+            if (c.now-minimum_>=Time(10000)) return locate_unknown(view);
             if (!view.observations) return Wait{};
             const auto& text=view.observations->text;
             if (!text.has_value(c,Time(2000))) {
                 const auto& hud=view.observations->game_hud;
-                if (hud.has_value(c,Time(2000),minimum_) && hud.value) { stage_=Stage::zoom; return next(view); }
+                if (hud.has_value(c,Time(2000),minimum_) && hud.value) return locate_unknown(view);
                 return Wait{};
             }
             if (text.captured==seen_) return Wait{};
@@ -212,7 +220,7 @@ public:
                     throw std::runtime_error("Select your already claimed hive in Setup, or start at spawn to claim one automatically");
                 begin(Stage::prepare,view); return child_step(view);
             }
-            stage_=Stage::zoom; return next(view);
+            return locate_unknown(view);
         }
         case Stage::observe: break;
         }
@@ -279,7 +287,7 @@ std::unique_ptr<Program> respawn_to_hive(std::shared_ptr<const game::HiveSlotsSo
     std::shared_ptr<const game::LandmarkSource> spawn,std::shared_ptr<const game::LandmarkSource> reference,
     std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options) {
     if (!options.recovery) throw std::invalid_argument("Returning by respawn needs menu observations");
-    auto recovery=options.recovery; options.confirmed_spawn=false;
+    auto recovery=options.recovery; options.confirmed_spawn=false; options.after_respawn=true;
     acquire_hive(slots,spawn,reference,proximity,options);
     return std::make_unique<RespawnToHive>([recovery] { return request_respawn(recovery); },
         [slots,spawn,reference,proximity,options] { return acquire_hive(slots,spawn,reference,proximity,options); },recovery,options.result,options.speed);
@@ -288,7 +296,7 @@ std::unique_ptr<Program> recover_to_hive(std::shared_ptr<const game::HiveSlotsSo
     std::shared_ptr<const game::LandmarkSource> spawn,std::shared_ptr<const game::LandmarkSource> reference,
     std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options) {
     if (!options.recovery) throw std::invalid_argument("Death recovery needs game observations");
-    options.confirmed_spawn=false;
+    options.confirmed_spawn=false; options.after_respawn=true;
     acquire_hive(slots,spawn,reference,proximity,options);
     return std::make_unique<RespawnToHive>([source=options.recovery] { return wait_for_respawn(source); },
         [slots,spawn,reference,proximity,options] { return acquire_hive(slots,spawn,reference,proximity,options); },options.recovery,options.result,options.speed,Reentry::respawn);

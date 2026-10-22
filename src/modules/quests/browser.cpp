@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <charconv>
 #include <string_view>
+#include <tuple>
 
 namespace hive::features::quests {
 namespace {
@@ -39,9 +40,13 @@ class Browser final : public automation::Program {
     bool action_{},opened_{},close_when_finished_{};
     std::string before_;
     std::optional<Point> scroll_anchor_;
-    std::map<std::string,Card> cards_;
     std::map<std::string,Observation<Card>> confirmed_;
     bool reached_end_{},names_complete_{true};
+    void publish_cards(const ObservationContext& context) {
+        ScannedQuests snapshot{context,{},reached_end_,names_complete_};
+        for (const auto& [id,card]:confirmed_) snapshot.cards.push_back(card);
+        results_->publish(std::move(snapshot));
+    }
     automation::Step wait(const std::string& reason) {
         report_.status=reason; results_->publish(report_); return automation::Wait{Time(100),reason};
     }
@@ -54,16 +59,22 @@ class Browser final : public automation::Program {
         for (const auto& observed : scene.value.cards) {
             if (!observed.has_value({scene.window,scene.generation,scene.captured},Time(2000)) || observed.captured!=scene.captured) continue;
             const auto& card=observed.value; const auto key=card.giver+"/"+card.quest;
-            if (cards_.size()>=32 && !cards_.contains(key)) continue;
-            if (!cards_.contains(key) || cards_[key].objectives.size()<=card.objectives.size()) {
-                cards_[key]=card;
+            const auto previous=confirmed_.find(key);
+            if (confirmed_.size()>=32 && previous==confirmed_.end()) continue;
+            const auto quality=[](const Card& value) {
+                return std::tuple{value.complete_view,std::count_if(value.objectives.begin(),value.objectives.end(),
+                    [](const auto& row) { return row.known; }),value.objectives.size()};
+            };
+            if (previous==confirmed_.end() || quality(previous->second.value)<=quality(card))
                 confirmed_[key]=observed;
-            }
         }
-        report_.quests=static_cast<unsigned>(cards_.size()); report_.readable=report_.unresolved=0;
-        for (const auto& [id,card] : cards_) for (const auto& row : card.objectives) {
+        report_.quests=static_cast<unsigned>(confirmed_.size()); report_.readable=report_.unresolved=0;
+        for (const auto& [id,card] : confirmed_) for (const auto& row : card.value.objectives) {
             if (row.known) ++report_.readable; else ++report_.unresolved;
         }
+        // Share the page while its observations are fresh. A long scroll to
+        // another giver must not expire the first giver before it is consumed.
+        publish_cards({scene.window,scene.generation,scene.captured});
     }
     automation::Step finish(const Observation<BrowserScene>& scene,const automation::View& view) {
         if (close_when_finished_ && opened_ && (scene.value.panel_visible || scene.value.scroll)) {
@@ -72,9 +83,7 @@ class Browser final : public automation::Program {
             return use(scene,*scene.value.toggle,0,"Closing quest log");
         }
         stage_=Stage::done; report_.finished=true; report_.status="Quest scan finished; only observed rows are included";
-        ScannedQuests snapshot{{scene.window,scene.generation,scene.captured},{},reached_end_,names_complete_};
-        for (const auto& [id,card]:confirmed_) snapshot.cards.push_back(card);
-        results_->complete(std::move(snapshot));
+        publish_cards({scene.window,scene.generation,scene.captured});
         results_->publish(report_);
         return automation::Hold{{},Time(1),game::pointer_rest(view.context,view.observations?*view.observations:game::State{})};
     }
@@ -138,7 +147,11 @@ public:
         if (stage_==Stage::initial && close_when_finished_) opened_=true;
         remember(scene);
         if (!requested_.empty() && std::all_of(requested_.begin(),requested_.end(),[&](const std::string& giver) {
-            return std::any_of(cards_.begin(),cards_.end(),[&](const auto& item) { return item.second.giver==giver && item.second.complete_view; });
+            return std::any_of(confirmed_.begin(),confirmed_.end(),[&](const auto& item) {
+                const auto& card=item.second.value;
+                return card.giver==giver && card.complete_view && std::all_of(card.objectives.begin(),card.objectives.end(),
+                    [](const auto& row) { return row.known; });
+            });
         })) return finish(scene,view);
         if (stage_==Stage::initial || stage_==Stage::opening) stage_=Stage::up;
         if (!before_.empty()) {

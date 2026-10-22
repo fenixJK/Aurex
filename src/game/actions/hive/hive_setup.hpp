@@ -39,6 +39,7 @@ struct HiveClaimOptions {
     std::shared_ptr<const game::RespawnSource> recovery;
     unsigned existing_slot{};
     movement::Source movement;
+    bool after_respawn{};
 };
 ApproachPrompt hive_row_approach(double speed,movement::Source movement={});
 class WhirligigCooldown {

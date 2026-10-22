@@ -37,7 +37,7 @@ public:
         std::lock_guard lock(mutex_);
         return snapshot_ && snapshot_->context.now>after?snapshot_:std::nullopt;
     }
-    void complete(ScannedQuests snapshot) { std::lock_guard lock(mutex_); snapshot_=std::move(snapshot); }
+    void publish(ScannedQuests snapshot) { std::lock_guard lock(mutex_); snapshot_=std::move(snapshot); }
     void publish(ScanReport report) { std::lock_guard lock(mutex_); report_=std::move(report); }
 };
 std::unique_ptr<automation::Program> browser_program(std::shared_ptr<const BrowserSource> source,std::shared_ptr<ScanResults> results,bool close_when_finished=false,std::set<std::string> requested={});

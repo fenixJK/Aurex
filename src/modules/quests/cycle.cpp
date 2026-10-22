@@ -195,7 +195,7 @@ public:
         if (stage_==Stage::returning) { stage_=Stage::returned; return RunProgram{plan_.return_to_hive}; }
         if (stage_==Stage::returned) {
             if (!return_card_ || !return_card_->has_value(view.context,Time(60000),scan_since_)) return scan(view,Stage::assess);
-            scan_->complete({view.context,{*return_card_},false});
+            scan_->publish({view.context,{*return_card_},false});
             unsigned readable=0; for (const auto& row:return_card_->value.objectives) readable+=row.known;
             scan_->publish({"Quest read during return",1,1,readable,unsigned(return_card_->value.objectives.size())-readable,true});
             stage_=Stage::assess;

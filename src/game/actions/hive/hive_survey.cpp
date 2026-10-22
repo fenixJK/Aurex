@@ -83,7 +83,7 @@ public:
         if (!started_) { if (claim_ && claim_->result) claim_->result->reset(); started_=true; }
         switch (stage_) {
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
-        case Stage::pitch: return MoveCamera{{Key::pitch_up,can_scan()?5u:10u}};
+        case Stage::pitch: return MoveCamera{can_scan()?game::CameraMove{Key::pitch_up,5}:game::pitch_limit(Key::pitch_up)};
         case Stage::turn:
         case Stage::restore: return MoveCamera{{Key::rotate_right,4}};
         case Stage::departure_pitch: return MoveCamera{{Key::pitch_down,4}};
