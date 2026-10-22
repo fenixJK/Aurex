@@ -79,7 +79,7 @@ void Sprinkler::dispatch(TaskPort& tasks,ModuleScope scope) {
         }
     }
     actions.push_back({"Place sprinkler",{static_cast<Key>(static_cast<int>(Key::hotbar_1)+plan_.slot-1)},Time(50),{}});
-    pending_=tasks.submit(scope,TaskClass::interaction,std::move(actions),Time(1000)); attempted_=true;
+    pending_=tasks.submit(scope,TaskClass::interaction,std::move(actions),Time(1000)); attempted_=true; ++attempts_;
     stage_=SprinklerStage::placing; reason_="Placing sprinkler";
 }
 void Sprinkler::update_attempt(const ObservationContext& c,const game::State& state,TaskPort& tasks,ModuleScope scope) {
@@ -98,7 +98,14 @@ void Sprinkler::update_attempt(const ObservationContext& c,const game::State& st
     }
     last_frame_=reading.captured;
     if (reading.value!=game::SprinklerFeedback::none) {
-        finish(SprinklerStage::completed,"Sprinkler placement rejected; skipping sprinkler",tasks,scope);
+        if (attempts_>=2) {
+            finish(SprinklerStage::completed,"Sprinkler rejected after retry; skipping sprinkler",tasks,scope); return;
+        }
+        if (reading.value==game::SprinklerFeedback::too_high) plan_.jump=std::max(Time{},plan_.jump-Time(50));
+        else if (reading.value==game::SprinklerFeedback::too_low) plan_.jump=std::clamp(plan_.jump+Time(50),Time(200),Time(500));
+        // Retry once without waiting for a toast to disappear, adjusting jump
+        // height only when the game's warning provides that feedback.
+        dispatch(tasks,scope);
         return;
     }
     finish(SprinklerStage::completed,"Sprinkler input sent; placement not visually confirmed",tasks,scope);

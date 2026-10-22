@@ -13,6 +13,8 @@ Settings are saved in `AurexData` beside the app. Keep that folder when updating
 
 The app also creates its Lua paths and patterns there on first launch, ready to edit.
 
+Aurex checks for a newer release when it opens. Choose **Update and restart**, or use the version number at the bottom of the sidebar to check later. Stop the macro before installing an update. The updater replaces the app and keeps `AurexData`; on Mac, you may need to refresh Screen Recording and Accessibility permissions after replacement.
+
 ## Build it yourself
 
 Download the source and open a terminal in its folder. The build script downloads and compiles the libraries, then puts the app and a ZIP in `dist/`. No Python or separate Qt installation is needed. The first build takes longer; later builds reuse the compiled libraries.

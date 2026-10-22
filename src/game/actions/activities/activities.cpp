@@ -335,7 +335,8 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         return true;
     }
     if (const auto* placement=std::get_if<PlaceSprinkler>(&*step_)) {
-        if (!permissions_.contains(Permission::interact) || (placement->plan.jump>Time::zero() && !permissions_.contains(Permission::movement)))
+        if (!permissions_.contains(Permission::interact)
+            || ((placement->plan.jump>Time::zero() || placement->plan.completion==workflows::SprinklerCompletion::attempted) && !permissions_.contains(Permission::movement)))
             throw std::runtime_error("Sprinkler placement permissions were not granted");
         if (placement->plan.completion==workflows::SprinklerCompletion::observed && !placement->source)
             throw std::runtime_error("Sprinkler observations are not configured");

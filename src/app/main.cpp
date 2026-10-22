@@ -1,4 +1,7 @@
 #include "observations.hpp"
+#include "updates.hpp"
+#include "update_install.hpp"
+#include <cstring>
 #include <QIcon>
 #include <QDialog>
 #include "game/actions/field/movement_setup.hpp"
@@ -87,6 +90,7 @@ class Window final : public QMainWindow {
     std::shared_ptr<hive::automation::LandmarkNavigation> localization_;
     std::shared_ptr<hive::automation::HiveSetupResult> hive_setup_=std::make_shared<hive::automation::HiveSetupResult>();
     QSettings settings_;
+    hive::app::Updates* updates_{};
     std::shared_ptr<hive::game::HiveConversion> conversion_=std::make_shared<hive::game::HiveConversion>();
     bool permissions_ready_{};
     std::shared_ptr<const hive::game::MovementSpeedSource> movement_speed_;
@@ -131,6 +135,7 @@ class Window final : public QMainWindow {
         permission_->setText(QString("Screen capture: %1   ·   Input: %2\n%3").arg(p.capture?"Allowed":"Permission needed",p.input?"Allowed":"Permission needed",q(p.detail)));
     }
     void prepare_start() {
+        if (updates_ && updates_->installing()) throw std::runtime_error("Wait for the app update to finish before starting.");
         hive_setup_->clear_join();
         refresh();
         const auto permissions=desktop_->permissions();
@@ -212,6 +217,7 @@ class Window final : public QMainWindow {
                 return RemoteReply{"Recent activity",recent.isEmpty()?QString("No activity yet."):recent};
             },{{"lines","Maximum recent lines to include",RemoteOptionType::integer,false,{},1,100}}},
             {"rejoin","Rejoin the configured server and restart the farming routine",true,[this](const RemoteArguments&) {
+                if (updates_ && updates_->installing()) return RemoteReply{"Rejoin","An app update is in progress."};
                 if (start_timer_.isActive()) return RemoteReply{"Rejoin","Already starting or rejoining."};
                 if (!native_modules_.startup) throw std::runtime_error("Set your base move speed in Settings first");
                 const auto permissions=desktop_->permissions();
@@ -243,6 +249,11 @@ public:
         auto sidebar=new QWidget; sidebar->setObjectName("sidebar"); sidebar->setFixedWidth(120); auto side=new QVBoxLayout(sidebar); side->setContentsMargins(8,12,8,10);
         side->addWidget(label(QGuiApplication::applicationDisplayName(),"brand"));  side->addSpacing(10);
         auto navigation=new hive::Navigation; navigation->addItems({"Settings"}); side->addWidget(navigation,1);  shell->addWidget(sidebar);
+        updates_=new hive::app::Updates(this,[this] {
+            const auto state=session_.status().state;
+            return start_timer_.isActive() || state==hive::RunState::running || state==hive::RunState::paused;
+        });
+        side->addWidget(updates_->version_row());
         auto workspace=new QWidget; auto workspace_layout=new QVBoxLayout(workspace); workspace_layout->setContentsMargins(0,0,0,0); workspace_layout->setSpacing(0);
         auto pages=new QStackedWidget; workspace_layout->addWidget(pages,1); shell->addWidget(workspace,1);
         auto session_bar=new QWidget; session_bar->setObjectName("session-bar"); auto bar=new QHBoxLayout(session_bar); bar->setContentsMargins(12,8,12,8); bar->setSpacing(6);
@@ -507,7 +518,7 @@ public:
         };
         extensions_=std::make_unique<hive::ExtensionsUi>(navigation,pages,bundled,data+"/extensions",data+"/extension-settings.json",[this] {
             const auto state=session_.status().state;
-            return start_timer_.isActive() || state==hive::RunState::running || state==hive::RunState::paused;
+            return updates_->installing() || start_timer_.isActive() || state==hive::RunState::running || state==hive::RunState::paused;
         },[this](hive::extensions::Host& host) {
             session_.configure_server_requests(host.request_source());
             hive::extensions::register_builtin_modules(host);
@@ -753,7 +764,7 @@ public:
             reconnect_hours->setEnabled(!active && !start_timer_.isActive());
             reconnect_minute->setEnabled(reconnect_hours->isEnabled() && reconnect_hours->currentData().toInt()>0);
             player_speed->set_available(!active && !start_timer_.isActive());
-            run_routine->setEnabled(!features.empty() && !active && !start_timer_.isActive());
+            run_routine->setEnabled(!features.empty() && !active && !start_timer_.isActive() && !updates_->installing());
             start_macro->setEnabled(run_routine->isEnabled());
             pause_->setEnabled(active && !start_timer_.isActive()); stop->setEnabled(active || start_timer_.isActive());
             pause_->setToolTip(routine_?"Use F2 while Roblox is focused to pause after the current activity, cancel a pending pause, or resume. Esc stops immediately.":"Pause the current work.");
@@ -769,6 +780,10 @@ public:
 };
 }
 int main(int argc,char** argv) {
+    if (argc==3 && std::strcmp(argv[1],"--apply-update")==0) {
+        QCoreApplication helper(argc,argv);
+        return hive::app::updates::apply_update(helper.arguments().at(2));
+    }
     QApplication app(argc,argv);
     QCoreApplication::setApplicationVersion(AUREX_VERSION);
     app.setApplicationDisplayName("Aurex");
@@ -784,6 +799,17 @@ int main(int argc,char** argv) {
             const auto index=args.indexOf("--screenshot"); if (index+1>=args.size()) return 1;
             QTimer::singleShot(300,[&,path=args[index+1]] { app.exit(window.grab().save(path)?0:1); });
         }
+        const auto cleanup=args.indexOf("--finish-update");
+        if (cleanup>=0 && cleanup+1<args.size()) {
+            auto timer=new QTimer(&window); timer->setInterval(1000);
+            QObject::connect(timer,&QTimer::timeout,&window,[timer,path=args[cleanup+1],attempts=0]() mutable {
+                if (hive::app::updates::cleanup_update(path) || ++attempts>=5) { timer->stop(); timer->deleteLater(); }
+            }); timer->start();
+        }
+        const auto error=args.indexOf("--update-error");
+        if (error>=0 && error+1<args.size()) QTimer::singleShot(0,&window,[&window,message=args[error+1]] {
+            QMessageBox::warning(&window,"Aurex update",message);
+        });
         return app.exec();
     } catch (const std::exception& error) {
         QMessageBox::critical(nullptr,"Aurex could not open",QString::fromUtf8(error.what()));
