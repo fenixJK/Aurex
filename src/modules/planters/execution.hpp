@@ -5,8 +5,6 @@
 #include "core/runtime/program.hpp"
 #include "game/actions/travel/services.hpp"
 #include "game/actions/travel/field_routes.hpp"
-#include "game/detection/nectar.hpp"
-#include "game/detection/planters.hpp"
 #include <atomic>
 #include <mutex>
 
@@ -14,16 +12,13 @@ namespace hive::features::planters {
 struct Snapshot {
     Observation<std::vector<Group>> nectar;
     Observation<Placements> placements;
-    Observation<Growth> growth;
-    Observation<game::NectarLevels> nectar_levels;
-    Observation<std::string> harvest_prompt;
-    Observation<std::vector<game::PlanterReward>> rewards;
+    Observation<bool> harvest_prompt,growth_bar;
 };
 class Source {
 public:
     virtual ~Source()=default;
     virtual Snapshot read(const automation::View& view) const=0;
-    virtual Snapshot read_at(const automation::View& view,const std::string&) const { return read(view); }
+    virtual Snapshot read_at(const automation::View& view,const Stats&) const { return read(view); }
     virtual Observation<bool> placement_visible(const automation::View&) const { return {}; }
 };
 class Actions {
@@ -82,7 +77,7 @@ struct ExecutionPlan {
     automation::ProgramFactory route_recovery;
     movement::Source movement;
 };
-enum class ExecutionStage { ready, planning, preparing, travelling, checking, acting, confirming, reconciling, looting, returning, checking_backpack, converting, finished, locating };
+enum class ExecutionStage { ready, planning, preparing, travelling, checking, acting, confirming, looting, returning, checking_backpack, converting, finished, locating };
 struct ExecutionReport {
     automation::State state{automation::State::ready};
     ExecutionStage stage{ExecutionStage::ready};

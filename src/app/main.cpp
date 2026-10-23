@@ -441,10 +441,12 @@ public:
         native_modules_.field_boosts=channels.at("field-boosts");
         session_.configure_hotbar(native_modules_.boosting);
         native_modules_.planters.inventory=hive::game::inventory_source(channels.at("inventory"),inventory_requests,native_modules_.stock);
-        native_modules_.planters.detection=hive::game::planter_source(channels.at("planters"));
-        native_modules_.planters.observations=hive::features::planters::interaction_source(
-            hive::game::nectar_source(channels.at("nectar")),native_modules_.planters.detection,
-            hive::game::landmark_source(channels.at("planter-presence"),"planter.present"));
+        native_modules_.planters.harvest_prompt=hive::game::landmark_source(channels.at("planter-harvest"),"interaction.prompt");
+        native_modules_.planters.observations=hive::features::planters::observed_source(
+            hive::game::nectar_source(channels.at("nectar")),
+            native_modules_.planters.harvest_prompt,
+            hive::game::landmark_source(channels.at("planter-presence"),"planter.present"),
+            hive::game::landmark_source(channels.at("planter-presence"),"planter.growth-bar"));
         const auto sprinkler_references=channels.at("sprinkler-reference");
         const auto spawn_view=hive::game::landmark_source(channels.at("spawn-view"),"spawn.reference");
         const auto hive_slots=hive::game::hive_slots_source(channels.at("hive-slots"));

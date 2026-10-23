@@ -1,5 +1,4 @@
 #include "items.hpp"
-#include "game/detection/dialog.hpp"
 #include "game/data/stations.hpp"
 
 namespace hive::features::collection {
@@ -58,7 +57,7 @@ public:
                 return close("Sticker Stack needs 25 tickets");
             }
             if (phase_==Phase::purchase) {
-                const auto dialog=game::read_dialog(c,s.text,{{"25 Tickets"},{.1,.1,.8,.85},.7f,game::PromptMatch::phrase});
+                const auto& dialog=s.confirmation;
                 if (dialog.has_value(c,Time(2000),minimum_)) {
                     phase_=Phase::submitted;
                     return click(dialog.value.yes,dialog.captured,"Activate Sticker Stack for 25 tickets");

@@ -31,7 +31,7 @@ struct PlanterServices {
     features::planters::WallClock clock;
     std::function<ObservationContext()> context;
     std::shared_ptr<const game::InventorySource> inventory;
-    std::shared_ptr<const game::PlanterSource> detection;
+    std::shared_ptr<const game::LandmarkSource> harvest_prompt;
 };
 struct CollectionServices {
     features::collection::Plan plan;

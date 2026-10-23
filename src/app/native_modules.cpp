@@ -95,10 +95,10 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
     planters.setup=service.plan.hive_setup;
     planters.death_recovery=service.plan.recovery;
     planters.conversion=features::planters::HarvestConversion{95,true,true};
-    if (modules.planters.inventory && modules.planters.detection) {
+    if (modules.planters.inventory && modules.planters.harvest_prompt) {
         planters.attempt_unscanned_placement=true;
         modules.planters.actions=planters.destinations.empty()?nullptr:
-            features::planters::desktop_actions(planters,modules.planters.inventory,modules.planters.detection);
+            features::planters::desktop_actions(planters,modules.planters.inventory,modules.planters.harvest_prompt);
     }
     modules.collection.plan=features::collection::routed_plan(*routes,*speed,return_to_hive,modules.collection.memory,modules.collection.daylight,modules.collection.item_menus);
     modules.collection.plan.inventory=modules.collection.inventory;

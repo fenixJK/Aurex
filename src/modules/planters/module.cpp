@@ -33,7 +33,7 @@ std::string phase(ExecutionStage stage) {
     case ExecutionStage::preparing: return "Preparing travel";
     case ExecutionStage::travelling: return "Travelling"; case ExecutionStage::checking: return "Checking field";
     case ExecutionStage::acting: return "Using planter"; case ExecutionStage::confirming: return "Confirming outcome";
-    case ExecutionStage::reconciling: return "Checking previous action"; case ExecutionStage::finished: return "Finished";
+    case ExecutionStage::finished: return "Finished";
     case ExecutionStage::looting: return "Collecting planter loot"; case ExecutionStage::returning: return "Returning";
     case ExecutionStage::checking_backpack: return "Checking backpack"; case ExecutionStage::converting: return "Converting honey";
     case ExecutionStage::locating: return "Locating planter";

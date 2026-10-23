@@ -5,40 +5,34 @@ namespace hive::features::planters {
 namespace {
 class ObservedSource final : public Source {
     std::shared_ptr<const game::NectarSource> nectar_;
-    std::shared_ptr<const Source> field_;
-    std::shared_ptr<const game::PlanterSource> planters_;
-    std::shared_ptr<const game::LandmarkSource> placement_visible_;
+    std::shared_ptr<const game::LandmarkSource> harvest_prompt_,placement_visible_,growth_bar_;
 public:
-    ObservedSource(std::shared_ptr<const game::NectarSource> nectar,std::shared_ptr<const Source> field,std::shared_ptr<const game::PlanterSource> planters,
-        std::shared_ptr<const game::LandmarkSource> placement_visible)
-        :nectar_(std::move(nectar)),field_(std::move(field)),planters_(std::move(planters)),placement_visible_(std::move(placement_visible)) {
-        if (!nectar_ || !field_) throw std::invalid_argument("Planters needs nectar and field observations");
+    ObservedSource(std::shared_ptr<const game::NectarSource> nectar,
+        std::shared_ptr<const game::LandmarkSource> harvest_prompt,std::shared_ptr<const game::LandmarkSource> placement_visible,
+        std::shared_ptr<const game::LandmarkSource> growth_bar)
+        :nectar_(std::move(nectar)),harvest_prompt_(std::move(harvest_prompt)),placement_visible_(std::move(placement_visible)),growth_bar_(std::move(growth_bar)) {
+        if (!nectar_ || !harvest_prompt_ || !placement_visible_ || !growth_bar_)
+            throw std::invalid_argument("Planters needs nectar, bar and interaction observations");
     }
-    Snapshot read(const automation::View& view) const override { return sample(view,field_->read(view),false); }
-    Snapshot read_at(const automation::View& view,const std::string& field) const override { return sample(view,field_->read_at(view,field),true); }
-    Observation<bool> placement_visible(const automation::View& view) const override {
-        return placement_visible_?placement_visible_->read(view.context):Observation<bool>{};
-    }
-    Snapshot sample(const automation::View& view,Snapshot snapshot,bool at_field) const {
-        if (planters_ && at_field) {
-            snapshot.growth={};
-            snapshot.rewards=planters_->rewards(view.context);
-            snapshot.harvest_prompt=planters_->interaction(view.context);
-            const auto visible=planters_->read(view.context);
-            const auto& scope=snapshot.placements;
-            if (visible.has_value(view.context,Time(2000)) && scope.has_value(view.context,Time(2000)) && !scope.value.field.empty()
-                && std::chrono::abs(visible.captured-scope.captured)<=Time(500)) {
-                for (const auto& planter : visible.value) {
-                    const auto id=planter.type+"/"+scope.value.field;
-                    if (!scope.value.identities.contains(id)) continue;
-                    if (snapshot.growth.knowledge==Knowledge::present) { snapshot.growth={}; break; }
-                    snapshot.growth={Knowledge::present,{id,planter.minimum_percent/100},visible.captured,visible.window,visible.generation};
-                }
-            }
+    Snapshot read(const automation::View& view) const override { return sample(view,{}); }
+    Snapshot read_at(const automation::View& view,const Stats& expected) const override {
+        Snapshot snapshot;
+        const auto prompt=harvest_prompt_->read(view.context);
+        snapshot.harvest_prompt=prompt;
+        if (prompt.usable(view.context,Time(2000))) {
+            // The saved placement supplies identity. The E/Harvest banner only
+            // confirms that this visit has reached an interactable planter.
+            Placements local{{},false,expected.field};
+            if (prompt.has_value(view.context,Time(2000)) && prompt.value) local.identities.insert(identity(expected));
+            snapshot.placements={Knowledge::present,std::move(local),prompt.captured,prompt.window,prompt.generation};
         }
+        snapshot.growth_bar=growth_bar_->read(view.context);
+        return sample(view,std::move(snapshot));
+    }
+    Observation<bool> placement_visible(const automation::View& view) const override { return placement_visible_->read(view.context); }
+    Snapshot sample(const automation::View& view,Snapshot snapshot) const {
         snapshot.nectar={};
         const auto reading=nectar_->read(view.context);
-        snapshot.nectar_levels=reading;
         if (!reading.has_value(view.context,Time(2000))) return snapshot;
         constexpr std::array mapping{
             std::pair{game::Nectar::comforting,Nectar::comforting},std::pair{game::Nectar::refreshing,Nectar::refreshing},
@@ -56,69 +50,28 @@ public:
         return snapshot;
     }
 };
-class InteractionSource final : public Source {
-    std::shared_ptr<const game::PlanterSource> planters_;
-public:
-    explicit InteractionSource(std::shared_ptr<const game::PlanterSource> planters):planters_(std::move(planters)) {
-        if (!planters_) throw std::invalid_argument("Planter interaction observations are missing");
-    }
-    Snapshot read(const automation::View&) const override { return {}; }
-    Snapshot read_at(const automation::View& view,const std::string& field) const override {
-        if (field.empty() || std::none_of(catalog().begin(),catalog().end(),[&](const Stats& s) { return s.field==field; }))
-            throw std::invalid_argument("Unknown planter visit field");
-        Snapshot result;
-        const auto prompt=planters_->interaction(view.context);
-        if (!prompt.usable(view.context,Time(2000))) return result;
-        Placements placements{{},false,field};
-        if (prompt.knowledge==Knowledge::present) {
-            game::planter_harvest_prompt(prompt.value);
-            placements.identities.insert(prompt.value+"/"+field);
-        } else if (prompt.knowledge!=Knowledge::absent || !prompt.value.empty()) return result;
-        result.placements={Knowledge::present,std::move(placements),prompt.captured,prompt.window,prompt.generation};
-        return result;
-    }
-};
 }
-Observation<HarvestEvidence> harvest_receipt(const Stats& planter,const Observation<game::NectarLevels>& before,
-    const Snapshot& after,const ObservationContext& c,Time minimum) {
-    if (planter.nectar<Nectar::comforting || planter.nectar>Nectar::invigorating || minimum<Time{} || minimum>c.now
-        || !before.has_value(c,Time(30000)) || before.captured>=minimum
-        || !after.nectar_levels.has_value(c,Time(2000),minimum)
-        || !after.harvest_prompt.usable(c,Time(2000),minimum) || after.harvest_prompt.knowledge!=Knowledge::absent) return {};
-    const auto id=identity(planter);
-    if (after.placements.has_value(c,Time(2000),minimum) && after.placements.value.identities.contains(id)) return {};
-    const auto index=static_cast<std::size_t>(planter.nectar);
-    const auto& old=before.value; const auto& now=after.nectar_levels.value;
-    const auto valid=[](const game::NectarLevels& levels,std::size_t i) {
-        return levels.percent[i] && std::isfinite(*levels.percent[i]) && *levels.percent[i]>=0 && *levels.percent[i]<=100
-            && std::isfinite(levels.uncertainty_percent) && levels.uncertainty_percent>=0 && levels.uncertainty_percent<=100;
+Observation<HarvestEvidence> harvest_receipt(const Stats& planter,bool had_growth_bar,
+    const Snapshot& after,const automation::View& view,Time minimum) {
+    const auto& c=view.context;
+    const auto* state=view.observations;
+    // Dialogs hide world UI too. Only inspect disappearance in a live view
+    // after the interaction, once the confirmation dialog is closed.
+    if (!state || !state->game_hud.has_value(c,Time(2000),minimum) || !state->game_hud.value
+        || !state->confirmation.usable(c,Time(2000),minimum) || state->confirmation.knowledge!=Knowledge::absent) return {};
+    const auto gone=[&](const Observation<bool>& reading) {
+        return reading.usable(c,Time(2000),minimum) && reading.knowledge==Knowledge::absent;
     };
-    if (!valid(old,index) || !valid(now,index) || *now.percent[index]-now.uncertainty_percent<=*old.percent[index]+old.uncertainty_percent) return {};
-    return {Knowledge::present,{id,std::max(after.nectar_levels.captured,after.harvest_prompt.captured)},
-        std::min(after.nectar_levels.captured,after.harvest_prompt.captured),c.window,c.generation};
+    const auto* disappearance=gone(after.harvest_prompt)?&after.harvest_prompt:
+        had_growth_bar && gone(after.growth_bar)?&after.growth_bar:nullptr;
+    if (!disappearance) return {};
+    const auto earliest=std::min({disappearance->captured,state->game_hud.captured,state->confirmation.captured});
+    const auto latest=std::max({disappearance->captured,state->game_hud.captured,state->confirmation.captured});
+    return {Knowledge::present,{identity(planter),latest},earliest,c.window,c.generation};
 }
-Observation<HarvestEvidence> reward_receipt(const Stats& planter,const Observation<std::vector<game::PlanterReward>>& before,
-    const Snapshot& after,const ObservationContext& c,Time minimum) {
-    if (planter.nectar<Nectar::comforting || planter.nectar>Nectar::invigorating || minimum<Time{} || minimum>c.now
-        || !before.has_value(c,Time(30000)) || before.captured>=minimum
-        || !after.rewards.has_value(c,Time(2000),minimum) || after.rewards.captured<=minimum) return {};
-    const auto id=identity(planter);
-    if (after.placements.has_value(c,Time(2000),minimum) && after.placements.value.identities.contains(id)) return {};
-    for (const auto& reward : after.rewards.value) {
-        if (reward.type!=planter.planter || (reward.nectar && static_cast<int>(*reward.nectar)!=static_cast<int>(planter.nectar))
-            || reward.text.empty() || std::find(before.value.begin(),before.value.end(),reward)!=before.value.end()) continue;
-        return {Knowledge::present,{id,after.rewards.captured},after.rewards.captured,c.window,c.generation};
-    }
-    return {};
-}
-std::shared_ptr<const Source> interaction_source(std::shared_ptr<const game::NectarSource> nectar,std::shared_ptr<const game::PlanterSource> planters,
-    std::shared_ptr<const game::LandmarkSource> placement_visible) {
-    if (!placement_visible) throw std::invalid_argument("Planter placement needs visual presence observations");
-    auto field=std::make_shared<InteractionSource>(planters);
-    return observed_source(std::move(nectar),std::move(field),std::move(planters),std::move(placement_visible));
-}
-std::shared_ptr<const Source> observed_source(std::shared_ptr<const game::NectarSource> nectar,std::shared_ptr<const Source> field,
-    std::shared_ptr<const game::PlanterSource> planters,std::shared_ptr<const game::LandmarkSource> placement_visible) {
-    return std::make_shared<ObservedSource>(std::move(nectar),std::move(field),std::move(planters),std::move(placement_visible));
+std::shared_ptr<const Source> observed_source(std::shared_ptr<const game::NectarSource> nectar,
+    std::shared_ptr<const game::LandmarkSource> harvest_prompt,std::shared_ptr<const game::LandmarkSource> placement_visible,
+    std::shared_ptr<const game::LandmarkSource> growth_bar) {
+    return std::make_shared<ObservedSource>(std::move(nectar),std::move(harvest_prompt),std::move(placement_visible),std::move(growth_bar));
 }
 }

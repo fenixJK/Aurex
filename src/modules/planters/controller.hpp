@@ -47,7 +47,6 @@ public:
     virtual std::optional<Ledger> load() const=0;
     virtual void save(const Ledger& ledger)=0;
 };
-struct ReturnedPlanter { std::string identity; Time first_seen{}; };
 class Controller {
 public:
     explicit Controller(std::shared_ptr<Store> store,std::size_t capacity=3);
@@ -56,7 +55,6 @@ public:
     const Ledger& ledger() const { return ledger_; }
     std::uint64_t place(const Assignment& assignment,const ObservationContext& context,WallTime wall,const Observation<Placements>& placements,bool attempt=false);
     std::uint64_t harvest(std::uint64_t plant,const ObservationContext& context,WallTime wall,const Observation<Placements>& placements,const Observation<Growth>& growth);
-    WallTime refresh_growth(std::uint64_t plant,const ObservationContext& context,WallTime wall,const Observation<Placements>& placements,const Observation<Growth>& growth);
     Outcome observe(std::uint64_t ticket,const ObservationContext& context,WallTime wall,const Observation<Placements>& placements,
         const Observation<HarvestEvidence>& harvested={});
     void input_finished(std::uint64_t ticket,const ObservationContext& context);
@@ -66,7 +64,6 @@ public:
     void exclude_offline(WallTime begin,WallTime end);
     void abandon_unstarted_placement(std::uint64_t ticket,WallTime wall);
     void reserve_unconfirmed();
-    bool reconcile_returned(const ObservationContext& context,WallTime wall,const Observation<ReturnedPlanter>& returned);
 private:
     std::shared_ptr<Store> store_;
     std::size_t capacity_;

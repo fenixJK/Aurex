@@ -65,7 +65,7 @@ std::vector<game::DetectorConfig> game_detectors(std::shared_ptr<game::Inventory
         {"movement-buffs",hive::game::movement_buff_detector(),hive::Time(100),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::responsive},
         {"respawn-menu",hive::game::respawn_detector(),hive::Time(100),hive::game::DetectionMode::pixels},
         {"nectar",hive::game::nectar_detector(),hive::Time(750),hive::game::DetectionMode::pixels},
-        {"planters",hive::game::planter_detector()},
+        {"planter-harvest",hive::game::interaction_prompt_detector("Harvest"),hive::Time(100),hive::game::DetectionMode::pixels},
         {"inventory",hive::game::inventory_detector(hive::game::inventory_layout(),inventory_requests)},
         {"blooms",hive::game::bloom_detector(),hive::Time(250),hive::game::DetectionMode::pixels},
         {"npc-conversation",hive::game::conversation_detector(),hive::Time(100),hive::game::DetectionMode::pixels},

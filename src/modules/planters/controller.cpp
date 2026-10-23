@@ -187,25 +187,6 @@ std::uint64_t Controller::harvest(std::uint64_t id,const ObservationContext& c,W
     next.pending=Intent{ticket,Operation::harvest,saved}; Transaction transaction(Operation::harvest,identity(found->stats),c,placements);
     commit(std::move(next)); transaction_=std::move(transaction); confirmed_at_.reset(); return ticket;
 }
-WallTime Controller::refresh_growth(std::uint64_t id,const ObservationContext& c,WallTime wall,const Observation<Placements>& placements,const Observation<Growth>& growth) {
-    if (ledger_.pending) throw std::logic_error("A planter action is already pending");
-    clock(wall);
-    auto next=ledger_;
-    const auto found=std::find_if(next.plants.begin(),next.plants.end(),[&](const Plant& p) { return p.id==id; });
-    if (found==next.plants.end()) throw std::runtime_error("Unknown planter growth identity");
-    baseline(c,placements,identity(found->stats));
-    if ((!placements.value.field.empty() && placements.value.field!=found->stats.field)
-        || !growth.has_value(c,Time(2000)) || growth.value.identity!=identity(found->stats)
-        || !std::isfinite(growth.value.fraction) || growth.value.fraction<0 || growth.value.fraction>1
-        || std::chrono::abs(placements.captured-growth.captured)>Time(500))
-        throw std::runtime_error("Fresh matching planter growth is required");
-    const auto observed=wall-(c.now-growth.captured);
-    if (observed<found->placed) throw std::runtime_error("Growth predates planter placement");
-    if (found->growth && observed<=found->growth->observed) return ready_at(*found);
-    const auto fraction=growth.value.fraction;
-    found->growth=GrowthSample{observed,fraction,found->offline};
-    const auto due=ready_at(*found); commit(std::move(next)); return due;
-}
 void Controller::finish(bool present,WallTime wall) {
     auto next=ledger_; const auto& intent=*next.pending;
     if (intent.operation==Operation::place && present) {
@@ -213,7 +194,7 @@ void Controller::finish(bool present,WallTime wall) {
         plant.placed=wall; plant.due=wall+duration; plant.offline={}; next.plants.push_back(std::move(plant));
         next.fields[intent.plant.stats.field]=wall;
     } else if (intent.operation==Operation::harvest && !present) {
-        const bool full=intent.plant.growth && intent.plant.growth->fraction>=1.0;
+        const bool full=estimated_age(intent.plant,wall)>=intent.plant.stats.full_seconds;
         material_harvest(next.materials,intent.plant.stats,full,wall.time_since_epoch(),intent.plant.material);
         next.fields[intent.plant.stats.field]=wall;
         std::erase_if(next.plants,[&](const Plant& p) { return p.id==intent.plant.id; });
@@ -255,27 +236,6 @@ void Controller::reserve_unconfirmed() {
     }
     next.pending.reset();
     commit(std::move(next)); interrupt();
-}
-bool Controller::reconcile_returned(const ObservationContext& c,WallTime wall,const Observation<ReturnedPlanter>& returned) {
-    if (transaction_) throw std::logic_error("Cannot reconcile an active planter action");
-    if (!returned.has_value(c,Time(2000)) || returned.value.first_seen<Time{} || returned.value.first_seen>returned.captured
-        || returned.captured-returned.value.first_seen>Time(2000)) return false;
-    const Plant* target=nullptr;
-    if (ledger_.pending) target=&ledger_.pending->plant;
-    else for (const auto& plant : ledger_.plants) if (identity(plant.stats)==returned.value.identity) target=&plant;
-    if (!target || returned.value.identity!=identity(target->stats)) return false;
-    const auto& type=target->stats.planter;
-    const std::set<std::string> reusable{"PlasticPlanter","CandyPlanter","BlueClayPlanter","RedClayPlanter","TackyPlanter",
-        "PesticidePlanter","HeatTreatedPlanter","HydroponicPlanter","PetalPlanter","PlanterOfPlenty"};
-    if (!reusable.contains(type)) return false;
-    clock(wall);
-    if (ledger_.pending) finish(false,wall);
-    else {
-        auto next=ledger_; const auto id=target->id;
-        std::erase_if(next.plants,[&](const Plant& plant) { return plant.id==id; });
-        commit(std::move(next));
-    }
-    return true;
 }
 void Controller::interrupt() noexcept { transaction_.reset(); confirmed_at_.reset(); }
 bool Controller::mark_missing(std::uint64_t id) {

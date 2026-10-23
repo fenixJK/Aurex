@@ -3,7 +3,7 @@
 
 namespace hive::workflows {
 void validate(const DialogPlan& plan) {
-    game::validate(plan.question);
+    if (plan.read_question) game::validate(plan.question);
     if ((plan.choice!=DialogChoice::yes && plan.choice!=DialogChoice::no) || plan.timeout<Time(1000) || plan.timeout>Time(30000))
         throw std::invalid_argument("Invalid dialog action");
 }
