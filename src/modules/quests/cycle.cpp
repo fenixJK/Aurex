@@ -5,6 +5,26 @@
 #include <algorithm>
 
 namespace hive::features::quests {
+std::string request_blockers(const Card& card,const extensions::WorkSnapshot& work) {
+    std::string result;
+    for (const auto& row:card.objectives) {
+        if (!row.known || !row.required || row.collected>=row.required) continue;
+        std::string channel,label=row.text;
+        switch (row.kind) {
+        case Kind::enemy: case Kind::any_enemy:
+            channel="enemies"; label=row.enemy.empty()?"Enemy defeats":row.enemy+" defeats"; break;
+        case Kind::station: channel="stations"; break;
+        case Kind::field_pollen: case Kind::field_activity: case Kind::any_pollen: case Kind::gather_activity:
+        case Kind::red_pollen: case Kind::blue_pollen: case Kind::white_pollen: channel="fields"; break;
+        default: continue;
+        }
+        const auto found=work.blocked_requests.find(channel);
+        if (found==work.blocked_requests.end()) continue;
+        if (!result.empty()) result+="; ";
+        result+=label+" · "+found->second;
+    }
+    return result;
+}
 namespace {
 bool complete(const Card& card) {
     return card.complete_view && !card.objectives.empty() && std::all_of(card.objectives.begin(),card.objectives.end(),[](const auto& row) {
@@ -169,6 +189,17 @@ public:
                 const auto current=card(view);
                 if (!current || !current->complete_view || std::any_of(current->objectives.begin(),current->objectives.end(),[](const auto& row) { return !row.known; }))
                     return Defer{"Could not read all objectives for "+giver+"; retry after other work"};
+            }
+            if (plan_.work) {
+                const auto work=plan_.work->read();
+                if (work.generation==view.context.generation) for (const auto& giver:plan_.givers) {
+                    giver_=giver;
+                    if (const auto current=card(view)) {
+                        const auto reason=request_blockers(*current,work);
+                        if (results_->blocker_changed(*current,reason))
+                            return ReportActivity{{"Quest objective blocked",giver+" · "+reason}};
+                    }
+                }
             }
             return Done{"Quest objectives refreshed"};
         }

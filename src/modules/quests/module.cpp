@@ -114,6 +114,13 @@ public:
         }
         for (const auto& [giver,objective]:report_.actions)
             if (!cycle_ || !cycle_->actions.contains(objective.target)) report_.blocked.push_back(giver+": "+objective.text+" needs an action provider");
+        if (cycle_ && cycle_->work) {
+            const auto work=cycle_->work->read();
+            if (work.generation==generation_) for (const auto& [giver,card]:tracker_.observed_cards()) {
+                const auto reason=request_blockers(card.value,work);
+                if (!reason.empty()) report_.blocked.push_back(giver+": "+reason);
+            }
+        }
         report_.requests.generation=generation_; report_.requests.revision=++revision_;
     }
     std::vector<extensions::Metric> metrics() const override {

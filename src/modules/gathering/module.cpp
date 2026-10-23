@@ -372,6 +372,7 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
     result.enabled_by_default=true;
     result.setup_profiles={{"Honey farming",20,{}},{"Quest progress",50,{}},{"Materials",50,{}}};
     result.description="Follow the configured field rotation, gather, return to the hive and convert. Active field requests can temporarily change the selected field.";
+    result.consumes.insert(extensions::RequestService::fields);
     result.permissions=permissions; result.settings_version=9;
     result.settings={{"cycles","Completed cycles",static_cast<int>(defaults.cycles),1,10000,{}},
         {"run-seconds","Run limit (seconds)",static_cast<int>(defaults.config.duration.count()/1000),1,28800,{}}};

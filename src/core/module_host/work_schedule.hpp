@@ -2,6 +2,7 @@
 #include "core/runtime/model.hpp"
 #include <mutex>
 #include <set>
+#include <map>
 
 namespace hive::extensions {
 struct WorkEstimate {
@@ -18,6 +19,7 @@ struct WorkSnapshot {
     std::uint64_t generation{};
     std::vector<WorkOffer> offers;
     std::vector<ProtectedWork> windows;
+    std::map<std::string,std::string> blocked_requests;
     const WorkEstimate* find(const std::string& owner) const;
     Time wait_until(const std::string& owner,Time now) const;
     bool can_start_window(const std::string& owner,Time now,Time duration) const;

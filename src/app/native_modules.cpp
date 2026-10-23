@@ -188,7 +188,8 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
         });
     }
     {
-        const auto service=modules.quests;
+        auto service=modules.quests;
+        if (service.cycle) service.cycle->work=host.work_schedule();
         const bool automatic=bool(service.browser) && bool(service.conversation);
         Requirements requirements;
         requirements.need(!automatic || service.cycle.has_value(),"quest travel and base movement speed");

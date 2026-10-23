@@ -367,6 +367,18 @@ void Host::update(const SessionView& view) {
     }
     std::erase_if(work.offers,[&](const auto& offer) { return !entries_.at(offer.owner).active(); });
     std::erase_if(work.windows,[&](const auto& window) { return !entries_.at(window.owner).active(); });
+    // A disabled provider is different from an enabled one with no work due.
+    std::set<std::string> available;
+    for (const auto& [_,entry]:entries_) for (const auto& channel:entry.manifest.consumes) {
+        if (entry.executable()) available.insert(channel);
+        else {
+            auto& reason=work.blocked_requests[channel];
+            if (!reason.empty()) reason+="; ";
+            reason+=entry.manifest.name+(entry.requested?" is unavailable":" is disabled");
+            if (entry.requested && !entry.issue.empty()) reason+=": "+entry.issue;
+        }
+    }
+    for (const auto& channel:available) work.blocked_requests.erase(channel);
     work_schedule_->publish(std::move(work));
 }
 std::vector<Metric> Host::metrics(const std::string& id) const {

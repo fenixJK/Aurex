@@ -149,11 +149,14 @@ class Execution final : public automation::Program {
             for (const auto& plant : controller_->ledger().plants) report.records.emplace_back(plant.id,identity(plant.stats));
         }
     }
-    void report_outcome() {
+    std::string planter_target() const {
         std::string name=selected_.planter;
         for (const auto& item:equipment()) if (item.id==name) { name=item.label; break; }
         if (name.find("Planter")==std::string::npos) name+=" Planter";
-        pending_report_=ActivityStatus{harvest_?"Planter harvested":"Planter placed",name+" · "+selected_.field};
+        return name+" · "+selected_.field;
+    }
+    void report_outcome() {
+        pending_report_=ActivityStatus{harvest_?"Planter harvested":"Planter placed",planter_target()};
     }
     void complete_action() {
         recoveries_=0;
@@ -359,10 +362,7 @@ public:
     RunConfig config() const override { return plan_.config; }
     ActivityStatus activity_status() const override {
         if (selected_.field.empty()) return {};
-        std::string name=selected_.planter;
-        for (const auto& item:equipment()) if (item.id==name) { name=item.label; break; }
-        if (name.find("Planter")==std::string::npos) name+=" Planter";
-        const auto target=name+" · "+selected_.field;
+        const auto target=planter_target();
         switch (phase_) {
         case Phase::preparing: return {};
         case Phase::arriving: return {"Travelling",target};
@@ -480,7 +480,7 @@ public:
             if (controller_->ledger().pending) {
                 selected_=controller_->ledger().pending->plant.stats;
                 settle_action();
-                return emit(ReportActivity{{"Planter not confirmed",selected_.field+" · slot reserved; correct or remove its timer",ActivityKind::failure}});
+                return emit(ReportActivity{{"Saved planter needs review",planter_target()+" · previous action unconfirmed; slot reserved. Correct or remove its timer."}});
             }
             if (const auto* due=due_plant(now)) {
                 selected_=due->stats; harvest_=due->id; assignment_.reset(); return travel(view);
