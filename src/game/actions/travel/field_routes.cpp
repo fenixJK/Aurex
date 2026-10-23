@@ -83,7 +83,7 @@ std::shared_ptr<const workflows::RouteCatalog> walking_field_routes(unsigned hiv
         routes.push_back({{"hive-"+field,"hive.departure",field+".entry",estimate(outbound),{"hive.departure.prepared"},game::RouteArrival::estimated,{},timeout(outbound)},std::move(outbound)});
         routes.push_back({{field+"-hive",field+".entry","hive.proximity",estimate(inbound),{field+".return.prepared"},game::RouteArrival::observed,{},timeout(inbound)},std::move(inbound)});
     };
-    for (const auto* field:{"dandelion","mushroom","clover","spider","strawberry","cactus","pumpkin","pinetree","rose","pineapple","mountaintop","stump","coconut","pepper","blueflower","bamboo"}) add(field);
+    for (const auto& field:game::fields()) if (field.id!="sunflower") add(field.id);
     auto locations=detail::locations(routes);
     return std::make_shared<workflows::RouteCatalog>(
         std::move(locations),std::move(routes));
@@ -118,9 +118,13 @@ namespace {
 class FieldReturn final : public Program {
     std::vector<Step> steps_;
     RunConfig config_;
+    std::shared_ptr<HiveSetupResult> hive_;
+    std::optional<ObservationContext> started_;
+    unsigned slot_{};
 public:
     FieldReturn(const std::string& field,double speed,unsigned hive_slot,bool planting,FieldReturnOptions options) {
         if (options.hive) if (const auto state=options.hive->read();state && state->claimed_slot) hive_slot=*state->claimed_slot;
+        hive_=options.hive; slot_=hive_slot;
         if (std::none_of(game::fields().begin(),game::fields().end(),[&](const auto& value) { return value.id==field; }) || hive_slot>6 || !std::isfinite(speed) || speed<8 || speed>200)
             throw std::invalid_argument("Field return requires a valid speed and optional hive slot");
         config_={Time(65000),speed,{},true,true};
@@ -146,7 +150,16 @@ public:
     }
     RunConfig config() const override { return config_; }
     Step next(const View& view) override {
+        if (!started_) started_=view.context;
         if (view.completed_steps<steps_.size()) return steps_[view.completed_steps];
+        // The completed return restores the route's camera heading and confirms
+        // the owned-hive prompt. Reuse that result on the next departure.
+        if (hive_ && slot_ && Observation<bool>{Knowledge::present,true,started_->now,started_->window,started_->generation}.has_value(view.context,Time::max())
+            && !(view.observations && view.observations->last_death.has_value(view.context,Time::max(),started_->now)
+                && view.observations->last_death.value)) {
+            const auto state=hive_->read(view.context,view.observations);
+            if (state && state->claimed_slot==slot_) hive_->prepared(view.context);
+        }
         return Done{"Owned hive confirmed"};
     }
 };

@@ -79,11 +79,7 @@ class FileStore final : public Store {
     std::unique_ptr<QLockFile> lock_;
 public:
     explicit FileStore(const std::filesystem::path& path) {
-#ifdef _WIN32
-        path_=QString::fromStdWString(path.native());
-#else
-        path_=QString::fromStdString(path.native());
-#endif
+        path_=QFileInfo(path).filePath();
         if (path_.isEmpty()) throw std::invalid_argument("Missing planter state path");
         if (!QDir().mkpath(QFileInfo(path_).absolutePath())) throw std::runtime_error("Cannot open planter state folder");
         lock_=std::make_unique<QLockFile>(QFileInfo(path_).absoluteFilePath()+".lock");

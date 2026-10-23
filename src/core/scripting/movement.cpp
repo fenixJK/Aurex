@@ -1,4 +1,5 @@
 #include "movement.hpp"
+#include "bundled_files.hpp"
 #include "game/movement/camera.hpp"
 #include "runtime.hpp"
 #include "bundled_movement.hpp"
@@ -6,9 +7,39 @@
 #include <array>
 #include <mutex>
 #include <cstring>
+#include <set>
 
 namespace hive::movement {
 namespace {
+// Exact shipped defaults predating the per-install baseline; edited files never match.
+inline const std::map<std::string,std::set<std::uint64_t>> legacy_defaults{
+    {"activities",{0x31f2f80e9182219cULL}},
+    {"ant",{0x830de97e81f91ff9ULL,0xc93966454a049eedULL}},
+    {"ant-position",{0x3d7e96dccfaf1a38ULL}},
+    {"boosters",{0x6c7c933d58fa666fULL}},
+    {"bosses",{0xabee444e04060212ULL,0xe7d89875c9fb85d2ULL}},
+    {"cannon",{0x1333ca5877a68d4cULL}},
+    {"combat",{0x1ccbd3e6cc7896e9ULL}},
+    {"dispensers",{0x1f9ec94361865d8dULL}},
+    {"fields",{0x617329d84e154b41ULL}},
+    {"gummy-entry",{0xb9ad510143252f63ULL}},
+    {"helpers",{0x268a1989c39ffbd5ULL,0xd049d4ed3b8c2d3eULL}},
+    {"hive",{0x13d4ab1bea02d423ULL}},
+    {"hive-search",{0x8371230e50a12f30ULL}},
+    {"items",{0xe6c6915c7fcefcb3ULL}},
+    {"memory",{0xa5f175a862d999c9ULL}},
+    {"npc",{0x18dc036901ecdad3ULL}},
+    {"petal-loot",{0x19aeac775dc6243aULL}},
+    {"planter-loot",{0x3c0900fc8bc3c11aULL}},
+    {"planter-search",{0x5dd228aed279587eULL}},
+    {"planting",{0x426081789ecfe3f7ULL}},
+    {"return-route",{0x91b5bc7d666224c8ULL}},
+    {"returns",{0xf00e759e50a0ff78ULL}},
+    {"shrine-loot",{0x4f011ea3addba2b8ULL}},
+    {"sprinklers",{0x4a89cf2f5d5c76a0ULL}},
+    {"sticker-stack",{0xb44d70bd5c13d904ULL}},
+    {"vicious-search",{0x5e549bf5eb101b3aULL}},
+};
 void field(lua_State* s,int i,const char* name) { i=lua_absindex(s,i); lua_pushstring(s,name); lua_rawget(s,i); }
 std::string text(lua_State* s,int i) {
     if (lua_type(s,i)!=LUA_TSTRING) throw std::runtime_error("Movement value must be text");
@@ -82,6 +113,14 @@ Time ms(lua_State* s,int i,const char* name,Time fallback,Time high=Time(300000)
     if (std::floor(value)!=value) throw std::runtime_error("Movement timing must be whole milliseconds");
     return Time(static_cast<Time::rep>(value));
 }
+game::CameraMove camera_move(lua_State* s,int i) {
+    i=lua_absindex(s,i);
+    field(s,i,"key"); const auto direction=key(s,-1); lua_pop(s,1);
+    const auto count=number(s,i,"count",2,1,8); if (std::floor(count)!=count) throw std::runtime_error("Invalid turn count");
+    game::CameraMove move{direction,static_cast<unsigned>(count)};
+    move.press=ms(s,i,"press",move.press); move.release=ms(s,i,"release",move.release);
+    game::camera_actions(move); return move;
+}
 Action action(lua_State* s,int i) {
     Action result{text(s,i,"label","Movement"),keys(s,i,"keys"),ms(s,i,"ms",Time(0),Time(5000)),{}};
     field(s,i,"tap"); if (!lua_isnil(s,-1)) result.tap=key(s,-1); lua_pop(s,1);
@@ -102,12 +141,9 @@ workflows::CheckpointPlan checkpoint(lua_State* s,int i,double speed) {
         double distance=0; for (const auto& l:p.path) distance+=l.tiles;
         p.timeout=Time(static_cast<Time::rep>(std::ceil(distance*4000/speed)))+Time(5000);
     } else if (kind=="turn") {
-        field(s,i,"key"); const auto direction=key(s,-1); lua_pop(s,1);
-        const auto count=number(s,i,"count",2,1,8); if (std::floor(count)!=count) throw std::runtime_error("Invalid turn count");
-        const game::CameraMove timing{direction,static_cast<unsigned>(count)};
-        game::camera_actions(timing);
-        p.camera_settle=ms(s,i,"release",timing.release); p.attempts=0; p.completion=workflows::CheckpointCompletion::movement;
-        for (unsigned n=0;n<count;++n) p.approach.push_back({"Route turn",{direction},ms(s,i,"press",timing.press),{}});
+        const auto timing=camera_move(s,i);
+        p.camera_settle=timing.release; p.attempts=0; p.completion=workflows::CheckpointCompletion::movement;
+        for (unsigned n=0;n<timing.steps;++n) p.approach.push_back({"Route turn",{timing.key},timing.press,{}});
     } else if (kind=="motion") {
         p.continuous=true; p.attempts=0; p.completion=workflows::CheckpointCompletion::movement; p.timeout=Time(5000); p.speed=speed;
         field(s,i,"steps");
@@ -132,6 +168,12 @@ workflows::CheckpointPlan checkpoint(lua_State* s,int i,double speed) {
         if (flag(s,i,"use_speed")) p.speed=speed;
         p.approach=actions(s,i,"approach"); p.nudge=actions(s,i,"nudge"); p.path=legs(s,i,"path"); p.nudge_path=legs(s,i,"nudge_path");
         p.launch_movement=keys(s,i,"launch_movement");
+        field(s,i,"launch_prepare");
+        if (!lua_isnil(s,-1)) for (std::size_t n=1,count=list(s,-1,16);n<=count;++n) {
+            lua_rawgeti(s,-1,n); auto turn=game::camera_actions(camera_move(s,-1)); lua_pop(s,1);
+            p.launch_prepare.insert(p.launch_prepare.end(),turn.begin(),turn.end());
+        }
+        lua_pop(s,1);
     } else throw std::runtime_error("Unknown movement step: "+kind);
     p.observation_scope=text(s,i,"scope");
     p.minimum_duration=ms(s,i,"minimum_duration",p.minimum_duration);
@@ -244,14 +286,8 @@ struct Library::Impl {
 };
 Library::Library(std::filesystem::path directory):impl_(std::make_shared<Impl>()) {
     impl_->directory=std::move(directory);
-    if (std::filesystem::is_symlink(impl_->directory)) throw std::runtime_error("Movement folder cannot be a symbolic link");
-    std::filesystem::create_directories(impl_->directory);
-    for (const auto& [name,source]:bundled_movement) {
-        const auto file=impl_->directory/(name+".lua");
-        if (std::filesystem::exists(file) || std::filesystem::is_symlink(file)) continue;
-        std::ofstream output(file,std::ios::binary); output<<source; output.close();
-        if (!output) { std::filesystem::remove(file); throw std::runtime_error("Cannot install movement file: "+name); }
-    }
+    const auto errors=scripting::install_bundled_files(impl_->directory,bundled_movement,legacy_defaults);
+    if (!errors.empty()) throw std::runtime_error(errors.front());
 }
 std::shared_ptr<const Recipes> Library::snapshot() const {
     std::lock_guard lock(impl_->mutex); auto sources=read_sources(impl_->directory);

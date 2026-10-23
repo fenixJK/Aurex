@@ -1,5 +1,6 @@
 #include "planting_routes.hpp"
 #include "route_helpers.hpp"
+#include "game/data/fields.hpp"
 
 namespace hive::automation {
 std::shared_ptr<const workflows::RouteCatalog> walking_planting_routes(double speed,std::shared_ptr<const movement::Recipes> recipes) {
@@ -14,7 +15,7 @@ std::shared_ptr<const workflows::RouteCatalog> walking_planting_routes(double sp
                 detail::estimate(path)+Time(1500),{"hive.slot."+std::to_string(slot)},game::RouteArrival::estimated,
                 {"hive.camera.prepared"},timeout},std::move(path)});
         };
-        for (const auto* field:{"coconut","pepper","sunflower","dandelion","mushroom","blueflower","clover","spider","strawberry","pineapple","bamboo","cactus","pinetree","mountaintop","rose","stump","pumpkin"}) add(field);
+        for (const auto& field:game::fields()) add(field.id);
     }
     auto locations=detail::locations(routes);
     return std::make_shared<workflows::RouteCatalog>(std::move(locations),std::move(routes));

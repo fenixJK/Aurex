@@ -79,7 +79,8 @@ void Sprinkler::dispatch(TaskPort& tasks,ModuleScope scope) {
         }
     }
     actions.push_back({"Place sprinkler",{static_cast<Key>(static_cast<int>(Key::hotbar_1)+plan_.slot-1)},Time(50),{}});
-    pending_=tasks.submit(scope,TaskClass::interaction,std::move(actions),Time(1000)); attempted_=true; ++attempts_;
+    const auto lifetime=input_lifetime(actions);
+    pending_=tasks.submit(scope,TaskClass::interaction,std::move(actions),lifetime); attempted_=true; ++attempts_;
     stage_=SprinklerStage::placing; reason_="Placing sprinkler";
 }
 void Sprinkler::update_attempt(const ObservationContext& c,const game::State& state,TaskPort& tasks,ModuleScope scope) {

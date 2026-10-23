@@ -133,9 +133,7 @@ void Navigation::update(const ObservationContext& c,const NavigationObservations
         execution_->context=c;
         const auto found=observations.checkpoints.find(checkpoint_->detector());
         checkpoint_->update(c,found==observations.checkpoints.end()?Observation<bool>{}:found->second,*this,observations.movement_speed);
-        if (plans.at(next_checkpoint_).completion==CheckpointCompletion::launch
-            && (checkpoint_->stage()==CheckpointStage::moving || checkpoint_->stage()==CheckpointStage::confirming || checkpoint_->stage()==CheckpointStage::completed))
-            launched_=true;
+        launched_=launched_ || checkpoint_->launched();
         status_.reason="Following "+status_.route+(status_.checkpoint.empty()?"":": "+status_.checkpoint);
         if (checkpoint_->stage()==CheckpointStage::failed) {
             const auto failure=checkpoint_->failure();

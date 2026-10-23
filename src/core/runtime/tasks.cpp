@@ -2,6 +2,13 @@
 #include "pointer_tasks.hpp"
 
 namespace hive {
+Time input_lifetime(const std::vector<Action>& actions) {
+    // Each action starts on a runtime tick. Budget scheduling overhead without
+    // changing the requested key holds, releases or movement durations.
+    Time lifetime{1000};
+    for (const auto& action:actions) lifetime+=action.duration+Time(250);
+    return lifetime;
+}
 const ModuleGrant& TaskBroker::check(ModuleScope scope) const {
     if (scope.generation!=generation_ || !owners_.contains(scope.id)) throw std::logic_error("Module scope is no longer active");
     return owners_.at(scope.id);

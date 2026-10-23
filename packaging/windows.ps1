@@ -1,6 +1,6 @@
 param([string]$BuildDir = 'build', [Parameter(Mandatory=$true)][string]$NoticesFile)
 $ErrorActionPreference = 'Stop'
-$version = (Select-String -Path CMakeLists.txt -Pattern 'project\(Aurex VERSION ([0-9.]+)').Matches.Groups[1].Value
+$version = (Get-Content "$BuildDir/release-version.txt" -Raw).Trim()
 $destination = "dist/Aurex-$version-Windows-x64"
 if (Test-Path $destination) { Remove-Item $destination -Recurse -Force }
 New-Item -ItemType Directory -Force $destination | Out-Null

@@ -51,6 +51,7 @@ public:
             const auto found=std::find_if(visits_.settings.begin(),visits_.settings.end(),[&](const auto& setting) { return setting.id==option.id; });
             if (found==visits_.settings.end() || found->initial.index()!=option.initial.index() || found->minimum!=option.minimum
                 || found->maximum!=option.maximum || found->choices!=option.choices) throw std::invalid_argument("Invalid Collection item schema");
+            extensions::validate_setting(*found,found->initial);
             visits_.settings.erase(found);
         }
         visits_=available_.manifest(std::move(visits_)); delegate_=initial(visits_);
@@ -60,15 +61,8 @@ public:
         auto options=defaults_;
         for (const auto& option:options_) {
             const auto found=settings.find(option.id);
-            if (found==settings.end() || found->second.index()!=option.initial.index()) throw std::invalid_argument("Missing Collection item preference");
-            if (const auto number=std::get_if<int>(&found->second); number && (*number<option.minimum || *number>option.maximum))
-                throw std::invalid_argument("Invalid Collection amount");
-            if (const auto text=std::get_if<std::string>(&found->second); text && std::find(option.choices.begin(),option.choices.end(),*text)==option.choices.end())
-                throw std::invalid_argument("Invalid Collection item");
-            if (const auto selected=std::get_if<SettingSelection>(&found->second); selected &&
-                (std::set<std::string>(selected->begin(),selected->end()).size()!=selected->size() || std::any_of(selected->begin(),selected->end(),[&](const auto& item) {
-                    return std::find(option.choices.begin(),option.choices.end(),item)==option.choices.end();
-                }))) throw std::invalid_argument("Invalid Collection queue");
+            if (found==settings.end()) throw std::invalid_argument("Missing Collection item preference");
+            extensions::validate_setting(option,found->second);
             settings.erase(found);
         }
         queues_.clear();

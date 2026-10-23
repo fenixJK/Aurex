@@ -99,8 +99,7 @@ public:
                 || found->minimum!=expected.minimum || found->maximum!=expected.maximum || found->choices!=expected.choices
                 || std::count_if(manifest.settings.begin(),manifest.settings.end(),[&](const auto& s) { return s.id==expected.id; })!=1)
                 throw std::invalid_argument("Incompatible Combat settings schema");
-            if (const auto* number=std::get_if<int>(&found->initial); number && (*number<expected.minimum || *number>expected.maximum))
-                throw std::invalid_argument("Invalid Combat default preference");
+            extensions::validate_setting(*found,found->initial);
             std::erase_if(visits_.settings,[&](const auto& s) { return s.id==expected.id; });
         }
         visits_=available_.manifest(std::move(visits_));
@@ -111,16 +110,9 @@ public:
         auto settings=values;
         for (const auto& expected:options_) {
             const auto found=settings.find(expected.id);
-            if (found==settings.end() || found->second.index()!=expected.initial.index())
+            if (found==settings.end())
                 throw std::invalid_argument("Missing Combat preferences");
-            if (const auto* number=std::get_if<int>(&found->second); number && (*number<expected.minimum || *number>expected.maximum))
-                throw std::invalid_argument("Invalid Combat preference");
-            if (const auto* choice=std::get_if<std::string>(&found->second); choice && std::find(expected.choices.begin(),expected.choices.end(),*choice)==expected.choices.end())
-                throw std::invalid_argument("Invalid Combat choice");
-            if (const auto* selected=std::get_if<SettingSelection>(&found->second)) {
-                std::set<std::string> unique;
-                for (const auto& id:*selected) if (!unique.insert(id).second || std::find(expected.choices.begin(),expected.choices.end(),id)==expected.choices.end()) throw std::invalid_argument("Invalid boss selection");
-            }
+            extensions::validate_setting(expected,found->second);
             settings.erase(found);
         }
         Options options; if (values.contains("bosses")) options.boss_order=std::get<SettingSelection>(values.at("bosses"));

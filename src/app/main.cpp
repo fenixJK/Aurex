@@ -387,11 +387,7 @@ public:
 #endif
         const auto pattern_folder=QDir(data).filePath("patterns");
         const auto read_patterns=[this,pattern_folder] {
-#ifdef _WIN32
-            const auto path=std::filesystem::path(pattern_folder.toStdWString());
-#else
-            const auto path=std::filesystem::path(pattern_folder.toStdString());
-#endif
+            const auto path=QFileInfo(pattern_folder).filesystemFilePath();
             for (const auto& error:hive::features::gathering::install_default_patterns(path)) log(q("Pattern: "+error));
             auto files=hive::features::gathering::read_pattern_files(path);
             for (const auto& error : files.errors) log(q("Pattern: "+error));
@@ -399,11 +395,7 @@ public:
         };
         native_modules_.patterns=read_patterns();
         const auto movement_folder=QDir(data).filePath("movement");
-#ifdef _WIN32
-        native_modules_.movement=std::make_shared<hive::movement::Library>(std::filesystem::path(movement_folder.toStdWString()));
-#else
-        native_modules_.movement=std::make_shared<hive::movement::Library>(std::filesystem::path(movement_folder.toStdString()));
-#endif
+        native_modules_.movement=std::make_shared<hive::movement::Library>(QFileInfo(movement_folder).filesystemFilePath());
 
         auto pattern_buttons=new QHBoxLayout;
         auto open_patterns=new QPushButton("Open pattern folder");
@@ -421,30 +413,18 @@ public:
         });
         const auto cooldowns=[&](const char* file) {
             const auto path=QDir(data).filePath(file);
-#ifdef _WIN32
-            const auto saved_path=std::filesystem::path(path.toStdWString());
-#else
-            const auto saved_path=std::filesystem::path(path.toStdString());
-#endif
+            const auto saved_path=QFileInfo(path).filesystemFilePath();
             return std::make_shared<hive::features::visits::Cooldowns>(hive::features::visits::cooldown_file_store(saved_path),
                 [] { return std::chrono::time_point_cast<hive::Time>(std::chrono::system_clock::now()); });
         };
         native_modules_.quests.cooldowns=cooldowns("quest-cooldowns.json");
         native_modules_.collection.cooldowns=cooldowns("collection-cooldowns.json");
         const auto item_orders_file=QDir(data).filePath("collection-orders.json");
-#ifdef _WIN32
-        const auto item_orders_path=std::filesystem::path(item_orders_file.toStdWString());
-#else
-        const auto item_orders_path=std::filesystem::path(item_orders_file.toStdString());
-#endif
+        const auto item_orders_path=QFileInfo(item_orders_file).filesystemFilePath();
         native_modules_.collection.item_orders=std::make_shared<hive::features::collection::ItemOrders>(hive::features::collection::item_order_file_store(item_orders_path));
         native_modules_.combat.cooldowns=cooldowns("combat-cooldowns.json");
         const auto planter_file=QDir(data).filePath("planters.json");
-#ifdef _WIN32
-        const auto planter_path=std::filesystem::path(planter_file.toStdWString());
-#else
-        const auto planter_path=std::filesystem::path(planter_file.toStdString());
-#endif
+        const auto planter_path=QFileInfo(planter_file).filesystemFilePath();
         native_modules_.planters.account=std::make_shared<hive::features::planters::Account>(hive::features::planters::file_store(planter_path));
         native_modules_.planters.clock=[] { return std::chrono::time_point_cast<hive::Time>(std::chrono::system_clock::now()); };
         native_modules_.planters.context=[this] {
@@ -474,7 +454,8 @@ public:
         localization_=std::make_shared<hive::automation::LandmarkNavigation>(channels.at("navigation-landmarks"),
             std::map<std::string,std::shared_ptr<const hive::game::LandmarkSource>>{
                 {"hive.backboard",hive_reference},
-                {"interaction.prompt",native_modules_.transport_prompt}});
+                {"interaction.prompt",native_modules_.transport_prompt},
+                {"transport.red-cannon",native_modules_.transport_prompt}});
         native_modules_.blooms=channels.at("blooms");
         native_modules_.quests.inventory=native_modules_.planters.inventory;
         native_modules_.quests.hive_view=channels.at("hive-view");
@@ -793,7 +774,9 @@ int main(int argc,char** argv) {
     app.setApplicationName("Aurex"); app.setOrganizationName("Aurex");
     hive::apply_theme(app);
     try {
-        Window window(hive::app::prepare_local_data()); window.show();
+        const auto directory=hive::app::prepare_local_data();
+        const auto data_lock=hive::app::lock_local_data(directory);
+        Window window(directory); window.show();
         const auto args=app.arguments();
         if (args.contains("--screenshot")) {
             const auto index=args.indexOf("--screenshot"); if (index+1>=args.size()) return 1;

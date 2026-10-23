@@ -21,7 +21,7 @@ endfunction()
 function(hive_require_shared_file root path)
   cmake_path(ABSOLUTE_PATH path BASE_DIRECTORY "${root}" NORMALIZE OUTPUT_VARIABLE absolute)
   file(RELATIVE_PATH relative "${root}" "${absolute}")
-  if(NOT relative MATCHES "^src/(core/(runtime|session)/|core/scripting/(movement\\.(cpp|hpp)|runtime\\.hpp)$|core/module_host/(requests|request_channels|commands|activity_policy|work_schedule|contributor)\\.(cpp|hpp)$|(game|platform|reporting|coordination)/)")
+  if(NOT relative MATCHES "^src/(core/(runtime|session)/|core/scripting/((movement|bundled_files)\\.(cpp|hpp)|runtime\\.hpp)$|core/module_host/(settings|requests|request_channels|commands|activity_policy|work_schedule|contributor)\\.(cpp|hpp)$|(game|platform|reporting|coordination)/)")
     message(FATAL_ERROR "Dependency boundary: shared services must not include or compile ${relative}")
   endif()
 endfunction()
@@ -52,8 +52,8 @@ endfunction()
 
 function(hive_check_shared_sources root)
   file(GLOB_RECURSE sources CONFIGURE_DEPENDS
-    "${root}/src/core/scripting/movement.cpp" "${root}/src/core/scripting/runtime.hpp" "${root}/src/core/scripting/movement.hpp"
-    "${root}/src/core/module_host/commands.*" "${root}/src/core/module_host/requests.*"
+    "${root}/src/core/scripting/movement.cpp" "${root}/src/core/scripting/runtime.hpp" "${root}/src/core/scripting/movement.hpp" "${root}/src/core/scripting/bundled_files.*"
+    "${root}/src/core/module_host/settings.*" "${root}/src/core/module_host/commands.*" "${root}/src/core/module_host/requests.*"
     "${root}/src/core/module_host/request_channels.*" "${root}/src/core/module_host/activity_policy.*"
     "${root}/src/core/module_host/work_schedule.*"
     "${root}/src/core/module_host/contributor.hpp"

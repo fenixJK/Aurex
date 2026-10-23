@@ -49,7 +49,8 @@ static std::vector<TextLine> read_labels(const Frame& frame,Rect region,std::spa
         const auto i=(std::size_t(top+y)*frame.width+left+x)*4;
         const int r=frame.rgba[i],g=frame.rgba[i+1],b=frame.rgba[i+2];
         const auto lo=std::min({r,g,b}),hi=std::max({r,g,b});
-        if (!light.empty()) light.at<unsigned char>(y,x)=lo>=(whole_rows?140:160) && hi-lo<=(whole_rows?70:55)?255:0;
+        // Keep antialiased light lettering on tinted buttons, including small UI fonts.
+        if (!light.empty()) light.at<unsigned char>(y,x)=lo>=140 && hi-lo<=70?255:0;
         // Dark blue UI lettering has colored antialiased edges on bright buttons.
         if (!dark.empty()) dark.at<unsigned char>(y,x)=hi<=140 && hi-lo<=80?255:0;
     }

@@ -3,12 +3,24 @@
 
 namespace hive::automation {
 namespace {
+workflows::CheckpointPlan walk_only(workflows::CheckpointPlan plan) {
+    plan.detector.clear(); plan.completion=workflows::CheckpointCompletion::movement;
+    plan.attempts=0; plan.nudge.clear(); plan.nudge_path.clear();
+    return plan;
+}
+game::WalkLeg reverse_leg(game::WalkLeg leg) {
+    auto reverse=[](Key key) { return key==Key::forward?Key::backward:key==Key::backward?Key::forward:
+        key==Key::left?Key::right:Key::left; };
+    leg.first=reverse(leg.first);
+    if (leg.second) leg.second=reverse(*leg.second);
+    return leg;
+}
 ApproachPrompt claim_approach(unsigned slot,double speed,const movement::Recipes& recipes) {
     auto plan=recipes.path("hive",{{"action",std::string("claim")},{"slot",int(slot)}},speed).at(0);
     return {std::move(plan),game::hive_claim_prompt()};
 }
 class HiveSurvey final : public Program {
-    enum class Stage { zoom,pitch,observe,turn,restore,departure_pitch,departure_zoom,approach,check,scan,claim,done };
+    enum class Stage { zoom,pitch,observe,turn,restore,departure_pitch,departure_zoom,approach,check,correct,restore_position,scan,claim,done };
     Stage stage_{Stage::zoom};
     std::shared_ptr<const game::HiveSlotsSource> source_;
     Time minimum_{},seen_{Time(-1)};
@@ -19,6 +31,8 @@ class HiveSurvey final : public Program {
     unsigned selected_{},next_slot_{},claim_attempts_{};
     Time pressed_{Time(-1)};
     std::array<bool,6> checked_{};
+    workflows::CheckpointPlan approach_;
+    unsigned corrections_{};
     void start_scan() {
         selected_=claim_->preferred_slot?claim_->preferred_slot:1;
         stage_=Stage::departure_pitch;
@@ -57,6 +71,9 @@ class HiveSurvey final : public Program {
             game::interaction_prompt_search_region,game::hive_prompt_confidence,game::PromptMatch::phrase,true}).value;
         // After E, a missing caption can be the claim transition, not an occupied slot.
         if ((prompt.value || claim_attempts_) && !trade) return wait();
+        if (!trade && corrections_<approach_.attempts && !approach_.nudge_path.empty()) {
+            stage_=Stage::correct; return next(view);
+        }
         checked_[selected_-1]=true; next_slot_=0;
         for (unsigned slot=1;slot<=6;++slot) if (!checked_[slot-1]) {
             const auto distance=std::abs(int(slot)-int(selected_));
@@ -64,7 +81,7 @@ class HiveSurvey final : public Program {
             if (!next_slot_ || distance<previous || (distance==previous && selected_>3)) next_slot_=slot;
         }
         if (!next_slot_) throw ClientRejoinRequired("No owned or claimable hive found; rejoining Bee Swarm");
-        stage_=Stage::scan; return next(view);
+        stage_=corrections_?Stage::restore_position:Stage::scan; return next(view);
     }
     bool started_{};
 public:
@@ -92,11 +109,19 @@ public:
             if (!movement_) movement_=movement::snapshot(claim_->movement);
             auto approach=claim_approach(selected_,claim_->speed,*movement_);
             if (!can_scan()) return approach;
-            approach.movement.detector.clear();
-            approach.movement.completion=workflows::CheckpointCompletion::movement;
-            return FollowPath{std::move(approach.movement)};
+            approach_=std::move(approach.movement);
+            return FollowPath{walk_only(approach_)};
         }
         case Stage::check: return check_slot(view);
+        case Stage::correct:
+        case Stage::restore_position: {
+            auto plan=walk_only(approach_); plan.path=approach_.nudge_path;
+            if (stage_==Stage::restore_position) {
+                std::reverse(plan.path.begin(),plan.path.end());
+                for (auto& leg:plan.path) { leg=reverse_leg(leg); leg.tiles*=corrections_; }
+            }
+            return FollowPath{std::move(plan)};
+        }
         case Stage::scan: return FollowPath{movement_->path("hive",{{"action",std::string("scan")},
             {"from",int(selected_)},{"to",int(next_slot_)}},claim_->speed).at(0)};
         case Stage::claim: return Hold{{Key::interact},Time(100)};
@@ -145,6 +170,12 @@ public:
         else if (stage_==Stage::departure_zoom) stage_=Stage::approach;
         else if (stage_==Stage::approach) {
             check_site(view.context.now);
+        }
+        else if (stage_==Stage::correct) {
+            ++corrections_; check_site(view.context.now);
+        }
+        else if (stage_==Stage::restore_position) {
+            corrections_=0; stage_=Stage::scan;
         }
         else if (stage_==Stage::scan) {
             selected_=next_slot_; claim_attempts_=0; pressed_=Time(-1); check_site(view.context.now);

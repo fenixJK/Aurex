@@ -1,4 +1,4 @@
-add_library(hive_module_api requests.cpp request_channels.cpp commands.cpp activity_policy.cpp work_schedule.cpp)
+add_library(hive_module_api settings.cpp requests.cpp request_channels.cpp commands.cpp activity_policy.cpp work_schedule.cpp)
 target_link_libraries(hive_module_api PUBLIC hive_game)
 
 if(HIVE_BUILD_DESKTOP)

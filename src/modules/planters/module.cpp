@@ -83,14 +83,7 @@ public:
             if (it==expected.settings.end() || !seen.insert(setting.id).second || setting.initial.index()!=it->initial.index()
                 || setting.minimum!=it->minimum || setting.maximum!=it->maximum || setting.choices!=it->choices)
                 throw std::invalid_argument("Incompatible planter settings schema");
-            if (const auto* number=std::get_if<int>(&setting.initial)) {
-                if (*number<setting.minimum || *number>setting.maximum) throw std::invalid_argument("Invalid planter default");
-            } else if (const auto* selected=std::get_if<SettingSelection>(&setting.initial)) {
-                if (selected->size()>setting.choices.size() || std::set<std::string>(selected->begin(),selected->end()).size()!=selected->size()
-                    || std::any_of(selected->begin(),selected->end(),[&](const auto& item) {
-                        return std::find(setting.choices.begin(),setting.choices.end(),item)==setting.choices.end();
-                    })) throw std::invalid_argument("Invalid planter default selection");
-            }
+            extensions::validate_setting(setting,setting.initial);
         }
     }
     void start(const Settings& saved) override {

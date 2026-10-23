@@ -40,15 +40,26 @@ void validate(const CheckpointPlan& p) {
         || p.camera_settle<Time(1) || p.camera_settle>Time(2000))
         throw std::invalid_argument("Invalid checkpoint bounds");
     if (p.completion!=CheckpointCompletion::observation && !motion && !launch) throw std::invalid_argument("Invalid checkpoint completion policy");
-    if (launch && (!p.continuous || p.detector.empty() || p.attempts || !p.nudge.empty() || !p.nudge_path.empty() || p.approach.size()>127))
+    if (launch && (!p.continuous || p.detector.empty() || !p.nudge.empty() || p.approach.size()>127
+        || (p.path.empty() && (p.attempts || !p.nudge_path.empty()))))
         throw std::invalid_argument("Launch checkpoints need one observed activation and bounded movement");
-    if (p.continuous && (!p.path.empty() || p.approach.empty() || p.approach.size()>512))
+    if (p.continuous && ((!launch && !p.path.empty()) || p.approach.empty() || p.approach.size()>512))
         throw std::invalid_argument("Continuous checkpoints require a bounded movement sequence");
     if (motion && (!p.detector.empty() || p.attempts || !p.nudge.empty() || !p.nudge_path.empty()
         || (p.approach.empty() && p.path.empty()))) throw std::invalid_argument("Route motion cannot claim detection or retry");
-    if ((!p.path.empty() && !p.approach.empty()) || (!p.nudge_path.empty() && !p.nudge.empty())
+    if ((!launch && !p.path.empty() && !p.approach.empty()) || (!p.nudge_path.empty() && !p.nudge.empty())
         || !std::isfinite(p.speed) || p.speed<1 || p.speed>200)
         throw std::invalid_argument("Invalid distance checkpoint path");
+    if ((!launch && !p.launch_prepare.empty()) || p.launch_prepare.size()>32)
+        throw std::invalid_argument("Transport aiming requires a launch checkpoint");
+    Time aiming{};
+    for (const auto& action:p.launch_prepare) {
+        if (action.held.size()>1 || (!action.held.empty() && !camera_key(action.held.front()))
+            || action.tap || action.pointer || action.pointer_to || action.scroll || action.pacing || action.continue_movement
+            || action.tap_count!=1 || action.duration<Time(20) || action.duration>Time(200))
+            throw std::invalid_argument("Transport aiming only accepts brief camera presses and releases");
+        aiming+=action.duration;
+    }
     for (const auto* path : {&p.path,&p.nudge_path}) {
         if (path->size()>64) throw std::invalid_argument("Too many checkpoint walk legs");
         double tiles=0;
@@ -85,7 +96,7 @@ void validate(const CheckpointPlan& p) {
                 throw std::invalid_argument("Opposing checkpoint keys");
             duration+=a.duration;
         }
-        if (duration+(launch?Time(100):Time{})>=p.timeout) throw std::invalid_argument("Movement exceeds checkpoint timeout");
+        if (duration+aiming+(launch?Time(100):Time{})>=p.timeout) throw std::invalid_argument("Movement exceeds checkpoint timeout");
     }
 }
 Checkpoint::Checkpoint(CheckpointPlan plan):plan_(std::move(plan)),speed_(std::make_shared<game::MovementSpeed>(plan_.speed)) {
@@ -143,7 +154,7 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
         if (!plan_.path.empty() || !plan_.nudge_path.empty() || !plan_.sequence.empty()) speed_->observe(c,speed);
         if (!owned_) {
             if (!tasks.acquire(scope_)) return;
-            owned_=true; minimum_=c.now+(plan_.completion==CheckpointCompletion::launch?Time(1):Time{});
+            owned_=true; minimum_=c.now+(plan_.completion==CheckpointCompletion::launch && plan_.path.empty()?Time(1):Time{});
         }
         for (const auto& result : tasks.results(scope_)) if (result.id==pending_) {
             pending_.clear();
@@ -164,15 +175,21 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
         }
         const bool motion=plan_.completion==CheckpointCompletion::movement;
         const bool launch=plan_.completion==CheckpointCompletion::launch;
-        if ((motion || launch) && stage_==CheckpointStage::confirming) {
+        if ((motion || launched_) && stage_==CheckpointStage::confirming) {
             if (c.now>=minimum_) finish(CheckpointStage::completed,"Route movement completed",tasks);
             return;
         }
         const bool fresh=!motion && detected.usable(c,plan_.observation_age,minimum_) && detected.captured>seen_;
         const bool present=fresh && detected.knowledge==Knowledge::present && detected.value;
         if (fresh) seen_=detected.captured;
+        if (launch && !launched_ && present) {
+            if (!pending_.empty()) cancel_tasks(tasks);
+            pending_.clear(); distance_.reset(); nudging_=false; index_=0;
+            plan_.path.clear(); plan_.nudge_path.clear();
+            stage_=CheckpointStage::moving;
+        }
         if (stage_==CheckpointStage::waiting) {
-            if (launch && !present) return;
+            if (launch && !present && plan_.path.empty()) return;
             // An approach searches while moving; only a stationary check needs a frame first.
             if (!motion && !fresh && plan_.approach.empty() && plan_.path.empty()) return;
             if (present && !launch) { finish(CheckpointStage::completed,"Checkpoint confirmed",tasks); return; }
@@ -209,17 +226,18 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
                 pending_=tasks.submit(scope_,TaskClass::travel,
                     {game::movement_slice(leg,distance_->remaining_tiles(),speed_->current())},plan_.timeout-(c.now-started_.now));
             } else if (plan_.continuous) {
-                auto sequence=actions; Time lifetime{1000};
+                auto sequence=actions;
                 for (std::size_t i=0;i<sequence.size();++i) {
-                    sequence[i].continue_movement=i+1<sequence.size(); lifetime+=sequence[i].duration;
+                    sequence[i].continue_movement=i+1<sequence.size();
                 }
                 if (launch) {
                     auto keys=plan_.launch_movement; keys.push_back(Key::interact);
                     Action activate{"Activate transport",std::move(keys),Time(100),{}};
                     sequence.insert(sequence.begin(),std::move(activate));
-                    lifetime+=Time(100);
+                    sequence.insert(sequence.begin(),plan_.launch_prepare.begin(),plan_.launch_prepare.end());
                 }
-                if (!plan_.sequence.empty()) lifetime=plan_.timeout-(c.now-started_.now);
+                const auto remaining=plan_.timeout-(c.now-started_.now);
+                const auto lifetime=plan_.sequence.empty()?std::min(remaining,input_lifetime(sequence)):remaining;
                 pending_=tasks.submit(scope_,TaskClass::travel,std::move(sequence),lifetime);
                 launched_=launch;
             } else pending_=tasks.submit(scope_,TaskClass::travel,{actions.at(index_)},Time(1000));

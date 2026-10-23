@@ -28,7 +28,14 @@ return function(p)
     if slot~=0 then
         local at_three=field~="sunflower" and field~="dandelion" and field~="coconut" and field~="pepper" and field~="rose"
         if blue or teleporter or slot~=3 or not at_three then path[#path+1]=h.walk({{9.2*slot-4,"left"}}) end
-        path[#path+1]=h.observe("hive.proximity")
+        -- Watch the final leg without extending it when recognition is late.
+        -- A short reverse search can recover a prompt passed between frames.
+        local last=path[#path]
+        local leg=table.remove(last.legs)
+        if #last.legs==0 then table.remove(path) end
+        local reverse={left="right",right="left",forward="backward",backward="forward"}
+        path[#path+1]={kind="checkpoint",detector="hive.proximity",timeout=30000,age=2000,attempts=2,
+            path={leg},nudge_path={{1.5,assert(reverse[leg[2]])}},use_speed=true}
     end
     return path
 end

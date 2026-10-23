@@ -120,6 +120,7 @@ public:
         if (scene.value.cards.size()>16 || scene.value.fingerprint.size()>8192) throw std::runtime_error("Quest scan observations exceed limits");
         if (stage_==Stage::closing) {
             if (scene.value.panel_visible || scene.value.scroll) {
+                if (view.context.now<deadline_) return wait("Confirming quest log closed");
                 if (scene.value.toggle && close_attempts_<2) {
                     ++close_attempts_;
                     return use(scene,*scene.value.toggle,0,"Retrying quest log close");
@@ -137,6 +138,7 @@ public:
                 return use(scene,*scene.value.toggle,0,"Opening quest log");
             }
             if (stage_==Stage::opening && scene.value.toggle && !scene.value.panel_visible && !scene.value.scroll) {
+                if (view.context.now<deadline_) return wait("Confirming quest log opened");
                 if (open_attempts_>=2) return defer(scene,"Quest scan deferred: the log did not open");
                 ++open_attempts_;
                 return use(scene,*scene.value.toggle,0,"Retrying quest log");

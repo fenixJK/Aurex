@@ -43,11 +43,7 @@ class FileStore final : public ItemOrderStore {
     QString path_;
 public:
     explicit FileStore(const std::filesystem::path& path) {
-#ifdef _WIN32
-        path_=QString::fromStdWString(path.native());
-#else
-        path_=QString::fromStdString(path.native());
-#endif
+        path_=QFileInfo(path).filePath();
         if (path_.isEmpty()) throw std::invalid_argument("Missing item queue path");
     }
     ItemOrderState load() const override {

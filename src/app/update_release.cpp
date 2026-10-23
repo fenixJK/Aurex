@@ -7,14 +7,38 @@
 #include <QRegularExpression>
 #include <QVersionNumber>
 #include <stdexcept>
+#include <algorithm>
 
 namespace hive::app::updates {
 namespace {
-QVersionNumber version(QString value) {
+struct Version {
+    QVersionNumber number;
+    QString suffix;
+};
+Version version(QString value) {
     if (value.startsWith('v')) value.remove(0,1);
-    if (!QRegularExpression("^[0-9]{1,6}\\.[0-9]{1,6}\\.[0-9]{1,6}$").match(value).hasMatch())
-        throw std::runtime_error("The release version is not supported.");
-    return QVersionNumber::fromString(value);
+    static const QRegularExpression pattern("^(0|[1-9][0-9]{0,5})\\.(0|[1-9][0-9]{0,5})\\.(0|[1-9][0-9]{0,5})(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$");
+    const auto match=pattern.match(value);
+    if (value.size()>120 || !match.hasMatch()) throw std::runtime_error("The release version is not supported.");
+    const auto suffix=match.captured(4);
+    for (const auto& part:suffix.split('.'))
+        if (part.size()>1 && part.front()=='0' && std::all_of(part.begin(),part.end(),[](QChar c) { return c.isDigit(); }))
+            throw std::runtime_error("The release version is not supported.");
+    return {QVersionNumber::fromString(value),suffix};
+}
+int compare(const Version& a,const Version& b) {
+    if (const auto order=QVersionNumber::compare(a.number,b.number)) return order;
+    if (a.suffix.isEmpty() || b.suffix.isEmpty()) return int(a.suffix.isEmpty())-int(b.suffix.isEmpty());
+    const auto left=a.suffix.split('.'),right=b.suffix.split('.');
+    for (qsizetype i=0;i<std::min(left.size(),right.size());++i) {
+        const auto& x=left[i]; const auto& y=right[i];
+        const auto numeric=[](const QString& s) { return std::all_of(s.begin(),s.end(),[](QChar c) { return c.isDigit(); }); };
+        const bool nx=numeric(x),ny=numeric(y);
+        if (nx!=ny) return nx?-1:1;
+        if (nx && x.size()!=y.size()) return x.size()<y.size()?-1:1;
+        if (const auto order=QString::compare(x,y,Qt::CaseSensitive)) return order;
+    }
+    return left.size()==right.size()?0:left.size()<right.size()?-1:1;
 }
 }
 QString platform() {
@@ -35,14 +59,24 @@ bool download_url(const QUrl& url) {
 }
 std::optional<Release> newer_release(const QByteArray& json, const QString& current, const QString& system) {
     const auto doc=QJsonDocument::fromJson(json);
-    if (!doc.isObject()) throw std::runtime_error("GitHub returned an unreadable release.");
-    const auto root=doc.object();
-    if (root.value("draft").toBool() || root.value("prerelease").toBool()) return {};
-    const auto tag=root.value("tag_name").toString();
-    const auto available=version(tag);
-    if (available<=version(current)) return {};
+    if (!doc.isObject() && !doc.isArray()) throw std::runtime_error("GitHub returned an unreadable release.");
+    const auto installed=version(current);
+    auto newest=installed;
+    QJsonObject root;
+    const auto releases=doc.isArray()?doc.array():QJsonArray{doc.object()};
+    for (const auto& candidate:releases) {
+        const auto release=candidate.toObject();
+        if (release.value("draft").toBool()) continue;
+        Version available;
+        try { available=version(release.value("tag_name").toString()); }
+        catch (const std::exception&) { if (doc.isObject()) throw; else continue; }
+        if (compare(available,newest)>0) { root=release; newest=available; }
+    }
+    if (root.isEmpty()) return {};
     if (system.isEmpty()) throw std::runtime_error("Updates are not available for this platform yet.");
-    const auto number=available.toString();
+    const auto tag=root.value("tag_name").toString();
+    const auto number=tag.startsWith('v')?tag.mid(1):tag;
+    const bool prerelease=root.value("prerelease").toBool() || !newest.suffix.isEmpty();
     const QStringList names=system=="Windows-x64"?QStringList{"Aurex.exe","Aurex-"+number+"-Windows-x64.exe"}
         :QStringList{"Aurex-"+system+".zip","Aurex-"+number+"-"+system+".zip"};
     std::optional<Release> result;
@@ -58,7 +92,7 @@ std::optional<Release> newer_release(const QByteArray& json, const QString& curr
             || asset.value("state").toString()!="uploaded" || size<=0 || size>256*1024*1024
             || !QRegularExpression("^sha256:[a-fA-F0-9]{64}$").match(digest).hasMatch())
             throw std::runtime_error("The release download could not be verified. Please use the GitHub release page.");
-        result=Release{number,name,url,QByteArray::fromHex(digest.mid(7).toLatin1()),size};
+        result=Release{number,name,url,QByteArray::fromHex(digest.mid(7).toLatin1()),size,prerelease};
     }
     if (!result) throw std::runtime_error("The new release does not have a download for this computer yet.");
     return result;

@@ -95,8 +95,10 @@ void prepare_install(const QString& directory,const QString& target,const Releas
     require(QDir().mkdir(unpacked),"Could not create the update folder.");
     command("/usr/bin/ditto",{"-x","-k",download,unpacked});
     const auto app=unpacked+"/Aurex.app",plist=app+"/Contents/Info.plist";
-    require(command("/usr/libexec/PlistBuddy",{"-c","Print :CFBundleIdentifier",plist}).trimmed()=="app.renova.desktop"
-        && command("/usr/libexec/PlistBuddy",{"-c","Print :CFBundleShortVersionString",plist}).trimmed()==release.version.toUtf8(),"The downloaded app does not match this release.");
+    const auto info=QJsonDocument::fromJson(command("/usr/bin/plutil",{"-convert","json","-o","-",plist})).object();
+    require(info.value("CFBundleIdentifier").toString()=="app.renova.desktop"
+        && info.value("AurexReleaseVersion").toString(info.value("CFBundleShortVersionString").toString())==release.version,
+        "The downloaded app does not match this release.");
     const auto architecture=platform()=="macOS-arm64"?"arm64":"x86_64";
     require(command("/usr/bin/lipo",{"-archs",executable(app)}).trimmed().split(' ').contains(architecture),"The downloaded app is for a different processor.");
     command("/usr/bin/codesign",{"--verify","--deep","--strict",app});

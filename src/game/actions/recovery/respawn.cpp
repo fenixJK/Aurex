@@ -42,16 +42,14 @@ public:
         const bool living=health && state->alive.value && state->alive.captured>last_dead_;
         const bool hud=state && state->game_hud.has_value(c,Time(2000),after_death) && state->game_hud.value;
         const bool game=observed && reading.captured>last_dead_ && reading.value.screen==game::RespawnScreen::game;
-        // Prefer observed death or a new hive arrival. If the brief death frame
-        // was missed, hand a fresh, live owned-hive view to hive acquisition
-        // after settling; do not relaunch a working client merely
-        // because we could not prove the transition. Acquisition still verifies
+        // The death frame can fall between captures, including at unclaimed
+        // spawn. After a confirmed reset dialog closes, acquisition can locate
+        // the live player without relaunching the client. It still establishes
         // location and camera before any route can leave.
-        const bool settled_hive=c.now-transition>=Time(8000) && state
-            && state->at_hive.has_value(c,Time(2000),after_death) && state->at_hive.value;
+        const bool settled=c.now-transition>=Time(8000);
         return ((hud && living) || game) && (transitioned_
             || (away_from_hive_ && state && state->at_hive.has_value(c,Time(2000),after_death) && state->at_hive.value)
-            || (settled_hive && hud && living));
+            || (settled && hud && living && game));
     }
 };
 class AwaitRespawn final : public Program {
@@ -78,6 +76,7 @@ class Respawn final : public Program {
     Time started_{Time(-1)},minimum_{},transition_{};
     RespawnCompletion completion_;
     bool issued_{};
+    std::optional<game::RespawnScreen> requested_from_;
 public:
     explicit Respawn(std::shared_ptr<const game::RespawnSource> source):source_(std::move(source)) {
         if (!source_) throw std::invalid_argument("Respawn needs game observations");
@@ -97,40 +96,40 @@ public:
             && !view.observations->alive.value) {
             stage_=Stage::transition; started_=c.now; transition_=view.observations->alive.captured;
         }
-        if (stage_==Stage::transition) {
+        const auto reading=source_->read(c);
+        const bool fresh=reading.has_value(c,Time(2000),minimum_);
+        const bool menu=fresh && (reading.value.screen==game::RespawnScreen::menu
+            || reading.value.screen==game::RespawnScreen::confirmation);
+        if (stage_==Stage::transition && !menu) {
             if (completion_.ready(view,*source_,minimum_,transition_)) {
                 stage_=Stage::done; return next(view);
             }
-            if (c.now-started_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return a readable live game view");
+            if (c.now-transition_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return a readable live game view");
             return Wait{Time(100),"Waiting for player respawn"};
         }
         if (c.now-started_>=Time(8000)) throw ClientRejoinRequired("Respawn menu could not be confirmed");
-        const auto reading=source_->read(c);
         if (stage_==Stage::locate && !completion_.origin_known() && c.now-started_<Time(1000)
             && (!reading.has_value(c,Time(2000),minimum_) || reading.value.screen==game::RespawnScreen::game))
             return Wait{Time(50),"Recording location before reset"};
-        if (stage_==Stage::select) {
-            stage_=Stage::confirm; issued_=true;
-            return TapMenuKey{Key::respawn,"Select respawn"};
-        }
-        if (stage_==Stage::confirm) {
-            stage_=Stage::transition; transition_=c.now; issued_=true;
-            return TapMenuKey{Key::confirm,"Confirm respawn"};
-        }
-        if (!reading.has_value(c,Time(2000),minimum_)) {
+        if (!fresh) {
             if (stage_==Stage::locate && view.observations
                 && ((view.observations->game_hud.has_value(c,Time(2000),minimum_) && view.observations->game_hud.value)
                     || view.observations->text.has_value(c,Time(2000),minimum_))) {
-                stage_=Stage::select; issued_=true;
+                stage_=Stage::select; issued_=true; requested_from_=game::RespawnScreen::game;
                 return TapMenuKey{Key::game_menu,"Open game menu"};
             }
             return Wait{Time(50),"Waiting for respawn menu"};
         }
         const auto screen=reading.value.screen;
         if (screen==game::RespawnScreen::respawning) {
-            stage_=Stage::transition; started_=c.now; transition_=reading.captured;
+            stage_=Stage::transition; transition_=reading.captured;
             return next(view);
         }
+        // Advance immediately when the next screen is observed. Retry a missed
+        // key only while a fresh image still shows the previous screen.
+        if (requested_from_==screen && c.now-minimum_<Time(750))
+            return Wait{Time(50),"Waiting for respawn menu response"};
+        requested_from_=screen;
         if (screen==game::RespawnScreen::confirmation) {
             stage_=Stage::transition; transition_=c.now; issued_=true;
             return TapMenuKey{Key::confirm,"Confirm respawn"};
@@ -146,7 +145,6 @@ public:
     void step_completed(const View& view) override {
         if (!issued_) return;
         issued_=false; minimum_=view.context.now;
-        if (stage_==Stage::transition) started_=view.context.now;
     }
 };
 }

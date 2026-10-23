@@ -16,6 +16,9 @@ return function(p)
         {{12,"forward","left"},{13,"left"},{10,"forward","left"}}
     }
     assert(p.action=="claim","Unknown hive movement")
-    return {{kind="checkpoint",detector="hive.claim",timeout=25000,age=2000,attempts=0,
-        path=assert(slots[p.slot],"Invalid hive slot"),use_speed=true}}
+    local path=assert(slots[p.slot],"Invalid hive slot")
+    local last=path[#path]
+    local reverse={forward="backward",backward="forward",left="right",right="left"}
+    return {{kind="checkpoint",detector="hive.claim",timeout=25000,age=2000,attempts=2,
+        path=path,nudge_path={{1.5,reverse[last[2]],reverse[last[3]]}},use_speed=true}}
 end

@@ -94,12 +94,7 @@ public:
                 || setting.choices!=original->choices || setting.minimum<original->minimum || setting.maximum>original->maximum
                 || setting.minimum>setting.maximum)
                 throw std::invalid_argument("Incompatible gathering settings schema");
-            if (const auto* value=std::get_if<int>(&setting.initial)) {
-                if (*value<setting.minimum || *value>setting.maximum) throw std::invalid_argument("Invalid gathering default");
-            } else if (const auto* value=std::get_if<std::string>(&setting.initial)) {
-                if (std::find(setting.choices.begin(),setting.choices.end(),*value)==setting.choices.end())
-                    throw std::invalid_argument("Invalid gathering default choice");
-            }
+            extensions::validate_setting(setting,setting.initial);
         }
     }
     void start(const Settings& saved) override {

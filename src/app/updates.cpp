@@ -48,7 +48,7 @@ QWidget* Updates::version_row() {
 void Updates::check(bool manual) {
     if (reply_ || installing_) return;
     version_->setEnabled(false);
-    auto query=request(QUrl("https://api.github.com/repos/fenixJK/Aurex/releases/latest"));
+    auto query=request(QUrl("https://api.github.com/repos/fenixJK/Aurex/releases?per_page=20"));
     query.setRawHeader("Accept","application/vnd.github+json");
     query.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::ManualRedirectPolicy);
     auto reply=network_->get(query); reply_=reply; deadline(reply,15000);
@@ -62,8 +62,9 @@ void Updates::check(bool manual) {
             if (reply->error()!=QNetworkReply::NoError || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()!=200)
                 throw std::runtime_error("Could not check for updates. Try again later using the version number.");
             release_=updates::newer_release(*bytes,QCoreApplication::applicationVersion(),updates::platform());
+            update_->setText(release_ && release_->prerelease?"Beta":"Update");
             update_->setVisible(release_.has_value());
-            version_->setToolTip(release_?"Update to v"+release_->version:"Check for updates");
+            version_->setToolTip(release_?"Update to v"+release_->version+(release_->prerelease?" (Beta)":""):"Check for updates");
             if (release_) { if (manual || !busy_()) offer(); }
             else if (manual) QMessageBox::information(window_,"Aurex updates","You're up to date.");
         } catch (const std::exception& error) {
@@ -74,10 +75,12 @@ void Updates::check(bool manual) {
 }
 void Updates::offer() {
     if (!release_ || installing_) return;
-    auto box=new QMessageBox(QMessageBox::Information,"Aurex update","Aurex "+release_->version+" is available.",QMessageBox::NoButton,window_);
+    auto box=new QMessageBox(QMessageBox::Information,release_->prerelease?"Aurex beta update":"Aurex update",
+        "Aurex "+release_->version+(release_->prerelease?" (Beta)":"")+" is available.",QMessageBox::NoButton,window_);
     box->setAttribute(Qt::WA_DeleteOnClose);
-    box->setInformativeText(busy_()?"Stop the macro before updating. Your settings will be kept.":"Update and restart Aurex? Your settings will be kept.");
-    auto install_button=box->addButton("Update and restart",QMessageBox::AcceptRole);
+    box->setInformativeText((release_->prerelease?QString("This version is marked as beta.\n\n"):QString{})
+        +(busy_()?"Stop the macro before updating. Your settings will be kept.":"Update and restart Aurex? Your settings will be kept."));
+    auto install_button=box->addButton(release_->prerelease?"Install beta and restart":"Update and restart",QMessageBox::AcceptRole);
     install_button->setEnabled(!busy_());
     auto later=box->addButton("Later",QMessageBox::RejectRole); box->setDefaultButton(later);
     connect(box,&QMessageBox::buttonClicked,this,[this,install_button](QAbstractButton* button) { if (button==install_button) install(); });

@@ -385,15 +385,8 @@ Settings defaults(const Manifest& m) { Settings result; for (const auto& s : m.s
 void validate_settings(const Manifest& m,const Settings& settings) {
     require(settings.size()==m.settings.size(),"Settings do not match the extension schema");
     for (const auto& s : m.settings) {
-        auto it=settings.find(s.id); require(it!=settings.end() && it->second.index()==s.initial.index(),"Missing setting or wrong type");
-        if (const auto* n=std::get_if<int>(&it->second)) require(*n>=s.minimum && *n<=s.maximum,"Setting outside allowed range");
-        if (const auto* str=std::get_if<std::string>(&it->second)) require(std::find(s.choices.begin(),s.choices.end(),*str)!=s.choices.end(),"Unknown setting choice");
-        if (const auto* selected=std::get_if<SettingSelection>(&it->second)) {
-            require(selected->size()<=s.choices.size(),"Too many selected choices");
-            std::set<std::string> unique;
-            for (const auto& item : *selected) require(unique.insert(item).second
-                && std::find(s.choices.begin(),s.choices.end(),item)!=s.choices.end(),"Unknown or duplicate selected choice");
-        }
+        auto it=settings.find(s.id); require(it!=settings.end(),"Missing setting");
+        validate_setting(s,it->second);
     }
 }
 }

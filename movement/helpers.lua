@@ -33,13 +33,18 @@ function M.cannon(slot)
     return {M.ramp(slot),mount:finish(),align}
 end
 function M.flight(slot)
-    local f={path=M.cannon(slot),pending=0,
-        current={kind="checkpoint",detector="transport.red-cannon",continuous=true,attempts=0,completion="launch",timeout=10000,approach={}}}
+    local path=M.cannon(slot)
+    local launch=table.remove(path)
+    launch.detector="transport.red-cannon"; launch.continuous=true; launch.completion="launch"
+    launch.approach={}; launch.launch_prepare={}
+    local f={path=path,pending=0,current=launch}
     function f:flush()
         if #self.current.approach>0 then self.path[#self.path+1]=self.current end
         self.current={kind="checkpoint",continuous=true,attempts=0,completion="movement",timeout=2000,approach={}}
     end
-    function f:aim(key,count) self.path[#self.path+1]=M.turn(key,count) end
+    function f:aim(key,count)
+        self.current.launch_prepare[#self.current.launch_prepare+1]=M.turn(key,count)
+    end
     function f:launch_moving(key) self.current.launch_movement={key} end
     function f:hold(keys,ms)
         assert(ms>=self.pending*100,"Flight segment is too short for its jump presses")

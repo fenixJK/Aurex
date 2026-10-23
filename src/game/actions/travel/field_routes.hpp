@@ -8,7 +8,7 @@
 namespace hive::automation {
 class HiveSetupResult;
 struct FieldReturnOptions {
-    std::shared_ptr<const HiveSetupResult> hive;
+    std::shared_ptr<HiveSetupResult> hive;
     TravelAccess access{50,false};
     std::shared_ptr<const game::LandmarkSource> transport_prompt;
     movement::Source movement;

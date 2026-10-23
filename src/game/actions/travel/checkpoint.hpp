@@ -22,6 +22,7 @@ struct CheckpointPlan {
     std::vector<Key> launch_movement;
     Time minimum_duration{};
     std::string observation_scope;
+    std::vector<Action> launch_prepare;
 };
 void validate(const CheckpointPlan& plan);
 class Checkpoint {
@@ -34,6 +35,7 @@ public:
     CheckpointFailure failure() const { return failure_; }
     const std::string& reason() const { return reason_; }
     const std::string& detector() const { return plan_.detector; }
+    bool launched() const { return launched_; }
 private:
     CheckpointPlan plan_;
     std::shared_ptr<game::MovementSpeed> speed_;

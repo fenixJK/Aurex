@@ -22,6 +22,7 @@ inline Time estimate(const std::vector<workflows::CheckpointPlan>& plans) {
             else result+=std::get<Action>(step).duration;
         }
         if (plan.completion==workflows::CheckpointCompletion::launch) result+=Time(100);
+        for (const auto& action:plan.launch_prepare) result+=action.duration;
         result=std::max(result,before+plan.minimum_duration);
     }
     return result;

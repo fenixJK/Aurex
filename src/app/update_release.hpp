@@ -10,6 +10,7 @@ struct Release {
     QUrl download;
     QByteArray sha256;
     qint64 size{};
+    bool prerelease{};
 };
 QString platform();
 std::optional<Release> newer_release(const QByteArray& json, const QString& current, const QString& platform);

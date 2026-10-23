@@ -15,6 +15,8 @@ The app also creates its Lua paths and patterns there on first launch, ready to 
 
 Aurex checks for a newer release when it opens. Choose **Update and restart**, or use the version number at the bottom of the sidebar to check later. Stop the macro before installing an update. The updater replaces the app and keeps `AurexData`; on Mac, you may need to refresh Screen Recording and Accessibility permissions after replacement.
 
+Beta releases are also offered, clearly marked **Beta**, with a separate **Install beta and restart** button. Choose **Later** to keep your current version. A final release replaces its beta when it becomes available.
+
 ## Build it yourself
 
 Download the source and open a terminal in its folder. The build script downloads and compiles the libraries, then puts the app and a ZIP in `dist/`. No Python or separate Qt installation is needed. The first build takes longer; later builds reuse the compiled libraries.
@@ -41,5 +43,7 @@ Open PowerShell in the source folder and run:
 ```
 
 This builds for Windows x64 and sets up the compiler automatically. The ZIP contains the EXE, `LICENSE` and `THIRD_PARTY_NOTICES.txt`.
+
+For a beta build, add `-DAUREX_VERSION_SUFFIX=-beta.1` to the build command and publish it with the matching tag (for example, `v0.3.0-beta.1`) marked as a prerelease. Omit the suffix for a stable build.
 
 Licensed under [GPL-3.0](LICENSE).

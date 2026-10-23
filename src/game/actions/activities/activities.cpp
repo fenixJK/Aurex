@@ -143,16 +143,24 @@ bool Runner::prepare_menu(const ObservationContext& c,const game::State& s) {
     }
     if (c.now<menu_after_) return true;
     std::optional<Point> target;
-    const auto required=movement_menu();
+    // Camera keys such as Page Up can scroll an open quest/inventory panel.
+    // Tracking menus may reopen for movement after the camera adjustment.
+    const auto required=std::holds_alternative<MoveCamera>(*step_) || std::holds_alternative<SetHeading>(*step_)
+        ?std::optional<game::MenuTab>{}:movement_menu();
+    const bool fresh=required?s.menus.has_value(c,Time(1500),menu_after_):s.open_menu.usable(c,Time(1500),menu_after_);
+    if (!fresh && menu_attempts_) {
+        if (c.now>=menu_after_+Time(5000)) throw ObservationUnavailable("Game menu change could not be confirmed");
+        return true;
+    }
     if (required) {
-        if (!s.menus.has_value(c,Time(1500),menu_after_)) return false;
+        if (!fresh) return false;
         for (const auto& menu:s.menus.value) if (menu.tab==*required) {
             if (menu.selected==true) { menu_attempts_=0; return false; }
             if (menu.selected==false) target=menu.center();
             break;
         }
-    } else if (s.open_menu.has_value(c,Time(1500),menu_after_)) target=s.open_menu.value;
-    else if (s.open_menu.knowledge==Knowledge::absent) menu_attempts_=0;
+    } else if (fresh && s.open_menu.knowledge==Knowledge::present) target=s.open_menu.value;
+    else if (fresh && s.open_menu.knowledge==Knowledge::absent) menu_attempts_=0;
     if (!target) return false;
     const auto point=*target;
     if (!std::isfinite(point.x) || !std::isfinite(point.y) || point.x<0 || point.y<0 || point.x>=1 || point.y>=1)
@@ -236,7 +244,8 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         progress_.estimated_heading.reset();
         hold_left_=Time::zero();
         for (const auto& action : actions) hold_left_+=action.duration;
-        pending_=tasks_.submit(scope_,TaskClass::activity,std::move(actions),hold_left_+Time(2000));
+        const auto lifetime=input_lifetime(actions);
+        pending_=tasks_.submit(scope_,TaskClass::activity,std::move(actions),lifetime);
         return true;
     }
     if (const auto* key=std::get_if<TapMenuKey>(&*step_)) {
@@ -263,7 +272,8 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
             actions.push_back({"Enter digit",{key},Time(100),{}}); actions.push_back({"Release digit",{},Time(100),{}});
         }
         hold_left_=Time(actions.size()*100);
-        pending_=tasks_.submit(scope_,TaskClass::interaction,std::move(actions),hold_left_+Time(1000)); return true;
+        const auto lifetime=input_lifetime(actions);
+        pending_=tasks_.submit(scope_,TaskClass::interaction,std::move(actions),lifetime); return true;
     }
     if (const auto* control=std::get_if<UseControl>(&*step_)) {
         const auto point=control->target.value;

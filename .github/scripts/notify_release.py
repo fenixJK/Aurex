@@ -22,11 +22,11 @@ def payload(release):
         ending = f"\n\n[Read the full release notes]({url})"
         notes = notes[:4096 - len(ending) - 1].rstrip() + "…" + ending
     embed = {
-        "title": (release.get("name") or release["tag_name"])[:256],
+        "title": (("Beta · " if release.get("prerelease") else "") + (release.get("name") or release["tag_name"]))[:256],
         "url": url,
         "description": notes,
         "color": 0xE8B947,
-        "footer": {"text": "Aurex · Preview release" if release.get("prerelease") else "Aurex · Release"},
+        "footer": {"text": "Aurex · Beta release" if release.get("prerelease") else "Aurex · Release"},
     }
     if release.get("published_at"):
         embed["timestamp"] = release["published_at"]

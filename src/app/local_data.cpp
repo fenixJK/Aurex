@@ -65,4 +65,14 @@ QString prepare_local_data() {
     prepare_local_data(directory);
     return directory;
 }
+std::unique_ptr<QLockFile> lock_local_data(const QString& directory) {
+    auto lock=std::make_unique<QLockFile>(QDir(directory).filePath(".aurex.lock"));
+    lock->setStaleLockTime(0);
+    if (!lock->tryLock()) {
+        if (lock->error()==QLockFile::LockFailedError)
+            throw std::runtime_error("Aurex is already open using this AurexData folder. Close that copy before opening another.");
+        throw std::runtime_error("Could not lock the AurexData folder. Check that it is writable.");
+    }
+    return lock;
+}
 }

@@ -10,12 +10,12 @@ local function clock_settle()
     {label="Ladder alignment",keys={},ms=250},{label="Ladder alignment",keys={},ms=250}}}
 end
 local function royal_jelly(slot)
-    local flight={kind="checkpoint",detector="transport.red-cannon",attempts=0,continuous=true,completion="launch",timeout=15000,approach={}}
-    local function hold(keys,ms) h.actions(flight.approach,keys,ms,"Cannon flight") end
+    local flight=h.flight(slot)
+    local function hold(keys,ms) flight:hold(keys,ms) end
     hold({"left"},750)
     for i=1,2 do hold({"left","jump"},50); hold({"left"},50) end
     hold({"left"},2250); hold({"left","forward"},1000); hold({"forward"},1000); hold({},2000)
-    local path=h.cannon(slot); path[#path+1]=flight; path[#path+1]=walk({{13,"forward"}})
+    local path=flight:finish(); path[#path+1]=walk({{13,"forward"}})
     return path
 end
 local function treat_approach(slot)

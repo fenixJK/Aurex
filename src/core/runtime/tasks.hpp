@@ -3,6 +3,7 @@
 #include <map>
 
 namespace hive {
+Time input_lifetime(const std::vector<Action>& actions);
 struct ModuleScope {
     std::uint64_t id{}, generation{};
     bool operator==(const ModuleScope&) const = default;

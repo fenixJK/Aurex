@@ -23,7 +23,7 @@ elseif(MSVC)
   target_link_options(Aurex PRIVATE "$<$<CONFIG:Release>:LINKER:/OPT:REF,/OPT:ICF>")
 endif()
 target_link_libraries(Aurex PRIVATE hive_gathering_scripts hive_planter_store hive_collection_store hive_visit_cooldown_store hive_session hive_platform hive_extensions_ui hive_builtin_modules hive_native_modules hive_policies Qt6::Widgets Qt6::Concurrent)
-target_compile_definitions(Aurex PRIVATE AUREX_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(Aurex PRIVATE AUREX_VERSION="${AUREX_VERSION}")
 target_link_libraries(Aurex PRIVATE hive_status_ui hive_remote_controls hive_accounts_ui hive_planters_ui)
 if(WIN32)
   qt_import_plugins(Aurex NO_DEFAULT INCLUDE Qt6::QWindowsIntegrationPlugin

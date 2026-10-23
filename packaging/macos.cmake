@@ -1,5 +1,4 @@
-file(STRINGS "${ROOT}/CMakeLists.txt" version_line REGEX "^project\\(Aurex VERSION ")
-string(REGEX REPLACE ".*VERSION ([0-9.]+).*" "\\1" version "${version_line}")
+file(STRINGS "${APP_BUILD}/release-version.txt" version)
 if(ARCH STREQUAL "arm64")
   set(package macOS-arm64)
 else()
