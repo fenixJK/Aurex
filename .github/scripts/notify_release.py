@@ -10,6 +10,12 @@ import urllib.request
 
 def payload(release):
     url = release["html_url"]
+    # Only stable major/minor releases ping; patches and previews stay quiet.
+    ping_everyone = (
+        not release.get("prerelease")
+        and not release.get("draft")
+        and re.fullmatch(r"v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.0", release.get("tag_name", "")) is not None
+    )
     notes = (release.get("body") or "Download this version from the release page.").strip()
     notes = re.sub(r"^#{1,6}\s+(.+)$", r"**\1**", notes, flags=re.MULTILINE)
     if len(notes) > 4096:
@@ -27,8 +33,8 @@ def payload(release):
     return {
         "username": "Aurex",
         "avatar_url": "https://raw.githubusercontent.com/fenixJK/Aurex/main/assets/aurex.png",
-        "content": "||@everyone||",
-        "allowed_mentions": {"parse": ["everyone"]},
+        "content": "||@everyone||" if ping_everyone else "",
+        "allowed_mentions": {"parse": ["everyone"] if ping_everyone else []},
         "embeds": [embed],
     }
 
