@@ -84,6 +84,7 @@ private:
     std::string pending_,menu_pending_;
     Time menu_after_{};
     unsigned menu_attempts_{};
+    std::optional<game::MenuTab> closing_menu_;
     std::function<std::optional<game::MenuTab>()> parent_menu_;
     std::optional<game::MenuTab> movement_menu() const;
     bool owned_{};

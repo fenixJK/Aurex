@@ -147,6 +147,12 @@ bool Runner::prepare_menu(const ObservationContext& c,const game::State& s) {
     // Tracking menus may reopen for movement after the camera adjustment.
     const auto required=std::holds_alternative<MoveCamera>(*step_) || std::holds_alternative<SetHeading>(*step_)
         ?std::optional<game::MenuTab>{}:movement_menu();
+    // Confirm the tab we closed directly; another unreadable icon does not
+    // undo a fresh observation that this panel is no longer selected.
+    if (!required && closing_menu_ && s.menus.has_value(c,Time(1500),menu_after_))
+        for (const auto& menu:s.menus.value) if (menu.tab==*closing_menu_ && menu.selected==false) {
+            menu_attempts_=0; closing_menu_.reset(); break;
+        }
     const bool fresh=required?s.menus.has_value(c,Time(1500),menu_after_):s.open_menu.usable(c,Time(1500),menu_after_);
     if (!fresh && menu_attempts_) {
         if (c.now>=menu_after_+Time(5000)) throw ObservationUnavailable("Game menu change could not be confirmed");
@@ -160,13 +166,16 @@ bool Runner::prepare_menu(const ObservationContext& c,const game::State& s) {
             break;
         }
     } else if (fresh && s.open_menu.knowledge==Knowledge::present) target=s.open_menu.value;
-    else if (fresh && s.open_menu.knowledge==Knowledge::absent) menu_attempts_=0;
+    else if (fresh && s.open_menu.knowledge==Knowledge::absent) { menu_attempts_=0; closing_menu_.reset(); }
     if (!target) return false;
     const auto point=*target;
     if (!std::isfinite(point.x) || !std::isfinite(point.y) || point.x<0 || point.y<0 || point.x>=1 || point.y>=1)
         throw std::runtime_error("Invalid menu control position");
     if (menu_attempts_>=3) throw ObservationUnavailable("Game menu did not respond after three clicks");
     if (!owned_) { if (!tasks_.acquire(scope_)) return true; owned_=true; }
+    if (!required && s.menus.has_value(c,Time(1500)))
+        for (const auto& menu:s.menus.value) if (menu.selected==true
+            && menu.center().x==point.x && menu.center().y==point.y) { closing_menu_=menu.tab; break; }
     ++menu_attempts_; progress_.message=required?"Opening tracking menu":"Closing game menu";
     const auto rest=game::pointer_rest(c,s);
     menu_pending_=tasks_.submit(scope_,TaskClass::interaction,

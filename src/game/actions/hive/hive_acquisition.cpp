@@ -199,11 +199,10 @@ public:
             if (c.now-minimum_>=Time(10000)) return locate_unknown(view);
             if (!view.observations) return Wait{};
             const auto& text=view.observations->text;
-            if (!text.has_value(c,Time(2000))) {
-                const auto& hud=view.observations->game_hud;
-                if (hud.has_value(c,Time(2000),minimum_) && hud.value) return locate_unknown(view);
-                return Wait{};
-            }
+            // HUD pixels arrive before the prompt reader. Give that reader a
+            // fresh frame before changing the camera to search for spawn.
+            if (!text.has_value(c,Time(2000)))
+                return Wait{Time(50),"Reading hive interaction prompt"};
             if (text.captured==seen_) return Wait{};
             seen_=text.captured;
             const auto owned=game::read_prompt_landmark(c,text,game::hive_proximity_prompt());

@@ -72,6 +72,7 @@ struct Options {
     int respawn_reduction{};
     std::map<std::string,EnemyOptions> enemies;
     SettingSelection boss_order;
+    bool reset_return{true};
 };
 struct Plan {
     std::vector<Enemy> enemies;

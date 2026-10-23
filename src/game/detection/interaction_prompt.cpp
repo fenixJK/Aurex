@@ -231,12 +231,10 @@ bool cooldown_caption(const Frame& frame,Rect region) {
 }
 std::optional<Rect> colored_caption(const Frame& frame) {
     // Locate the colored panel independently of the white HUD borders, which can
-    // merge into a bright sky. Cooldowns have no adjoining E key.
+    // merge into a bright sky. Cooldowns and the empty-bag hive caption have no E key.
     cv::Mat colored(frame.height/4,frame.width,CV_8UC1,cv::Scalar(0));
     for (int y=0;y<colored.rows;++y) for (int x=frame.width/4;x<frame.width*3/4;++x) {
-        const auto i=(std::size_t(y)*frame.width+x)*4;
-        const int r=frame.rgba[i],g=frame.rgba[i+1],b=frame.rgba[i+2];
-        if (r>=100 && r>g*1.3 && r>b*1.15) colored.at<unsigned char>(y,x)=255;
+        if (banner_color(frame,x,y)) colored.at<unsigned char>(y,x)=255;
     }
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(colored,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
@@ -244,15 +242,14 @@ std::optional<Rect> colored_caption(const Frame& frame) {
     for (const auto& contour:contours) {
         auto box=cv::boundingRect(contour);
         if (box.height<frame.height*.018 || box.height>frame.height*.1 || box.width<box.height*3 || box.width>box.height*14
-            || std::abs(box.x+box.width/2.-frame.width/2.)>box.height || box.y<frame.height*.025
-            || cv::contourArea(contour)<box.area()*.8) continue;
+            || std::abs(box.x+box.width/2.-frame.width/2.)>box.height || box.y<frame.height*.025) continue;
         // World pixels can touch the panel's edge. Keep the rows supported by
         // its full background instead of extending the crop into the hive.
         int top=box.y,bottom=box.y+box.height;
         while (top<bottom && cv::countNonZero(colored.row(top).colRange(box.x,box.x+box.width))<box.width*.65) ++top;
         while (bottom>top && cv::countNonZero(colored.row(bottom-1).colRange(box.x,box.x+box.width))<box.width*.65) --bottom;
         box.y=top; box.height=bottom-top;
-        if (box.height<frame.height*.018) continue;
+        if (box.height<frame.height*.018 || cv::contourArea(contour)<box.area()*.8) continue;
         // A solid panel or world geometry is not a text-bearing action banner.
         const Rect region{double(box.x)/frame.width,double(box.y)/frame.height,double(box.width)/frame.width,double(box.height)/frame.height};
         if (cooldown_caption(frame,region) || interaction_label(interaction_text_image(frame,region)))

@@ -11,7 +11,9 @@ std::string option_key(std::string_view prefix,const std::string& id) {
     return std::string(prefix)+features::visits::selection_key(id).substr(6);
 }
 std::vector<extensions::Setting> option_settings(const Plan& plan) {
-    std::vector<extensions::Setting> result{{"respawn-reduction","Respawn reduction (%)",plan.options.respawn_reduction,0,100,{}}};
+    std::vector<extensions::Setting> result{{"respawn-reduction","Respawn reduction (%)",plan.options.respawn_reduction,0,100,{}},
+        {"return-method","Return to hive",std::string(plan.options.reset_return?"Reset":"Walk"),0,0,{"Reset","Walk"}}};
+    result.back().help="Reset respawns at your hive after combat and loot. Walk keeps carried pollen.";
     extensions::Setting bosses{"bosses","Boss",SettingSelection{}}; bosses.ordered=true;
     for (const auto& enemy:plan.enemies) if (enemy.boss) {
         bosses.choices.push_back(enemy.id);
@@ -117,6 +119,7 @@ public:
         }
         Options options; if (values.contains("bosses")) options.boss_order=std::get<SettingSelection>(values.at("bosses"));
         options.respawn_reduction=std::get<int>(values.at("respawn-reduction"));
+        options.reset_return=std::get<std::string>(values.at("return-method"))=="Reset";
         for (const auto& target:targets_) {
             const auto& id=target.id;
             if (target.boss) {
@@ -225,7 +228,7 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     auto& sections=manifest.page->sections;
     manifest.page->compact=true;
     sections.clear();
-    sections.push_back({"schedule","Options",{},{"interrupt-gather","respawn-reduction"},false,2});
+    sections.push_back({"schedule","Options",{},{"interrupt-gather","respawn-reduction","return-method"},false,2});
     sections.push_back({"run","Run limit",{},{"run-seconds"}});
     if (std::any_of(plan.enemies.begin(),plan.enemies.end(),[](const auto& enemy) { return enemy.boss; })) {
         extensions::PageSection choices{"boss-selection","Bosses",{},{"bosses"},false,1}; choices.tab="Bosses"; sections.push_back(std::move(choices));
