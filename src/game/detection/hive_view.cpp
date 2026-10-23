@@ -6,9 +6,6 @@
 
 namespace hive::game {
 namespace {
-constexpr std::array<std::uint32_t,6> spawn_palette{
-    0x937b1f,0x796615,0xc1ae55,0x957a70,0x988a55,0xc3bca5
-};
 std::optional<Rect> centered_honeycomb(const Frame& f) {
     // Sample only the search region into a small mask; no full-frame resize or DPI dependency.
     const double shrink=640./std::max(f.width,f.height);
@@ -89,104 +86,67 @@ public:
         return result;
     }
 };
-template<std::size_t N>
-class FlatView final : public Detector {
-    std::array<std::uint32_t,N> palette_;
-    std::string id_;
-    int quarter_,tolerance_;
-    std::array<int,3> low_{255,255,255},high_{};
+class SpawnView final : public Detector {
 public:
-    FlatView(std::array<std::uint32_t,N> palette,std::string id,int quarter,int tolerance)
-        :palette_(palette),id_(std::move(id)),quarter_(quarter),tolerance_(tolerance) {
-        for (auto rgb : palette_) for (int c=0;c<3;++c) {
-            const int channel=(rgb>>(16-8*c))&255;
-            low_[c]=std::min(low_[c],channel-tolerance_); high_[c]=std::max(high_[c],channel+tolerance_);
-        }
-    }
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         const auto& f=input.frame;
         if (!f.valid() || !input.generation || (input.cancelled && input.cancelled())) return {};
         auto result=std::make_shared<HiveViewDetection>();
-        auto& reading=result->readings[id_];
-        reading={Knowledge::unknown,false,f.captured,f.window,input.generation};
-        result->region={Knowledge::unknown,{},f.captured,f.window,input.generation};
-        const double scale=f.width/f.window.bounds.width,scale_y=f.height/f.window.bounds.height;
-        if (scale<.5 || scale>4 || scale_y<.5 || scale_y>4 || std::abs(scale-scale_y)>.1
-            || f.width>8192 || f.height>8192 || f.window.bounds.width<320 || f.window.bounds.height<200) return result;
-        const int width=std::max(1,static_cast<int>(std::lround(22*scale)));
-        const int height=std::max(1,static_cast<int>(std::lround(4*scale_y)));
-        const int top=f.height*quarter_/4, bottom=f.height*(quarter_+1)/4;
-        const std::size_t required=std::max<std::size_t>(1,static_cast<std::size_t>(f.width)*f.width/3200);
-        struct Column { int row{-2},height{}; };
-        constexpr std::size_t count=N+1;
-        const int gold_width=std::max(1,static_cast<int>(std::lround(64*scale)));
-        const int gold_height=std::max(1,static_cast<int>(std::lround(16*scale_y)));
-        std::vector<Column> columns(static_cast<std::size_t>(f.width)*count);
-        std::array<std::size_t,count> matches{};
-        std::vector<bool> gold_columns(f.width);
-        struct Bounds { int left,top,right{},bottom{}; };
-        std::array<Bounds,count> bounds;
-        for (auto& box : bounds) box={f.width,f.height};
-        for (int y=top;y<bottom;++y) {
-            if (input.cancelled && input.cancelled()) return {};
-            unsigned previous=0;
-            std::array<int,count> runs{};
-            for (int x=0;x<f.width;++x) {
-                const auto offset=(static_cast<std::size_t>(y)*f.width+x)*4;
-                const int red=f.rgba[offset],green=f.rgba[offset+1],blue=f.rgba[offset+2];
-                unsigned colors=0;
-                if (f.rgba[offset+3]>=251 && red>=low_[0] && red<=high_[0] && green>=low_[1] && green<=high_[1] && blue>=low_[2] && blue<=high_[2]) {
-                    for (std::size_t i=0;i<N;++i) {
-                        const auto rgb=palette_[i];
-                        if (std::abs(red-int(rgb>>16))<=tolerance_ && std::abs(green-int((rgb>>8)&255))<=tolerance_
-                            && std::abs(blue-int(rgb&255))<=tolerance_) colors|=1u<<i;
-                    }
-                }
-                {
-                    const bool gold=red>=80 && green*100>=red*80 && green*100<=red*94
-                        && blue*100>=red*12 && blue*100<=red*50;
-                    if (f.rgba[offset+3]>=251 && gold) colors|=1u<<N;
-                }
-                if (colors) for (std::size_t i=0;i<count;++i) {
-                    const auto bit=1u<<i;
-                    if (!(colors&bit)) continue;
-                    runs[i]=(previous&bit)?runs[i]+1:1;
-                    const int patch_width=i==N?gold_width:width,patch_height=i==N?gold_height:height;
-                    if (runs[i]<patch_width) continue;
-                    auto& column=columns[static_cast<std::size_t>(x)*count+i];
-                    column.height=column.row==y-1?column.height+1:1; column.row=y;
-                    if (column.height>=patch_height) {
-                        if (i==N) gold_columns[x]=true;
-                        ++matches[i]; auto& box=bounds[i];
-                        box.left=std::min(box.left,x-patch_width+1); box.top=std::min(box.top,y-patch_height+1);
-                        box.right=std::max(box.right,x+1); box.bottom=std::max(box.bottom,y+1);
-                    }
-                }
-                previous=colors;
-            }
+        auto& reading=result->readings["spawn.reference"];
+        reading={Knowledge::absent,false,f.captured,f.window,input.generation};
+        result->region={Knowledge::absent,{},f.captured,f.window,input.generation};
+        // A hive-row view has several white platforms beneath honeycomb boards.
+        // Normalize scene geometry by image size, independently of desktop DPI.
+        const double dpi_x=f.width/f.window.bounds.width,dpi_y=f.height/f.window.bounds.height;
+        if (dpi_x<.5 || dpi_x>4 || dpi_y<.5 || dpi_y>4 || std::abs(dpi_x-dpi_y)>.1
+            || f.width>8192 || f.height>8192 || f.window.bounds.width<320 || f.window.bounds.height<200) {
+            reading.knowledge=result->region.knowledge=Knowledge::unknown; return result;
         }
-        matches[N]/=4;
-        {
-            unsigned panels=0;
-            int run=0,gap=gold_width;
-            for (const bool gold : gold_columns) {
-                if (gold) {
-                    if (++run==gold_width && gap>=width) ++panels;
-                } else {
-                    gap=run?1:gap+1; run=0;
-                }
-            }
-            if (panels<3) matches[N]=0;
+        cv::Mat rgba(f.height,f.width,CV_8UC4,const_cast<std::uint8_t*>(f.rgba.data())),small;
+        const double scale=640./std::max(f.width,f.height);
+        cv::resize(rgba,small,{},scale,scale,cv::INTER_AREA);
+        cv::Mat white(small.rows,small.cols,CV_8U,cv::Scalar(0));
+        for (int y=small.rows*.2;y<small.rows*.6;++y) for (int x=0;x<small.cols;++x) {
+            const auto p=small.at<cv::Vec4b>(y,x);
+            if (p[3]>=251 && std::min({p[0],p[1],p[2]})>=185
+                && std::max({p[0],p[1],p[2]})-std::min({p[0],p[1],p[2]})<40) white.at<std::uint8_t>(y,x)=255;
         }
-        const auto best=static_cast<std::size_t>(std::max_element(matches.begin(),matches.end())-matches.begin());
-        if (matches[best]>=required) {
-            const auto& box=bounds[best];
-            result->region.knowledge=Knowledge::present;
-            result->region.value={double(box.left)/f.width,double(box.top)/f.height,
-                double(box.right-box.left)/f.width,double(box.bottom-box.top)/f.height};
-            reading.knowledge=Knowledge::present; reading.value=true;
-        } else {
-            reading.knowledge=Knowledge::absent; result->region.knowledge=Knowledge::absent;
+        cv::morphologyEx(white,white,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_RECT,{9,3}));
+        std::vector<std::vector<cv::Point>> contours;
+        cv::findContours(white,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
+        std::vector<std::pair<cv::Rect,bool>> platforms;
+        for (const auto& contour:contours) {
+            const auto box=cv::boundingRect(contour);
+            if (box.width<small.cols*.04 || box.width>small.cols*.3 || box.height<3
+                || box.y+box.height>small.rows*.45
+                || box.width<box.height*2.5 || box.width>box.height*16 || cv::contourArea(contour)<box.area()*.4) continue;
+            // Red claim arrows end on the white pads of unowned hives. They
+            // distinguish unclaimed spawn from a close view of an owned hive.
+            unsigned red=0;
+            for (int y=box.y;y<box.y+box.height;++y) for (int x=box.x;x<box.x+box.width;++x) {
+                const auto p=small.at<cv::Vec4b>(y,x);
+                red+=p[0]>150 && p[0]>p[1]*1.6 && p[0]>p[2]*1.6;
+            }
+            unsigned gold=0,total=0;
+            for (int y=std::max(0,box.y-int(small.rows*.18));y<box.y;++y) for (int x=box.x;x<box.x+box.width;++x) {
+                const auto p=small.at<cv::Vec4b>(y,x); ++total;
+                gold+=p[0]>=80 && p[1]>=p[0]*.6 && p[1]<=p[0]*1.05 && p[2]<=p[0]*.7;
+            }
+            if (gold*4<total) continue;
+            // The red arrow must terminate below an empty golden backboard;
+            // a red tool in front of a leaderboard is not a claim arrow.
+            const bool available=red && gold>=total*.65;
+            for (const auto& [other,other_red]:platforms) {
+                const double a=box.x+box.width*.5,b=other.x+other.width*.5;
+                if ((!available && !other_red) || std::min(a,b)>small.cols*.45 || std::max(a,b)<small.cols*.55
+                    || std::abs(box.y-other.y)>small.rows*.06) continue;
+                const auto row=box|other;
+                reading.knowledge=Knowledge::present; reading.value=true;
+                result->region={Knowledge::present,{double(row.x)/small.cols,double(row.y)/small.rows,
+                    double(row.width)/small.cols,double(row.height)/small.rows},f.captured,f.window,input.generation};
+                return result;
+            }
+            platforms.emplace_back(box,available);
         }
         return result;
     }
@@ -239,7 +199,7 @@ public:
 };
 }
 std::shared_ptr<const Detector> hive_view_detector() { return std::make_shared<HiveView>(); }
-std::shared_ptr<const Detector> spawn_view_detector() { return std::make_shared<FlatView<6>>(spawn_palette,"spawn.reference",0,5); }
+std::shared_ptr<const Detector> spawn_view_detector() { return std::make_shared<SpawnView>(); }
 std::shared_ptr<const LandmarkSource> hive_reference_source(std::shared_ptr<const DetectionSource> pixels,
     std::shared_ptr<const LandmarkSource> proximity) {
     if (!pixels || !proximity) throw std::invalid_argument("Hive reference requires pixel and proximity observations");

@@ -253,7 +253,8 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
             throw std::runtime_error("Menu shortcut requires interaction permission");
         if (!tasks_.acquire(scope_)) return true;
         owned_=true; progress_.message=key->label;
-        Action action{key->label,{},Time(250),{}};
+        // Keep a brief pause after the tap; the program observes menu readiness.
+        Action action{key->label,{},Time(50),{}};
         action.tap=key->key;
         pending_=tasks_.submit(scope_,TaskClass::interaction,{action},Time(1000));
         return true;

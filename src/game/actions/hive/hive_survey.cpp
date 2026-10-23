@@ -28,7 +28,7 @@ class HiveSurvey final : public Program {
     std::string result_;
     std::optional<HiveClaimOptions> claim_;
     std::shared_ptr<const movement::Recipes> movement_;
-    unsigned selected_{},next_slot_{},claim_attempts_{};
+    unsigned selected_{},next_slot_{},claim_attempts_{},occupied_{};
     Time pressed_{Time(-1)};
     std::array<bool,6> checked_{};
     workflows::CheckpointPlan approach_;
@@ -74,13 +74,16 @@ class HiveSurvey final : public Program {
         if (!trade && corrections_<approach_.attempts && !approach_.nudge_path.empty()) {
             stage_=Stage::correct; return next(view);
         }
-        checked_[selected_-1]=true; next_slot_=0;
+        checked_[selected_-1]=true; occupied_+=trade; next_slot_=0;
         for (unsigned slot=1;slot<=6;++slot) if (!checked_[slot-1]) {
             const auto distance=std::abs(int(slot)-int(selected_));
             const auto previous=std::abs(int(next_slot_)-int(selected_));
             if (!next_slot_ || distance<previous || (distance==previous && selected_>3)) next_slot_=slot;
         }
-        if (!next_slot_) throw ClientRejoinRequired("No owned or claimable hive found; rejoining Bee Swarm");
+        if (!next_slot_) {
+            if (occupied_==checked_.size()) throw ClientRejoinRequired("All hive slots are occupied; rejoining Bee Swarm");
+            return Defer{"Hive prompts could not be confirmed across the row; hive setup paused"};
+        }
         stage_=corrections_?Stage::restore_position:Stage::scan; return next(view);
     }
     bool started_{};

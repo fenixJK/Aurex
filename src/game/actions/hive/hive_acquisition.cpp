@@ -45,7 +45,7 @@ public:
     void finished(State state) override { if (state!=State::completed) result_->reset(); }
 };
 class AcquireHive final : public Program {
-    enum class Stage { locate,zoom,pitch_limit,pitch,observe,turn,restore,claim,prepare,recover,done };
+    enum class Stage { locate,zoom,pitch_limit,pitch,observe,turn,claim,prepare,recover,done };
     Stage stage_{Stage::locate};
     std::shared_ptr<const game::HiveSlotsSource> slots_;
     std::shared_ptr<const game::LandmarkSource> spawn_,reference_,proximity_;
@@ -97,6 +97,10 @@ class AcquireHive final : public Program {
             // failure is not evidence that the server or hive was lost.
             return Defer{std::string(error.what())+"; departure skipped"};
         }
+        catch (const ObservationUnavailable& error) {
+            if (stage_!=Stage::claim || !recovered_) throw;
+            return Defer{std::string(error.what())+"; hive setup paused"};
+        }
         if (std::holds_alternative<Done>(step)) {
             child_->finished(State::completed); child_.reset(); child_guard_.reset();
             if (stage_==Stage::recover) {
@@ -132,8 +136,7 @@ public:
     ProgramFactory recovery(Interruption reason,const View&) override {
         if (!options_.recovery || (reason!=Interruption::death && reason!=Interruption::lost_observations
             && reason!=Interruption::lost_route)) return {};
-        if (reason!=Interruption::death && recovered_)
-            throw ClientRejoinRequired("Hive could not be confirmed after resetting; rejoining Bee Swarm");
+        if (reason!=Interruption::death && recovered_) return {};
         if (child_) child_->finished(State::stopped);
         child_.reset(); child_guard_.reset(); child_running_.reset();
         if (options_.result) options_.result->invalidate_camera();
@@ -143,13 +146,13 @@ public:
             return reason==Interruption::death?wait_for_respawn(source):request_respawn(source);
         };
     }
-    void begin_recovery(const View& view) {
+    Step recover(const View& view) {
         if (!options_.recovery) throw ObservationUnavailable("Hive position could not be found");
-        if (recovered_) throw ClientRejoinRequired("Hive could not be found after resetting; rejoining Bee Swarm");
+        if (recovered_) return Defer{"Hive position could not be confirmed after resetting; hive setup paused"};
         if (options_.result) options_.result->begin_preparation(view.context);
         begin(Stage::recover,view);
+        return child_step(view);
     }
-    Step recover(const View& view) { begin_recovery(view); return child_step(view); }
     Step locate_unknown(const View& view) {
         // World colors can resemble spawn elsewhere in the map. Only survey
         // from an unlocated client after resetting; a fresh join bypasses this.
@@ -183,8 +186,7 @@ public:
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
         case Stage::pitch_limit: return MoveCamera{game::pitch_limit(Key::pitch_down)};
         case Stage::pitch: return MoveCamera{{Key::pitch_up,5}};
-        case Stage::turn:
-        case Stage::restore: return MoveCamera{{Key::rotate_right,4}};
+        case Stage::turn: return MoveCamera{{Key::rotate_right,4}};
         case Stage::locate: {
             if (options_.confirmed_spawn) {
                 if (view.observations && view.observations->game_hud.has_value(c,Time(2000)) && view.observations->game_hud.value) {
@@ -246,7 +248,8 @@ public:
             if (reading.knowledge==Knowledge::present && reading.value) {
                 begin(Stage::claim,view); return child_step(view);
             }
-            stage_=turned_?Stage::restore:Stage::turn; return next(view);
+            if (turned_) return recover(view);
+            stage_=Stage::turn; return next(view);
         }
         return Wait{Time(50),"Checking the settled spawn view"};
     }
@@ -259,8 +262,6 @@ public:
             else observe(view.context.now);
             break;
         case Stage::turn: turned_=true; observe(view.context.now); break;
-        case Stage::restore:
-            begin_recovery(view); break;
         case Stage::claim:
         case Stage::prepare:
         case Stage::recover:

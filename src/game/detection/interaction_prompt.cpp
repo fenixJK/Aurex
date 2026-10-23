@@ -48,17 +48,26 @@ float words_similarity(const cv::Mat& line,const cv::Mat& pattern,unsigned prefi
 }
 float phrase_similarity(const cv::Mat& ink,const cv::Mat& pattern) {
     // Keep word boundaries, but allow the rest of the caption to wrap independently.
+    // Faint antialiasing and background edges must not join separate text lines.
+    cv::Mat core;
+    cv::threshold(ink,core,128,255,cv::THRESH_BINARY);
     float best=0;
     for (int y=0;y<ink.rows;) {
-        if (!cv::countNonZero(ink.row(y))) { ++y; continue; }
+        if (!cv::countNonZero(core.row(y))) { ++y; continue; }
         const int top=y++;
-        while (y<ink.rows && cv::countNonZero(ink.row(y))) ++y;
+        while (y<ink.rows && cv::countNonZero(core.row(y))) ++y;
         const auto line=ink(cv::Rect(0,top,ink.cols,y-top));
         if (line.rows<8) continue;
-        const auto words=word_boxes(line);
+        const auto words=word_boxes(core(cv::Rect(0,top,ink.cols,y-top)));
         for (std::size_t first=0;first<words.size();++first) for (std::size_t last=first;last<words.size();++last) {
-            const auto phrase=line.colRange(words[first].x,words[last].x+words[last].width);
-            best=std::max(best,similarity(phrase,pattern));
+            for (int edge:{0,1}) {
+                // Include antialiased ascenders/descenders around the bright
+                // core, without using background noise to split the lines.
+                const auto area=cv::Rect(words[first].x-edge,top-edge,
+                    words[last].x+words[last].width-words[first].x+edge*2,y-top+edge*2)
+                    & cv::Rect(0,0,ink.cols,ink.rows);
+                best=std::max(best,similarity(ink(area),pattern));
+            }
             if (best>=.94f) return best;
         }
     }
@@ -83,6 +92,7 @@ bool banner_color(const Frame& frame,int x,int y) {
     return (b>=100 && b>r*1.3 && b>g*1.15) || (r>=100 && r>g*1.3 && r>b*1.15);
 }
 struct PromptRegion { Rect bounds; bool key; };
+std::optional<Rect> colored_caption(const Frame& frame);
 std::optional<PromptRegion> locate_prompt(const Frame& frame,bool captions) {
     if (!frame.valid()) return {};
     cv::Mat light(frame.height/4,frame.width,CV_8UC1,cv::Scalar(0));
@@ -110,6 +120,7 @@ std::optional<PromptRegion> locate_prompt(const Frame& frame,bool captions) {
         found=PromptRegion{{double(left)/frame.width,double(y)/frame.height,double(right-left)/frame.width,double(height)/frame.height},true};
     }
     if (found || !captions) return found;
+    if (const auto panel=colored_caption(frame)) return PromptRegion{*panel,false};
     // Join a HUD border across adjacent rows when scaling breaks its thin edge.
     cv::dilate(light,light,cv::getStructuringElement(cv::MORPH_RECT,{1,3}));
     for (int y=0;y<frame.height/6;++y) {
@@ -184,7 +195,7 @@ bool cooldown_caption(const Frame& frame,Rect region) {
     }
     // Include faint letters around the bright cores. A timer is one group;
     // wrapped warnings such as "Trade Requests" contain separate words.
-    if (wrapped) return word_boxes(line,.3).size()==1;
+    if (wrapped && word_boxes(line,.3).size()!=1) return false;
     std::vector<std::vector<cv::Point>> marks;
     cv::findContours(line,marks,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
     std::vector<cv::Rect> parts;
@@ -196,43 +207,18 @@ bool cooldown_caption(const Frame& frame,Rect region) {
         if (r.height<=timer.height*.3 && r.width<=timer.height*.3) parts.push_back(r);
     }
     for (const auto& a:parts) for (const auto& b:parts) {
-        if (a.x<line.cols*.5 || a.height>timer.height*.3 || b.height>timer.height*.3
+        if ((!wrapped && a.x<line.cols*.5) || a.height>timer.height*.3 || b.height>timer.height*.3
             || a.width>timer.height*.3 || b.width>timer.height*.3
             || std::abs(a.x+a.width/2.-b.x-b.width/2.)>std::max(1.,timer.height*.1)
             || b.y-a.y<timer.height*.2 || b.y-a.y>std::ceil(timer.height*.65)) continue;
         unsigned after=0;
         for (const auto& part:parts) if (part.height>=timer.height*.5 && part.x>=a.x+a.width) ++after;
-        const int tail=line.cols-a.x-padding;
+        const int tail=(wrapped?timer.x+timer.width-area.x:line.cols-padding)-a.x;
         if (after>=2 && tail>=timer.height && tail<=timer.height*4) return true;
     }
     return false;
 }
-}
-std::optional<Rect> interaction_prompt_region(const Frame& frame) {
-    const auto prompt=locate_prompt(frame,false);
-    return prompt?std::optional(prompt->bounds):std::nullopt;
-}
-std::optional<Rect> interaction_text_region(const Frame& frame) {
-    const auto prompt=locate_prompt(frame,true);
-    return prompt?std::optional(prompt->bounds):std::nullopt;
-}
-Reading<InteractionBanner> read_interaction_banner(const Frame& frame,std::uint64_t generation,const HudFeatures* hud) {
-    if (!frame.valid() || !generation) return {};
-    const auto inspected=hud?HudFeatures{}:inspect_hud(frame,generation);
-    if (!hud) hud=&inspected;
-    Reading<InteractionBanner> result{Knowledge::present,InteractionBanner::none,frame.captured,frame.window,generation};
-    const bool hud_visible=game_hud_visible(*hud);
-    // E and the HUD locate the panel even when its color merges into the scenery.
-    if (const auto prompt=locate_prompt(frame,true)) {
-        if (prompt->key && !interaction_cooldown(frame,prompt->bounds)) {
-            result.value=InteractionBanner::ready;
-            return result;
-        }
-        if (cooldown_caption(frame,prompt->bounds)) {
-            result.value=InteractionBanner::cooldown;
-            return result;
-        }
-    }
+std::optional<Rect> colored_caption(const Frame& frame) {
     // Locate the colored panel independently of the white HUD borders, which can
     // merge into a bright sky. Cooldowns have no adjoining E key.
     cv::Mat colored(frame.height/4,frame.width,CV_8UC1,cv::Scalar(0));
@@ -243,19 +229,53 @@ Reading<InteractionBanner> read_interaction_banner(const Frame& frame,std::uint6
     }
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(colored,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
-    std::vector<InteractionBanner> found;
+    std::vector<Rect> found;
     for (const auto& contour:contours) {
-        const auto box=cv::boundingRect(contour);
+        auto box=cv::boundingRect(contour);
         if (box.height<frame.height*.018 || box.height>frame.height*.1 || box.width<box.height*3 || box.width>box.height*14
             || std::abs(box.x+box.width/2.-frame.width/2.)>box.height || box.y<frame.height*.025
             || cv::contourArea(contour)<box.area()*.8) continue;
+        // World pixels can touch the panel's edge. Keep the rows supported by
+        // its full background instead of extending the crop into the hive.
+        int top=box.y,bottom=box.y+box.height;
+        while (top<bottom && cv::countNonZero(colored.row(top).colRange(box.x,box.x+box.width))<box.width*.65) ++top;
+        while (bottom>top && cv::countNonZero(colored.row(bottom-1).colRange(box.x,box.x+box.width))<box.width*.65) --bottom;
+        box.y=top; box.height=bottom-top;
+        if (box.height<frame.height*.018) continue;
         // A solid panel or world geometry is not a text-bearing action banner.
         const Rect region{double(box.x)/frame.width,double(box.y)/frame.height,double(box.width)/frame.width,double(box.height)/frame.height};
-        if (hud_visible && cooldown_caption(frame,region))
-            found.push_back(InteractionBanner::cooldown);
+        if (cooldown_caption(frame,region) || interaction_label(interaction_text_image(frame,region)))
+            found.push_back(region);
 
     }
-    if (found.size()==1) result.value=found.front();
+    return found.size()==1?std::optional(found.front()):std::nullopt;
+}
+}
+std::optional<Rect> interaction_prompt_region(const Frame& frame) {
+    const auto prompt=locate_prompt(frame,false);
+    return prompt?std::optional(prompt->bounds):std::nullopt;
+}
+std::optional<Rect> interaction_text_region(const Frame& frame) {
+    const auto prompt=locate_prompt(frame,true);
+    return prompt?std::optional(prompt->bounds):std::nullopt;
+}
+Reading<InteractionBanner> read_interaction_banner(const Frame& frame,std::uint64_t generation,const HudFeatures*) {
+    if (!frame.valid() || !generation) return {};
+    Reading<InteractionBanner> result{Knowledge::present,InteractionBanner::none,frame.captured,frame.window,generation};
+    // E and the HUD locate the panel even when its color merges into the scenery.
+    if (const auto prompt=locate_prompt(frame,true)) {
+        if (prompt->key && !interaction_cooldown(frame,prompt->bounds)) {
+            result.value=InteractionBanner::ready;
+            return result;
+        }
+        const auto label=interaction_label(interaction_text_image(frame,prompt->bounds));
+        if (label && label->text=="Trade Request") return result;
+        if (cooldown_caption(frame,prompt->bounds)) {
+            result.value=InteractionBanner::cooldown;
+            return result;
+        }
+    }
+
     return result;
 }
 bool interaction_cooldown(const Frame& frame,Rect region) {
@@ -324,7 +344,7 @@ std::optional<TextLine> interaction_label(const Frame& image,const std::string& 
         Label{"Make Honey",reference(detail::make_honey_width,detail::make_honey_height,detail::make_honey),Match::whole},
         Label{"Claim Hive",reference(detail::claim_hive_width,detail::claim_hive_height,detail::claim_hive),Match::whole},
         Label{"Trade Request",reference(detail::trade_request_width,detail::trade_request_height,detail::trade_request),Match::first_line},
-        Label{"Trade Request",reference(detail::trade_requests_width,detail::trade_requests_height,detail::trade_requests),Match::phrase},
+        Label{"Trade Request",reference(detail::trade_requests_width,detail::trade_requests_height,detail::trade_requests),Match::phrase,.85f},
         Label{"Trade Request",reference(detail::unlocked_trading_width,detail::unlocked_trading_height,detail::unlocked_trading),Match::phrase},
         Label{"Stop Making Honey",reference(detail::stop_honey_width,detail::stop_honey_height,detail::stop_honey),Match::whole},
         Label{"Collect Pollen",reference(detail::flower_fields_width,detail::flower_fields_height,detail::flower_fields),Match::phrase,.87f},
