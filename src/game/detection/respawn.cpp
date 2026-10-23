@@ -55,13 +55,10 @@ public:
         auto packet=std::make_shared<Packet>();
         packet->view={Knowledge::unknown,{},f.captured,f.window,input.generation};
         const auto health=read_empty_health_bar(f,input.generation);
-        if (visible_game(input)) {
-            packet->view.knowledge=Knowledge::present;
-            packet->view.value={health.value?RespawnScreen::respawning:RespawnScreen::game,{}};
-            return packet;
-        }
+        // The HUD can remain readable behind Roblox's translucent menu.
+        // Resolve its controls before accepting the underlying game view.
         static constexpr std::array<std::string_view,7> controls{"Reset","Respawn","Cancel","Don't Respawn","Reset Character","Resume","Leave"};
-        const auto labels=fixed_ui_labels(f,{.15,.2,.7,.76},controls);
+        const auto labels=fixed_ui_labels(f,{0,.2,1,.8},controls);
         const TextLine *reset=nullptr,*cancel=nullptr,*leave=nullptr,*resume=nullptr;
         for (const auto& label:labels) {
             const TextLine** target=label.text=="Cancel" || label.text=="Don't Respawn"?&cancel:
@@ -80,13 +77,24 @@ public:
             }
             return packet;
         }
-        if (reset && leave && aligned(reset->pixels,leave->pixels) && reset->pixels.y>f.height*.6
-            && leave->pixels.x<reset->pixels.x && (!resume || (aligned(reset->pixels,resume->pixels) && reset->pixels.x<resume->pixels.x))) {
-            packet->view.knowledge=Knowledge::present;
-            packet->view.value={RespawnScreen::menu,{}};
-            return packet;
+        if (reset && leave) {
+            const auto a=reset->pixels,b=leave->pixels;
+            const double height=std::max(a.height,b.height);
+            const bool horizontal=aligned(a,b) && b.x<a.x
+                && (!resume || (aligned(a,resume->pixels) && a.x<resume->pixels.x));
+            // Roblox also places these shortcuts in a vertical sidebar.
+            const bool vertical=std::abs(a.x-b.x)<=height*1.5 && a.x+a.width<f.width*.5
+                && b.y-a.y>=height && b.y-a.y<=height*6;
+            if (a.y>f.height*.6 && (horizontal || vertical)) {
+                packet->view.knowledge=Knowledge::present;
+                packet->view.value={RespawnScreen::menu,{}};
+                return packet;
+            }
         }
-        if (health.knowledge==Knowledge::present && health.value) {
+        if (visible_game(input)) {
+            packet->view.knowledge=Knowledge::present;
+            packet->view.value={health.value?RespawnScreen::respawning:RespawnScreen::game,{}};
+        } else if (health.knowledge==Knowledge::present && health.value) {
             packet->view.knowledge=Knowledge::present;
             packet->view.value={RespawnScreen::respawning,{}};
         }

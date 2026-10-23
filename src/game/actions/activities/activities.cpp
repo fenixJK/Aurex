@@ -145,19 +145,29 @@ bool Runner::prepare_menu(const ObservationContext& c,const game::State& s) {
     std::optional<Point> target;
     // Camera keys such as Page Up can scroll an open quest/inventory panel.
     // Tracking menus may reopen for movement after the camera adjustment.
-    const auto required=std::holds_alternative<MoveCamera>(*step_) || std::holds_alternative<SetHeading>(*step_)
-        ?std::optional<game::MenuTab>{}:movement_menu();
+    const bool camera=std::holds_alternative<MoveCamera>(*step_) || std::holds_alternative<SetHeading>(*step_);
+    const auto required=camera?std::optional<game::MenuTab>{}:movement_menu();
     // Confirm the tab we closed directly; another unreadable icon does not
     // undo a fresh observation that this panel is no longer selected.
+    bool closed=false;
     if (!required && closing_menu_ && s.menus.has_value(c,Time(1500),menu_after_))
         for (const auto& menu:s.menus.value) if (menu.tab==*closing_menu_ && menu.selected==false) {
-            menu_attempts_=0; closing_menu_.reset(); break;
+            menu_attempts_=0; closing_menu_.reset(); closed=true; break;
         }
     const bool fresh=required?s.menus.has_value(c,Time(1500),menu_after_):s.open_menu.usable(c,Time(1500),menu_after_);
     if (!fresh && menu_attempts_) {
         if (c.now>=menu_after_+Time(5000)) throw ObservationUnavailable("Game menu change could not be confirmed");
         return true;
     }
+    // An unreadable initial sidebar is not confirmation that camera shortcuts
+    // will reach the game. Wait for the same shared menu evidence used above.
+    if (camera && !fresh && !closed) {
+        if (!menu_wait_started_) menu_wait_started_=c.now;
+        if (c.now-*menu_wait_started_>=Time(5000)) throw ObservationUnavailable("Game menu state could not be read before adjusting the camera");
+        progress_.message="Checking game menu before adjusting camera";
+        return true;
+    }
+    menu_wait_started_.reset();
     if (required) {
         if (!fresh) return false;
         for (const auto& menu:s.menus.value) if (menu.tab==*required) {

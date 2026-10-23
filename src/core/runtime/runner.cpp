@@ -117,7 +117,7 @@ void Runner::clear_operations() {
     std::exception_ptr error;
     try { tasks_.cancel(scope_); tasks_.results(scope_); tasks_.release(scope_); }
     catch (...) { error=std::current_exception(); }
-    owned_=false; pending_.clear(); menu_pending_.clear(); menu_after_={}; menu_attempts_=0; closing_menu_.reset(); step_.reset(); interaction_.reset(); conversion_.reset(); checkpoint_.reset(); sprinkler_.reset(); inventory_.reset(); dialog_.reset();
+    owned_=false; pending_.clear(); menu_pending_.clear(); menu_after_={}; menu_wait_started_.reset(); menu_attempts_=0; closing_menu_.reset(); step_.reset(); interaction_.reset(); conversion_.reset(); checkpoint_.reset(); sprinkler_.reset(); inventory_.reset(); dialog_.reset();
     progress_.estimated_heading.reset(); pending_heading_.reset();
     if (error) std::rethrow_exception(error);
 }

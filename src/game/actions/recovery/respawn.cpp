@@ -14,6 +14,7 @@ public:
     explicit RespawnCompletion(bool already_died=false):transitioned_(already_died) {}
     void begin(Time now) { origin_before_=now; }
     bool origin_known() const { return origin_known_; }
+    bool transitioned() const { return transitioned_; }
     void observe_origin(const View& view) {
         const auto* state=view.observations;
         // A pre-reset capture may finish processing after Escape. A missing
@@ -42,14 +43,10 @@ public:
         const bool living=health && state->alive.value && state->alive.captured>last_dead_;
         const bool hud=state && state->game_hud.has_value(c,Time(2000),after_death) && state->game_hud.value;
         const bool game=observed && reading.captured>last_dead_ && reading.value.screen==game::RespawnScreen::game;
-        // The death frame can fall between captures, including at unclaimed
-        // spawn. After a confirmed reset dialog closes, acquisition can locate
-        // the live player without relaunching the client. It still establishes
-        // location and camera before any route can leave.
-        const bool settled=c.now-transition>=Time(8000);
+        // Closing the confirmation can also mean cancellation or a missed key.
+        // Require death/revival or a new hive arrival, never elapsed time alone.
         return ((hud && living) || game) && (transitioned_
-            || (away_from_hive_ && state && state->at_hive.has_value(c,Time(2000),after_death) && state->at_hive.value)
-            || (settled && hud && living && game));
+            || (away_from_hive_ && state && state->at_hive.has_value(c,Time(2000),after_death) && state->at_hive.value));
     }
 };
 class AwaitRespawn final : public Program {
@@ -76,12 +73,19 @@ class Respawn final : public Program {
     Time started_{Time(-1)},minimum_{},transition_{};
     RespawnCompletion completion_;
     bool issued_{};
+    bool retried_{};
     std::optional<game::RespawnScreen> requested_from_;
+    Step retry(Time now,std::string reason) {
+        if (retried_) throw ObservationUnavailable("Reset could not be verified after retrying; position is unconfirmed");
+        retried_=true; stage_=Stage::locate; started_=minimum_=now;
+        requested_from_.reset(); completion_=RespawnCompletion{};
+        return ReportActivity{{"Retrying reset",std::move(reason)}};
+    }
 public:
     explicit Respawn(std::shared_ptr<const game::RespawnSource> source):source_(std::move(source)) {
         if (!source_) throw std::invalid_argument("Respawn needs game observations");
     }
-    RunConfig config() const override { return {Time(35000),28,{},true,true}; }
+    RunConfig config() const override { return {Time(50000),28,{},true,true}; }
     std::vector<Rect> text_regions() const override { return {game::hive_proximity_prompt().region}; }
     bool expects_respawn() const noexcept override { return stage_!=Stage::done; }
     Step next(const View& view) override {
@@ -98,16 +102,27 @@ public:
         }
         const auto reading=source_->read(c);
         const bool fresh=reading.has_value(c,Time(2000),minimum_);
+        const auto* state=view.observations;
+        const bool live=state && state->alive.has_value(c,Time(2000),minimum_) && state->alive.value
+            && state->game_hud.has_value(c,Time(2000),minimum_) && state->game_hud.value
+            && !(state->connection.has_value(c,Time(2000)) && state->connection.value==game::Connection::disconnected);
         const bool menu=fresh && (reading.value.screen==game::RespawnScreen::menu
             || reading.value.screen==game::RespawnScreen::confirmation);
         if (stage_==Stage::transition && !menu) {
             if (completion_.ready(view,*source_,minimum_,transition_)) {
                 stage_=Stage::done; return next(view);
             }
+            if (!completion_.transitioned() && live && fresh && reading.value.screen==game::RespawnScreen::game
+                && c.now-transition_>=Time(8000))
+                return retry(c.now,"Game returned without a confirmed respawn");
             if (c.now-transition_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return a readable live game view");
             return Wait{Time(100),"Waiting for player respawn"};
         }
-        if (c.now-started_>=Time(8000)) throw ClientRejoinRequired("Respawn menu could not be confirmed");
+        if (c.now-started_>=Time(8000)) {
+            if ((stage_==Stage::select || stage_==Stage::confirm) && live && fresh && reading.value.screen==game::RespawnScreen::game)
+                return retry(c.now,"Respawn controls did not appear after the shortcut");
+            throw ClientRejoinRequired("Respawn menu could not be confirmed");
+        }
         if (stage_==Stage::locate && !completion_.origin_known() && c.now-started_<Time(1000)
             && (!reading.has_value(c,Time(2000),minimum_) || reading.value.screen==game::RespawnScreen::game))
             return Wait{Time(50),"Recording location before reset"};
@@ -125,8 +140,11 @@ public:
             stage_=Stage::transition; transition_=reading.captured;
             return next(view);
         }
-        // Advance immediately when the next screen is observed. Retry a missed
-        // key only while a fresh image still shows the previous screen.
+        // The HUD can show through a menu animation. Do not toggle Escape
+        // again while waiting for the menu or confirmation to finish opening.
+        if (screen==game::RespawnScreen::game && stage_!=Stage::locate)
+            return Wait{Time(50),"Waiting for respawn controls"};
+        // R and Enter may be retried while their own controls remain visible.
         if (requested_from_==screen && c.now-minimum_<Time(750))
             return Wait{Time(50),"Waiting for respawn menu response"};
         requested_from_=screen;

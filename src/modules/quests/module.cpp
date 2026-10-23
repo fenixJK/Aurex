@@ -256,7 +256,7 @@ extensions::Manifest module_manifest(std::string id,std::string provider,bool br
         result.settings.back().help="Allow due quest work to interrupt gathering. Otherwise it waits for the current gather to finish.";
         result.settings.push_back({"goo-slot","Gumdrop slot",std::string("Disabled"),0,0,{"Disabled","1","2","3","4","5","6","7"}});
         result.settings.back().help="Put Gumdrops in this slot. Used only while gathering for an unfinished Goo objective.";
-        result.page=extensions::PageLayout{{{"givers","Quest givers","",{"givers"},false,1},
+        result.page=extensions::PageLayout{{{"givers","Quest givers","Enemy-defeat objectives require Combat. When Combat is disabled, other quest objectives can still run.",{"givers"},false,1},
             {"options","Options",{},{"interrupt-gather","goo-slot"},false,2},
             {"objectives","Quest progress",{},{},true,2}},true};
     } else result.page=extensions::PageLayout{{{"objectives","Quest progress",{},{},true,2}}};

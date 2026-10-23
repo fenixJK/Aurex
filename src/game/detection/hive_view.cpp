@@ -39,7 +39,9 @@ std::optional<Rect> centered_honeycomb(const Frame& f) {
         if (box.width<8 || box.height<8 || box.width>140 || box.height>140
             || y>gold.rows*.5) continue;
         const double aspect=double(box.width)/box.height,fill=cv::contourArea(contours[i])/box.area();
-        if (aspect<.9 || aspect>1.6 || fill<.55 || fill>.85) continue;
+        // A frontal flat-top hexagon is wider than tall. Near-square holes
+        // also occur in bee faces and in a hive viewed obliquely.
+        if (aspect<1.1 || aspect>1.6 || fill<.55 || fill>.85) continue;
         std::vector<cv::Point> hull,polygon;
         cv::convexHull(contours[i],hull);
         cv::approxPolyDP(hull,polygon,cv::arcLength(hull,true)*.04,true);
