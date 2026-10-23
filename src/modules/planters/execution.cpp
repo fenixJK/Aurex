@@ -117,10 +117,10 @@ class Execution final : public automation::Program {
     std::vector<Step> steps_;
     std::size_t action_step_{},loot_step_{},issued_{},acknowledged_{},confirmed_{},placements_{},harvests_{};
     unsigned recoveries_{};
-    enum class Phase { select, initializing, planning, preparing, arriving, locating, approaching, baseline, acting, placed, confirming, reconciling, looting, departing, returning, checking_backpack, converting, inspecting, done } phase_{Phase::select};
+    enum class Phase { select, initializing, planning, preparing, arriving, locating, approaching, baseline, acting, placed, confirming, looting, departing, returning, checking_backpack, converting, inspecting, done } phase_{Phase::select};
     std::optional<ActivityStatus> pending_report_;
     Time started_{},deadline_{},planned_at_{},minimum_{},travel_started_{};
-    bool leased_{},reconcile_{},harvest_confirmed_{};
+    bool leased_{},harvest_confirmed_{};
     std::optional<WallTime> last_wall_;
     Stats selected_;
     std::string finish_reason_;
@@ -164,17 +164,18 @@ class Execution final : public automation::Program {
         if (harvest_) { harvest_confirmed_=true; phase_=Phase::looting; publish(ExecutionStage::looting); }
         else { phase_=Phase::placed; publish(ExecutionStage::confirming); }
     }
-    void settle_placement() {
-        if (!controller_ || !controller_->ledger().pending || controller_->ledger().pending->operation!=Operation::place) return;
+    void settle_action() {
+        if (!controller_ || !controller_->ledger().pending) return;
         // Dragging only opens the purchase dialog. Before its answer is issued,
         // an inventory failure or cancellation cannot have placed a planter.
-        if (phase_==Phase::acting && action_step_==1 && std::holds_alternative<DragInventoryItem>(steps_.front()))
+        if (controller_->ledger().pending->operation==Operation::place && phase_==Phase::acting
+            && action_step_==1 && std::holds_alternative<DragInventoryItem>(steps_.front()))
             controller_->abandon_unstarted_placement(controller_->ledger().pending->ticket,wall());
-        else controller_->reserve_unconfirmed_placement();
+        else controller_->reserve_unconfirmed();
         publish(ExecutionStage::checking);
     }
     Step defer_result(const View& view,std::string reason="Planter outcome is unclear; check Timers before retrying") {
-        settle_placement();
+        settle_action();
         controller_->interrupt();
         deferred_result_=true;
         finish_reason_=std::move(reason);
@@ -208,8 +209,7 @@ class Execution final : public automation::Program {
     bool scan(const View& view,const Snapshot& snapshot) const {
         if (phase_==Phase::baseline && !harvest_ && plan_.attempt_unscanned_placement
             && !snapshot.placements.has_value(view.context,Time(2000),minimum_)) return true;
-        const bool presence_allowed=(phase_==Phase::baseline && harvest_) || (phase_==Phase::confirming && !harvest_)
-            || phase_==Phase::reconciling;
+        const bool presence_allowed=(phase_==Phase::baseline && harvest_) || (phase_==Phase::confirming && !harvest_);
         return snapshot.placements.has_value(view.context,Time(2000),minimum_)
             && (snapshot.placements.value.complete || (presence_allowed && snapshot.placements.value.identities.contains(identity(selected_)))
                 || (phase_==Phase::baseline && !harvest_ && plan_.attempt_unscanned_placement && snapshot.placements.value.field==selected_.field))
@@ -273,7 +273,7 @@ class Execution final : public automation::Program {
         learn_travel_.reset();
         phase_=Phase::arriving; minimum_=travel_started_=view.context.now; publish(ExecutionStage::travelling);
         Navigate destination{plan_.destinations.at(selected_.field)};
-        if (!harvest_ && !reconcile_) destination.inventory_search=actions_->inspect(selected_);
+        if (!harvest_) destination.inventory_search=actions_->inspect(selected_);
         return emit(std::move(destination));
     }
     Step travel(const View& view) {
@@ -291,15 +291,15 @@ class Execution final : public automation::Program {
             if (deferred_result_) return Defer{finish_reason_};
             return Done{finish_reason_};
         }
-        phase_=Phase::select; inspected_=false; inspection_.reset(); placement_inventory_.reset(); selected_={}; assignment_.reset(); harvest_.reset(); reconcile_=false; harvest_confirmed_=false;
+        phase_=Phase::select; inspected_=false; inspection_.reset(); placement_inventory_.reset(); selected_={}; assignment_.reset(); harvest_.reset(); harvest_confirmed_=false;
         minimum_=view.context.now; deadline_=view.context.now+Time(10000); publish(ExecutionStage::checking);
         return wait("Checking the next planter action");
     }
     void begin_baseline(const View& view) {
-        phase_=reconcile_?Phase::reconciling:Phase::baseline;
-        if (reconcile_ || !harvest_) minimum_=view.context.now;
+        phase_=Phase::baseline;
+        minimum_=view.context.now;
         deadline_=view.context.now+Time(10000);
-        publish(reconcile_?ExecutionStage::reconciling:ExecutionStage::checking);
+        publish(ExecutionStage::checking);
     }
     Step return_home(const View& view) {
         if (plan_.return_to) {
@@ -373,7 +373,7 @@ public:
         case Phase::converting: return {"Converting","Backpack"};
         case Phase::looting: return {"Collecting planter loot",selected_.field};
         case Phase::select: case Phase::initializing: case Phase::planning: case Phase::done: return {};
-        default: return {reconcile_?"Checking planter":harvest_?"Harvesting planter":"Placing planter",target};
+        default: return {harvest_?"Harvesting planter":"Placing planter",target};
         }
     }
     ProgramFactory recovery(Interruption reason,const View& view) override {
@@ -390,14 +390,14 @@ public:
     }
     bool resume_after_reconnect(const View& view) override {
         if (worker_.joinable()) { cancelled_=true; worker_.join(); }
-        settle_placement();
+        settle_action();
         if (controller_) controller_->interrupt();
         planned_=false; cancelled_=false; error_={}; decision_={};
         assignment_.reset(); harvest_.reset(); steps_.clear(); inspection_.reset(); placement_inventory_.reset();
         action_step_=loot_step_=0; issued_=acknowledged_=view.completed_steps;
         phase_=Phase::select; selected_={}; finish_reason_.clear(); deferred_result_=false; learn_travel_.reset();
         nectar_before_={}; rewards_before_={};
-        reconcile_=harvest_confirmed_=harvest_action_=inspected_=initialized_=ready_for_travel_=false;
+        harvest_confirmed_=harvest_action_=inspected_=initialized_=ready_for_travel_=false;
         minimum_=view.context.now; deadline_=minimum_+Time(10000);
         publish(ExecutionStage::preparing);
         return true;
@@ -442,7 +442,7 @@ public:
             }
             phase_=Phase::locating;
         }
-        if (phase_==Phase::locating && !harvest_ && !reconcile_) {
+        if (phase_==Phase::locating && !harvest_) {
             begin_baseline(view);
             return wait("Preparing planter placement");
         }
@@ -451,13 +451,17 @@ public:
             const auto& local=snapshot.placements;
             const bool nearby=snapshot.harvest_prompt.has_value(view.context,Time(2000),minimum_)
                 && snapshot.harvest_prompt.value==selected_.planter;
-            bool locate=harvest_ && !reconcile_ && !nearby;
-            if (reconcile_ && !inspected_ && !local.has_value(view.context,Time(2000),minimum_)
-                && view.context.now<deadline_) return wait("Reading planter ownership prompt");
-            if (reconcile_) locate=!local.has_value(view.context,Time(2000),minimum_) || !local.value.identities.contains(identity(selected_));
+            const bool fresh=local.has_value(view.context,Time(2000),minimum_)
+                || snapshot.harvest_prompt.usable(view.context,Time(2000),minimum_);
+            if (!fresh) {
+                if (view.context.now<deadline_) return wait("Reading planter ownership prompt");
+                mark_missing(); phase_=Phase::placed; return next(view);
+            }
+            const bool locate=!nearby && !(local.has_value(view.context,Time(2000),minimum_)
+                && local.value.identities.contains(identity(selected_)));
             const bool missing=harvest_ && local.has_value(view.context,Time(2000),minimum_)
                 && !local.value.identities.contains(identity(selected_));
-            if ((reconcile_ || missing) && locate && !inspected_) {
+            if (missing && locate && !inspected_) {
                 inspection_=actions_->inspect(selected_);
                 if (inspection_) {
                     inspection_->quantity=true;
@@ -509,15 +513,11 @@ public:
         if (phase_==Phase::select) {
             if (controller_->ledger().pending) {
                 selected_=controller_->ledger().pending->plant.stats;
-                if (controller_->ledger().pending->operation==Operation::place) {
-                    settle_placement();
-                    return emit(ReportActivity{{"Planter not confirmed",selected_.field+" · slot reserved; correct or remove its timer",ActivityKind::failure}});
-                }
-                if (!plan_.destinations.contains(selected_.field)) return Defer{"The saved planter needs access to "+selected_.field};
-                reconcile_=true; return travel(view);
+                settle_action();
+                return emit(ReportActivity{{"Planter not confirmed",selected_.field+" · slot reserved; correct or remove its timer",ActivityKind::failure}});
             }
             if (const auto* due=due_plant(now)) {
-                selected_=due->stats; harvest_=due->id; assignment_.reset(); reconcile_=false; return travel(view);
+                selected_=due->stats; harvest_=due->id; assignment_.reset(); return travel(view);
             }
             if (controller_->ledger().plants.size()>=plan_.capacity) {
                 phase_=Phase::done; publish(ExecutionStage::finished); return Done{"No planter visit is due"};
@@ -526,11 +526,11 @@ public:
         if (phase_==Phase::planning) {
             if (worker_.joinable()) { worker_.join(); if (error_) std::rethrow_exception(error_); deadline_=view.context.now+Time(10000); }
             if (const auto* due=due_plant(now)) {
-                selected_=due->stats; harvest_=due->id; assignment_.reset(); reconcile_=false; return travel(view);
+                selected_=due->stats; harvest_=due->id; assignment_.reset(); return travel(view);
             }
         }
         const bool at_field=(phase_==Phase::baseline && (harvest_ || !plan_.attempt_unscanned_placement))
-            || phase_==Phase::reconciling || (phase_==Phase::confirming && harvest_);
+            || (phase_==Phase::confirming && harvest_);
         auto snapshot=at_field?source_->read_at(view,selected_.field):
             phase_==Phase::confirming?Snapshot{}:source_->read(view);
         const bool planning=phase_==Phase::select || phase_==Phase::planning || (phase_==Phase::baseline && !harvest_);
@@ -590,11 +590,11 @@ public:
             if (decision_.assignments.empty()) { phase_=Phase::done; publish(ExecutionStage::finished); return Done{"No planter action is due"}; }
             const auto assignments=refresh(view,std::move(groups),now,false);
             if (assignments.empty()) { phase_=Phase::done; publish(ExecutionStage::finished); return Done{"Planned assignments are no longer needed or available"}; }
-            assignment_=assignments.front(); selected_=assignment_->stats; harvest_.reset(); reconcile_=false; return travel(view);
+            assignment_=assignments.front(); selected_=assignment_->stats; harvest_.reset(); return travel(view);
         }
-        if (phase_==Phase::baseline || phase_==Phase::reconciling) {
-            if ((reconcile_ || !harvest_) && view.context.now>=deadline_) return defer_result(view);
-            if (phase_==Phase::baseline && !harvest_) {
+        if (phase_==Phase::baseline) {
+            if (!harvest_ && view.context.now>=deadline_) return defer_result(view);
+            if (!harvest_) {
                 const auto prompt=source_->placement_visible(view);
                 if (!prompt.usable(view.context,Time(2000),minimum_)) return wait("Reading placement location");
                 // A planter already visible before the drag cannot confirm a new placement.
@@ -608,10 +608,6 @@ public:
                 return wait("Reading planters in the field");
             }
             if (view.context.now>=deadline_) throw ObservationUnavailable("Planter reading could not be completed");
-            if (phase_==Phase::reconciling) {
-                if (!controller_->reconcile(view.context,now,snapshot.placements)) return wait("Reconciling the previous planter action");
-                return leave(view);
-            }
             if (harvest_) {
                 if (!snapshot.placements.value.identities.contains(identity(selected_))) {
                     mark_missing(); phase_=Phase::placed; return next(view);
@@ -686,7 +682,7 @@ public:
             const auto seconds=(view.context.now-travel_started_).count()/1000.0;
             if (learn_travel_.value_or(false) && seconds>=1 && seconds<=1800) { controller_->record_travel(selected_.field,seconds); account_->travel_.record(selected_.field,seconds); }
             phase_=Phase::locating;
-            if (reconcile_ || !harvest_) minimum_=view.context.now;
+            minimum_=view.context.now;
             deadline_=view.context.now+Time(10000);
         } else if (phase_==Phase::approaching) {
             begin_baseline(view);
@@ -699,7 +695,7 @@ public:
         }
     }
     void finished(State state) override {
-        settle_placement();
+        settle_action();
         release(); std::lock_guard lock(results_->mutex_); auto& report=results_->report_; report.state=state;
         if (controller_) { report.pending=controller_->ledger().pending;
             report.growing=std::count_if(controller_->ledger().plants.begin(),controller_->ledger().plants.end(),[](const Plant& plant) { return !plant.missing; }); }

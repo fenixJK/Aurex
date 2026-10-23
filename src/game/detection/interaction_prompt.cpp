@@ -14,6 +14,17 @@ namespace hive::game {
 namespace {
 using detail::reference;
 using detail::similarity;
+cv::Rect first_line(const cv::Mat& ink,double minimum) {
+    for (int row=0;row<ink.rows;) {
+        if (!cv::countNonZero(ink.row(row))) { ++row; continue; }
+        const int top=row++;
+        while (row<ink.rows && cv::countNonZero(ink.row(row))) ++row;
+        // Exclude a HUD border clipped into the caption crop at any UI scale.
+        if (row-top<minimum) continue;
+        return cv::boundingRect(ink.rowRange(top,row))+cv::Point(0,top);
+    }
+    return {};
+}
 std::vector<cv::Rect> word_boxes(const cv::Mat& line,double gap=.25) {
     std::vector<cv::Rect> words;
     for (int x=0;x<line.cols;) {
@@ -313,16 +324,7 @@ std::optional<TextLine> interaction_label(const Frame& image,const std::string& 
     if (!image.valid() || image.width>2048 || image.height>512) return {};
     cv::Mat rgba(image.height,image.width,CV_8UC4,const_cast<std::uint8_t*>(image.rgba.data())),ink;
     cv::inRange(rgba,cv::Scalar(0,0,0,255),cv::Scalar(127,127,127,255),ink);
-    cv::Rect first;
-    for (int row=0;row<ink.rows;) {
-        if (!cv::countNonZero(ink.row(row))) { ++row; continue; }
-        const int top=row++;
-        while (row<ink.rows && cv::countNonZero(ink.row(row))) ++row;
-        // Exclude a HUD border clipped into the caption crop at any UI scale.
-        if (row-top<std::max(6.,image.height*.12)) continue;
-        first=cv::boundingRect(ink.rowRange(top,row))+cv::Point(0,top);
-        break;
-    }
+    const auto first=first_line(ink,std::max(6.,image.height*.12));
     if (first.empty()) return {};
     const auto first_ink=ink(first).clone();
     std::vector<std::vector<cv::Point>> contours;
@@ -354,25 +356,31 @@ std::optional<TextLine> interaction_label(const Frame& image,const std::string& 
         Label{"Red Field Booster",reference(detail::red_booster_clear_width,detail::red_booster_clear_height,detail::red_booster_clear),Match::words,.83f,2},
         Label{"Field Booster",reference(detail::field_booster_width,detail::field_booster_height,detail::field_booster),Match::words,.81f,2},
         Label{"Field Booster",reference(detail::field_booster_clear_width,detail::field_booster_clear_height,detail::field_booster_clear),Match::words,.81f,2},
-        Label{"Harvest",reference(detail::harvest_width,detail::harvest_height,detail::harvest),Match::first_word,.87f}};
+        Label{"Harvest",reference(detail::harvest_width,detail::harvest_height,detail::harvest),Match::first_word,.87f},
+        Label{"Harvest",reference(detail::harvest_small_width,detail::harvest_small_height,detail::harvest_small),Match::first_word,.87f}};
     std::optional<TextLine> result;
-    cv::Mat caption_ink;
+    cv::Mat caption_ink,prefix_ink;
     for (const auto& label:labels) {
         // A requested prefix identifies an action without replacing its full caption for other readers.
         if (target.empty()?label.match==Match::first_word:target!=label.text) continue;
         if (result && result->text==label.text) continue;
         auto area=label.match==Match::first_line || label.match==Match::first_word || label.match==Match::words?first:bounds;
         if (label.match==Match::first_word) {
-            const auto words=word_boxes(first_ink);
+            // At small UI scales entire strokes can be antialiased. Keep them
+            // when separating the prefix, instead of splitting its letters.
+            if (prefix_ink.empty()) cv::inRange(rgba,cv::Scalar(0,0,0,255),cv::Scalar(128,128,128,255),prefix_ink);
+            const auto line=first_line(prefix_ink,std::max(6.,image.height*.12));
+            if (line.empty()) continue;
+            const auto words=word_boxes(prefix_ink(line));
             if (words.empty()) continue;
-            area=words.front()+first.tl();
+            area=words.front()+line.tl();
         }
         if ((label.match==Match::phrase || label.match==Match::first_line) && caption_ink.empty()) {
             cv::extractChannel(rgba,caption_ink,0);cv::bitwise_not(caption_ink,caption_ink);
         }
         const auto score=label.match==Match::words?words_similarity(first_ink,label.pattern,label.prefix_words)
             :label.match==Match::phrase?phrase_similarity(caption_ink,label.pattern)
-            :similarity(label.match==Match::first_line?caption_ink(first):ink(area),label.pattern);
+            :similarity(label.match==Match::first_word?prefix_ink(area):label.match==Match::first_line?caption_ink(first):ink(area),label.pattern);
         if (score<label.minimum) continue;
         if (result) return {};
         result=TextLine{label.text,{double(area.x),double(area.y),double(area.width),double(area.height)},std::clamp(score,0.f,1.f)};

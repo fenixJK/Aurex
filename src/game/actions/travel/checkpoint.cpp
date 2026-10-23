@@ -190,8 +190,9 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
         }
         if (stage_==CheckpointStage::waiting) {
             if (launch && !present && plan_.path.empty()) return;
-            // An approach searches while moving; only a stationary check needs a frame first.
-            if (!motion && !fresh && plan_.approach.empty() && plan_.path.empty()) return;
+            // Observe before starting a search so an already-visible target
+            // does not get left behind. Transport approaches follow their route.
+            if (!motion && !fresh && (!launch || (plan_.approach.empty() && plan_.path.empty()))) return;
             if (present && !launch) { finish(CheckpointStage::completed,"Checkpoint confirmed",tasks); return; }
             if (!motion && !launch && plan_.approach.empty() && plan_.path.empty()) {
                 if (!plan_.nudge.empty() || !plan_.nudge_path.empty()) confirm(c.now);

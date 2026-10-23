@@ -275,6 +275,14 @@ inline constexpr std::array<std::uint64_t,38> harvest{
     0x3fc03c00e3ff1c07ULL,0xf07fcULL,
     0x1f003800e3fc1c07ULL,0xf01f8ULL,
 };
+// The same prefix at the small in-game font size, including rasterized strokes.
+inline constexpr int harvest_small_width=55,harvest_small_height=12;
+inline constexpr std::array<std::uint64_t,12> harvest_small{
+    0xc1ULL,0x300000000000c3ULL,0x300000000020c3ULL,
+    0x79f0f98678f8c3ULL,0x79b9b88618e8ffULL,0x303198cc19c0ffULL,
+    0x3071fccc19f8c3ULL,0x31c1fc6c19fcc3ULL,0x31801878198cc3ULL,
+    0x3101987819ccc3ULL,0x71f9f03019f8c3ULL,0xf00000000000ULL,
+};
 // Fixed booster captions, matched word by word without the countdown row.
 inline constexpr int blue_booster_width=202,blue_booster_height=13;
 inline constexpr std::array<std::uint64_t,52> blue_booster{

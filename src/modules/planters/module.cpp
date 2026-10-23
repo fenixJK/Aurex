@@ -308,7 +308,7 @@ public:
             const bool pending=ledger.pending && ledger.pending->plant.id==plant.id;
             auto name=plant.stats.planter;
             for(const auto& item:equipment())if(item.id==name) {name=item.label;break;}
-            result.push_back({std::to_string(plant.id),plant.stats.field,name+(plant.missing?" · Not found":""),
+            result.push_back({std::to_string(plant.id),plant.stats.field,name+(plant.missing?" · Not confirmed":""),
                 pending || plant.missing?std::optional<Time>{}:std::max(Time{},ready_at(plant)-now),
                 pending || plant.missing?std::optional<double>{}:std::clamp(estimated_age(plant,now)/plant.stats.full_seconds*100.,0.,100.)});
         }
@@ -322,7 +322,7 @@ public:
             const auto time=minutes>=60?std::to_string(minutes/60)+"h "+std::to_string(minutes%60)+"m":minutes?std::to_string(minutes)+"m":"Ready";
             std::string name=plant.stats.planter;
             for (std::size_t i=1;i<name.size();++i) if (name[i]>='A' && name[i]<='Z' && name[i-1]!=' ') name.insert(i++,1,' ');
-            result.push_back({plant.stats.field,name+" · "+(plant.missing?"Not found":time),plant.missing?std::optional<double>{}:std::clamp(estimated_age(plant,now)/plant.stats.full_seconds*100.,0.,100.),
+            result.push_back({plant.stats.field,name+" · "+(plant.missing?"Not confirmed":time),plant.missing?std::optional<double>{}:std::clamp(estimated_age(plant,now)/plant.stats.full_seconds*100.,0.,100.),
                 {},nectar_names()[static_cast<std::size_t>(plant.stats.nectar)]});
         }
         return result;

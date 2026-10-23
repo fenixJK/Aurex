@@ -164,7 +164,7 @@ std::uint64_t Controller::place(const Assignment& a,const ObservationContext& c,
     const auto duration=Time(static_cast<Time::rep>(std::ceil(a.growth*1000)));
     next.pending=Intent{ticket,Operation::place,{ticket,a.stats,a.phase,wall,wall+duration,{},Time{},a.material}};
     Transaction transaction(Operation::place,id,c,placements,attempt);
-    commit(std::move(next)); transaction_=std::move(transaction); confirmed_at_.reset(); reset_reconciliation(); return ticket;
+    commit(std::move(next)); transaction_=std::move(transaction); confirmed_at_.reset(); return ticket;
 }
 std::uint64_t Controller::harvest(std::uint64_t id,const ObservationContext& c,WallTime wall,const Observation<Placements>& placements,const Observation<Growth>& growth) {
     if (ledger_.pending) throw std::logic_error("A planter action is already pending");
@@ -185,7 +185,7 @@ std::uint64_t Controller::harvest(std::uint64_t id,const ObservationContext& c,W
     auto& saved=*std::find_if(next.plants.begin(),next.plants.end(),[&](const auto& p) { return p.id==id; });
     if (growth.has_value(c,Time(2000))) saved.growth=GrowthSample{wall,growth.value.fraction,saved.offline};
     next.pending=Intent{ticket,Operation::harvest,saved}; Transaction transaction(Operation::harvest,identity(found->stats),c,placements);
-    commit(std::move(next)); transaction_=std::move(transaction); confirmed_at_.reset(); reset_reconciliation(); return ticket;
+    commit(std::move(next)); transaction_=std::move(transaction); confirmed_at_.reset(); return ticket;
 }
 WallTime Controller::refresh_growth(std::uint64_t id,const ObservationContext& c,WallTime wall,const Observation<Placements>& placements,const Observation<Growth>& growth) {
     if (ledger_.pending) throw std::logic_error("A planter action is already pending");
@@ -218,7 +218,7 @@ void Controller::finish(bool present,WallTime wall) {
         next.fields[intent.plant.stats.field]=wall;
         std::erase_if(next.plants,[&](const Plant& p) { return p.id==intent.plant.id; });
     }
-    next.pending.reset(); commit(std::move(next)); transaction_.reset(); confirmed_at_.reset(); reset_reconciliation();
+    next.pending.reset(); commit(std::move(next)); transaction_.reset(); confirmed_at_.reset();
 }
 Outcome Controller::observe(std::uint64_t ticket,const ObservationContext& c,WallTime wall,const Observation<Placements>& placements,
     const Observation<HarvestEvidence>& harvested) {
@@ -231,7 +231,7 @@ Outcome Controller::observe(std::uint64_t ticket,const ObservationContext& c,Wal
         if (!confirmed_at_) confirmed_at_=wall;
         finish(ledger_.pending->operation==Operation::place,*confirmed_at_);
     } else if (outcome==Outcome::failed) finish(false,wall);
-    else if (outcome==Outcome::uncertain) { transaction_.reset(); reset_reconciliation(); }
+    else if (outcome==Outcome::uncertain) { transaction_.reset(); }
     return outcome;
 }
 void Controller::input_finished(std::uint64_t ticket,const ObservationContext& context) {
@@ -244,12 +244,16 @@ void Controller::abandon_unstarted_placement(std::uint64_t ticket,WallTime wall)
         throw std::logic_error("Only an unstarted planter placement can be abandoned");
     clock(wall); finish(false,wall);
 }
-void Controller::reserve_unconfirmed_placement() {
-    if (!ledger_.pending || ledger_.pending->operation!=Operation::place)
-        throw std::logic_error("No pending planter placement to reserve");
+void Controller::reserve_unconfirmed() {
+    if (!ledger_.pending) throw std::logic_error("No pending planter action to reserve");
     auto next=ledger_;
-    auto plant=next.pending->plant; plant.missing=true;
-    next.plants.push_back(std::move(plant)); next.pending.reset();
+    if (next.pending->operation==Operation::place) {
+        auto plant=next.pending->plant; plant.missing=true;
+        next.plants.push_back(std::move(plant));
+    } else {
+        for (auto& plant:next.plants) if (plant.id==next.pending->plant.id) plant.missing=true;
+    }
+    next.pending.reset();
     commit(std::move(next)); interrupt();
 }
 bool Controller::reconcile_returned(const ObservationContext& c,WallTime wall,const Observation<ReturnedPlanter>& returned) {
@@ -269,11 +273,11 @@ bool Controller::reconcile_returned(const ObservationContext& c,WallTime wall,co
     else {
         auto next=ledger_; const auto id=target->id;
         std::erase_if(next.plants,[&](const Plant& plant) { return plant.id==id; });
-        commit(std::move(next)); reset_reconciliation();
+        commit(std::move(next));
     }
     return true;
 }
-void Controller::interrupt() noexcept { transaction_.reset(); confirmed_at_.reset(); reset_reconciliation(); }
+void Controller::interrupt() noexcept { transaction_.reset(); confirmed_at_.reset(); }
 bool Controller::mark_missing(std::uint64_t id) {
     if (ledger_.pending) throw std::logic_error("Cannot mark a planter missing during an action");
     auto next=ledger_;
@@ -281,34 +285,5 @@ bool Controller::mark_missing(std::uint64_t id) {
     if (found==next.plants.end()) throw std::invalid_argument("Saved planter no longer exists");
     if (found->missing) return false;
     found->missing=true; commit(std::move(next)); return true;
-}
-void Controller::reset_reconciliation() {
-    reconciliation_context_.reset(); reconciliation_frame_=Time(-1);
-}
-bool Controller::reconcile(const ObservationContext& c,WallTime wall,const Observation<Placements>& placements) {
-    clock(wall);
-    if (transaction_) throw std::logic_error("Await the active planter action before reconciling it");
-    if (!reconciliation_context_ || reconciliation_context_->generation!=c.generation || reconciliation_context_->window.id!=c.window.id
-        || reconciliation_context_->window.process!=c.window.process || reconciliation_context_->window.bounds!=c.window.bounds) {
-        reset_reconciliation(); reconciliation_context_=c;
-    }
-    if (!c.generation || !placements.has_value(c,Time(2000),reconciliation_context_->now)
-        || placements.value.identities.size()>3) return false;
-    if (!placements.value.complete && (!ledger_.pending || !placements.value.identities.contains(identity(ledger_.pending->plant.stats)))) {
-        return false;
-    }
-    if (ledger_.pending && !placements.value.field.empty() && placements.value.field!=ledger_.pending->plant.stats.field) {
-        return false;
-    }
-    if (placements.captured<=reconciliation_frame_) return false;
-    reconciliation_frame_=placements.captured;
-    scan_valid(placements.value);
-    if (ledger_.pending) finish(placements.value.identities.contains(identity(ledger_.pending->plant.stats)),wall);
-    else {
-        auto next=ledger_;
-        std::erase_if(next.plants,[&](const Plant& p) { return (placements.value.field.empty() || p.stats.field==placements.value.field) && !placements.value.identities.contains(identity(p.stats)); });
-        commit(std::move(next)); reset_reconciliation();
-    }
-    return true;
 }
 }

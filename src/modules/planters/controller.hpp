@@ -54,7 +54,6 @@ public:
     Controller(const Controller&)=delete;
     Controller& operator=(const Controller&)=delete;
     const Ledger& ledger() const { return ledger_; }
-    bool needs_reconciliation() const { return ledger_.pending && !transaction_; }
     std::uint64_t place(const Assignment& assignment,const ObservationContext& context,WallTime wall,const Observation<Placements>& placements,bool attempt=false);
     std::uint64_t harvest(std::uint64_t plant,const ObservationContext& context,WallTime wall,const Observation<Placements>& placements,const Observation<Growth>& growth);
     WallTime refresh_growth(std::uint64_t plant,const ObservationContext& context,WallTime wall,const Observation<Placements>& placements,const Observation<Growth>& growth);
@@ -66,22 +65,18 @@ public:
     void record_travel(const std::string& field,double seconds);
     void exclude_offline(WallTime begin,WallTime end);
     void abandon_unstarted_placement(std::uint64_t ticket,WallTime wall);
-    void reserve_unconfirmed_placement();
+    void reserve_unconfirmed();
     bool reconcile_returned(const ObservationContext& context,WallTime wall,const Observation<ReturnedPlanter>& returned);
-    bool reconcile(const ObservationContext& context,WallTime wall,const Observation<Placements>& placements);
 private:
     std::shared_ptr<Store> store_;
     std::size_t capacity_;
     Ledger ledger_;
     std::optional<Transaction> transaction_;
     std::optional<WallTime> confirmed_at_;
-    std::optional<ObservationContext> reconciliation_context_;
-    Time reconciliation_frame_{Time(-1)};
     std::optional<WallTime> wall_;
     void clock(WallTime wall);
     void commit(Ledger next);
     void finish(bool present,WallTime wall);
-    void reset_reconciliation();
     void baseline(const ObservationContext& context,const Observation<Placements>& placements,const std::string& present={}) const;
 };
 }

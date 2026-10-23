@@ -99,14 +99,14 @@ public:
     }
 };
 class PrepareHiveView final : public Program {
-    enum class Stage { claim, unlock, zoom, pitch_limit, pitch, observe, turn, alternate, reference, restore, zoom_out, done };
+    enum class Stage { claim, unlock, zoom, pitch_limit, pitch, observe, opposite, turn, alternate, reference, restore, zoom_out, done };
     std::shared_ptr<const game::LandmarkSource> reference_,proximity_;
     std::shared_ptr<HiveSetupResult> result_;
     Stage stage_{Stage::claim};
     Time minimum_{},seen_{Time(-1)};
     Observation<bool> heading_;
     unsigned turns_{};
-    bool alternate_{};
+    bool opposite_{},alternate_{};
     bool started_{};
     void observe(Time finished) {
         stage_=Stage::observe; minimum_=finished+Time(150); seen_=Time(-1);
@@ -138,7 +138,8 @@ public:
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
         case Stage::pitch_limit: return MoveCamera{game::pitch_limit(Key::pitch_up)};
         case Stage::pitch: return MoveCamera{{Key::pitch_down,4}};
-        case Stage::turn: return MoveCamera{{Key::rotate_right,1,Time(100),Time(50)}};
+        case Stage::opposite:
+        case Stage::turn: return MoveCamera{{Key::rotate_right,stage_==Stage::opposite?4u:1u,Time(100),Time(50)}};
         case Stage::alternate: return MoveCamera{{Key::pitch_down,1}};
         case Stage::reference: return AdoptHeading{0,heading_};
         case Stage::restore: return MoveCamera{{Key::pitch_up,1}};
@@ -157,7 +158,11 @@ public:
                 stage_=Stage::reference;
                 return next(view);
             }
-            if (turns_<8) stage_=Stage::turn;
+            // Respawns commonly face the hive or directly away from it. Try
+            // the opposite view in one batch, then verify before adopting it.
+            // A miss still gets a full sweep to handle other angles or lost taps.
+            if (!opposite_) stage_=Stage::opposite;
+            else if (turns_<8) stage_=Stage::turn;
             else if (!alternate_) stage_=Stage::alternate;
             else throw HiveAlignmentError("Hive reference was not found at either camera pitch");
             return next(view);
@@ -174,6 +179,7 @@ public:
         case Stage::zoom: stage_=Stage::pitch_limit; break;
         case Stage::pitch_limit: stage_=Stage::pitch; break;
         case Stage::pitch: observe(view.context.now); break;
+        case Stage::opposite: opposite_=true; observe(view.context.now); break;
         case Stage::turn: ++turns_; observe(view.context.now); break;
         case Stage::alternate: alternate_=true; turns_=0; observe(view.context.now); break;
         case Stage::reference: stage_=alternate_?Stage::restore:Stage::zoom_out; break;

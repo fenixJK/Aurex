@@ -249,9 +249,23 @@ Observation<std::string> read_interaction(const DetectionInput& input,const Obse
     const Observation<TextSnapshot> text{Knowledge::present,{f.width,f.height,{input.text.begin(),input.text.end()}},f.captured,f.window,input.generation};
     Observation<std::string> result;
     bool uncertain=false;
+    auto region=interaction_prompt_region(f);
+    const bool harvest=region && interaction_label(interaction_text_image(f,*region),"Harvest").has_value();
+    if (harvest) {
+        // OCR bounds can extend into the padding around the extracted text.
+        const double left=std::max(0.,region->x-double(interaction_text_padding)/f.width);
+        const double top=std::max(0.,region->y-double(interaction_text_padding)/f.height);
+        const double right=std::min(1.,region->x+region->width+double(interaction_text_padding)/f.width);
+        const double bottom=std::min(1.,region->y+region->height+double(interaction_text_padding)/f.height);
+        region=Rect{left,top,right-left,bottom-top};
+    }
     for (const auto& [name,type] : types) {
         if (input.cancelled && input.cancelled()) return {};
-        const auto found=read_prompt_landmark(c,text,planter_harvest_prompt(type));
+        auto prompt=planter_harvest_prompt(type);
+        // Pixels identify the action; OCR only needs the equipment name in
+        // that same banner, even if it misreads the word Harvest.
+        if (harvest) { prompt.phrases={name}; prompt.region=*region; prompt.match=PromptMatch::phrase; }
+        const auto found=read_prompt_landmark(c,text,prompt);
         uncertain|=found.knowledge==Knowledge::unknown;
         if (!found.has_value(c,Time(2000)) || !found.value) continue;
         if (result.knowledge==Knowledge::present && result.value!=type) return {};
@@ -260,13 +274,13 @@ Observation<std::string> read_interaction(const DetectionInput& input,const Obse
     if (input.cancelled && input.cancelled()) return {};
     if (result.knowledge==Knowledge::present) return result;
     if (uncertain) return {};
-    const auto region=planter_harvest_prompt("PaperPlanter").region;
+    const auto search=planter_harvest_prompt("PaperPlanter").region;
     for (const auto& line : input.text) {
         if (line.text.size()>512) return {};
         const auto& b=line.pixels;
         const double center=b.x+b.width/2;
-        if (!b.valid() || center<f.width*region.x || center>f.width*(region.x+region.width)
-            || b.y>=f.height*(region.y+region.height) || b.y+b.height<=f.height*region.y) continue;
+        if (!b.valid() || center<f.width*search.x || center>f.width*(search.x+search.width)
+            || b.y>=f.height*(search.y+search.height) || b.y+b.height<=f.height*search.y) continue;
         std::string lower=line.text;
         std::transform(lower.begin(),lower.end(),lower.begin(),[](unsigned char c) { return std::tolower(c); });
         if (lower.find("harvest")!=std::string::npos || lower.find("planter")!=std::string::npos) return {};
