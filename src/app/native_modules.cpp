@@ -66,13 +66,15 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
     const automation::FieldReturnOptions returns{hive.result,modules.travel_access,modules.transport_prompt,modules.movement};
     auto service=features::gathering::field_services(routes->network(),*speed,modules.patterns,modules.screen_reference,returns);
     if(service.sprinklers) service.sprinklers->equipment=modules.sprinklers;
-    modules.startup=[hive,speed=*speed] {
-        return automation::acquire_hive(hive.slot_source,hive.spawn,hive.reference,hive.proximity,hive.options(speed));
+    const auto setup=[movement=modules.movement_setup,hive,speed=*speed](automation::HiveStart start) -> automation::ProgramFactory {
+        return [movement,hive,speed,start] {
+            return automation::prepare_travel(movement,[hive,speed,start] {
+                return automation::acquire_hive(hive.slot_source,hive.spawn,hive.reference,hive.proximity,hive.options(speed),start);
+            },speed);
+        };
     };
-    modules.startup=[movement=modules.movement_setup,hive=modules.startup,speed=*speed] {
-        return automation::prepare_travel(movement,hive,speed);
-    };
-    service.plan.hive_setup=modules.startup;
+    service.plan.hive_setup=setup(automation::HiveStart::locate);
+    modules.startup=setup(hive.recovery?automation::HiveStart::reset:automation::HiveStart::locate);
     if (hive.recovery) service.plan.recovery=[hive,speed=*speed] {
         return automation::recover_to_hive(hive.slot_source,hive.spawn,hive.reference,hive.proximity,
             hive.options(speed));

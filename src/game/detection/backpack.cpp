@@ -78,11 +78,6 @@ std::optional<std::array<Rect,2>> resource_regions(const Frame& frame,const Rect
     return std::array{honey,backpack};
 }
 }
-Reading<double> read_backpack_percent(const Frame& frame,std::uint64_t generation) {
-    Reading<double> result{Knowledge::unknown,0,frame.captured,frame.window,generation};
-    if (generation) if (const auto bar=backpack_bar(frame); bar && bar->percent) { result.knowledge=Knowledge::present; result.value=*bar->percent; }
-    return result;
-}
 std::optional<std::array<Rect,2>> resource_hud_regions(const Frame& frame) {
     const auto bar=backpack_bar(frame,true);
     return bar?resource_regions(frame,bar->pixels):std::nullopt;

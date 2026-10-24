@@ -1,5 +1,6 @@
 #pragma once
 #include "core/runtime/settings.hpp"
+#include <span>
 
 namespace hive::extensions {
 using Value = SettingValue;
@@ -27,4 +28,5 @@ struct Setting {
     std::map<std::string,std::string> dependent_labels;
 };
 void validate_setting(const Setting& setting,const Value& value);
+void validate_settings(std::span<const Setting> schema,const Settings& settings);
 }

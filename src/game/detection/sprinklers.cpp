@@ -61,23 +61,4 @@ Observation<SprinklerFeedback> read_sprinkler_feedback(const ObservationContext&
     result.knowledge=Knowledge::present; result.value=feedback.value_or(SprinklerFeedback::none);
     return result;
 }
-namespace {
-class DetectedSprinklers final : public SprinklerSource {
-    std::shared_ptr<const DetectionSource> source_;
-public:
-    explicit DetectedSprinklers(std::shared_ptr<const DetectionSource> source):source_(std::move(source)) {}
-    Observation<SprinklerSite> read(const ObservationContext&,const State&) const override {
-        const auto result=source_->read();
-        if (!result || !result->error.empty()) return {};
-        const auto detected=std::dynamic_pointer_cast<const SprinklerDetection>(result->value);
-        if (!detected) return {};
-        const auto& context=result->context;
-        return {Knowledge::present,detected->site,context.now,context.window,context.generation};
-    }
-};
-}
-std::shared_ptr<const SprinklerSource> sprinkler_source(std::shared_ptr<const DetectionSource> source) {
-    if (!source) throw std::invalid_argument("Sprinkler detection source is missing");
-    return std::make_shared<DetectedSprinklers>(std::move(source));
-}
 }

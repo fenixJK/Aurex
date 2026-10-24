@@ -187,8 +187,7 @@ public:
             const auto it=std::find_if(schema.begin(),schema.end(),[&](const auto& e) { return e.id==s.id; });
             if (it==schema.end() || !seen.insert(s.id).second || s.initial.index()!=it->initial.index() || !s.choices.empty()
                 || s.minimum!=it->minimum || s.maximum!=it->maximum) throw std::invalid_argument("Incompatible activity settings schema");
-            if (const auto* value=std::get_if<int>(&s.initial); value && (*value<s.minimum || *value>s.maximum))
-                throw std::invalid_argument("Invalid activity default setting");
+            extensions::validate_setting(s,s.initial);
         }
         if (network_->contains("hive.proximity")) {
             std::set<std::string> access;
@@ -205,25 +204,17 @@ public:
         }
     }
     void start(const Settings& values) override {
-        if (values.size()!=defaults_.visits.size()+2) throw std::invalid_argument("Unexpected activity settings");
+        extensions::validate_settings(settings(defaults_),values);
         auto plan=defaults_;
-        const auto seconds=values.find("run-seconds");
-        if (seconds==values.end() || !std::holds_alternative<int>(seconds->second) || std::get<int>(seconds->second)<1 || std::get<int>(seconds->second)>28800)
-            throw std::invalid_argument("Invalid activity run limit");
-        plan.config.duration=Time(std::get<int>(seconds->second)*1000);
-        const auto interrupt=values.find("interrupt-gather");
-        if (interrupt==values.end() || !std::holds_alternative<bool>(interrupt->second)) throw std::invalid_argument("Missing gather interrupt preference");
+        plan.config.duration=Time(std::get<int>(values.at("run-seconds"))*1000);
         std::set<std::string> selected;
-        for (const auto& visit : plan.visits) {
-            const auto it=values.find(selection_key(visit.id));
-            if (it==values.end() || !std::holds_alternative<bool>(it->second)) throw std::invalid_argument("Missing activity selection");
-            if (std::get<bool>(it->second)) selected.insert(visit.id);
-        }
+        for (const auto& visit : plan.visits)
+            if (std::get<bool>(values.at(selection_key(visit.id)))) selected.insert(visit.id);
         if (!demand_) std::erase_if(plan.visits,[&](const auto& visit) { return !selected.contains(visit.id); });
         if (plan.visits.empty()) throw std::invalid_argument("Select at least one activity");
         automation::visit_program(plan,network_,availability_);
         if (saved_) saved_->load();
-        selected_=std::move(selected); interrupt_=std::get<bool>(interrupt->second);
+        selected_=std::move(selected); interrupt_=std::get<bool>(values.at("interrupt-gather"));
         plan_=std::move(plan); results_.reset(); ready_.clear(); retry_after_.clear(); generation_=0; detail_.clear(); started_=true;
     }
     void update(const extensions::SessionView& view) override {

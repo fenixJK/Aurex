@@ -23,8 +23,9 @@ bool title(const TextLine& line,const Frame& frame) {
     const auto r=line.pixels;
     if (!r.valid() || r.x<0 || r.y<0 || r.x+r.width>=frame.width || r.y+r.height>=frame.height || r.height<7 || r.height>frame.height/8.0
         || line.text.empty() || line.text.size()>100 || (line.confidence && (!std::isfinite(*line.confidence) || *line.confidence<0.65f))) return false;
-    if (!std::isalpha(static_cast<unsigned char>(line.text[0]))) return false;
-    for (unsigned char c : line.text) if (c>=128 || (!std::isalnum(c) && c!=' ' && c!='-' && c!='\'')) return false;
+    if (!std::isalpha(static_cast<unsigned char>(line.text[0])) || inventory_name(line.text).empty()) return false;
+    // inventory_name validates the supported Unicode punctuation too.
+    for (unsigned char c : line.text) if (c<128 && !std::isalnum(c) && c!=' ' && c!='-' && c!='\'') return false;
     return true;
 }
 int median(std::vector<int> values) { std::sort(values.begin(),values.end()); return values[values.size()/2]; }

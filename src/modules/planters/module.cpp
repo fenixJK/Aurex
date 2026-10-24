@@ -7,12 +7,6 @@
 namespace hive::features::planters {
 namespace {
 const automation::Permissions permissions{automation::Permission::movement,automation::Permission::interact};
-int integer(const Settings& settings,const std::string& key,int high,int low=1) {
-    const auto it=settings.find(key);
-    if (it==settings.end() || !std::holds_alternative<int>(it->second) || std::get<int>(it->second)<low || std::get<int>(it->second)>high)
-        throw std::invalid_argument("Invalid planter setting: "+key);
-    return std::get<int>(it->second);
-}
 bool has_loot(const ExecutionPlan& plan) {
     return std::any_of(plan.visits.begin(),plan.visits.end(),[](const auto& entry) { return !entry.second.loot.empty(); });
 }
@@ -91,46 +85,23 @@ public:
         plot_.reset(); preview_status_.clear();
         auto values=saved; values.try_emplace("materials",SettingSelection{}); values.try_emplace("interrupt-gather",true);
         values.try_emplace("mode",std::string("Nectar")); values.try_emplace("secondary",false);
-        if(!std::holds_alternative<bool>(values.at("interrupt-gather"))) throw std::invalid_argument("Invalid gather interrupt setting");
-        interrupt_gather_=std::get<bool>(values.at("interrupt-gather")); values.try_emplace("simulation-days",7); simulation_days_=integer(values,"simulation-days",30,3);
-        values.try_emplace("gather-planter-fields",false);
-        const auto* gather=std::get_if<bool>(&values.at("gather-planter-fields"));
-        if (!gather) throw std::invalid_argument("Invalid planter gathering setting");
-        gather_fields_=*gather; requests_={};
-        if (values.size()!=module_manifest(defaults_).settings.size()) throw std::invalid_argument("Unexpected planter settings");
-        auto plan=defaults_; plan.config.duration=Time(integer(values,"run-seconds",28800)*1000);
-        const auto returns=return_choices(plan);
-        if (!returns.empty()) {
-            const auto it=values.find("return-method");
-            if (it==values.end() || !std::holds_alternative<std::string>(it->second)
-                || std::find(returns.begin(),returns.end(),std::get<std::string>(it->second))==returns.end())
-                throw std::invalid_argument("Invalid planter return method");
-            plan.walk_return=std::get<std::string>(it->second)=="Walk";
-        }
-        plan.capacity=integer(values,"capacity",3); plan.max_actions=integer(values,"max-actions",32);
-        if (has_loot(plan)) {
-            const auto it=values.find("collect-loot");
-            if (it==values.end() || !std::holds_alternative<bool>(it->second)) throw std::invalid_argument("Missing planter loot selection");
-            plan.collect_loot=std::get<bool>(it->second);
-        }
+        values.try_emplace("simulation-days",7); values.try_emplace("gather-planter-fields",false);
+        extensions::validate_settings(module_manifest(defaults_),values);
+        interrupt_gather_=std::get<bool>(values.at("interrupt-gather"));
+        simulation_days_=std::get<int>(values.at("simulation-days"));
+        gather_fields_=std::get<bool>(values.at("gather-planter-fields")); requests_={};
+        auto plan=defaults_; plan.config.duration=Time(std::get<int>(values.at("run-seconds"))*1000);
+        if (!return_choices(plan).empty()) plan.walk_return=std::get<std::string>(values.at("return-method"))=="Walk";
+        plan.capacity=std::get<int>(values.at("capacity")); plan.max_actions=std::get<int>(values.at("max-actions"));
+        if (has_loot(plan)) plan.collect_loot=std::get<bool>(values.at("collect-loot"));
         if (plan.conversion) {
-            const auto it=values.find("convert-after-harvest");
-            if (it==values.end() || !std::holds_alternative<bool>(it->second)) throw std::invalid_argument("Missing planter conversion selection");
-            plan.conversion->enabled=plan.conversion->every_return || std::get<bool>(it->second);
-            plan.conversion->threshold=integer(values,"conversion-threshold",100);
+            plan.conversion->enabled=plan.conversion->every_return || std::get<bool>(values.at("convert-after-harvest"));
+            plan.conversion->threshold=std::get<int>(values.at("conversion-threshold"));
         }
         auto preferences=defaults_.preferences.value_or(default_preferences());
-        const auto* mode=std::get_if<std::string>(&values.at("mode"));
-        const auto* secondary=std::get_if<bool>(&values.at("secondary"));
-        if (!mode || (*mode!="Nectar" && *mode!="Items") || !secondary) throw std::invalid_argument("Invalid planter priority");
-        preferences.mode=*mode=="Items"?Mode::items:Mode::nectar; preferences.secondary=*secondary;
-        const auto selection=[&](const char* id) -> const SettingSelection& {
-            const auto it=values.find(id);
-            if (it==values.end() || !std::holds_alternative<SettingSelection>(it->second)) throw std::invalid_argument("Missing planter selection");
-            const auto& items=std::get<SettingSelection>(it->second);
-            if (items.size()>std::max<std::size_t>(20,item_goals().size()) || std::set<std::string>(items.begin(),items.end()).size()!=items.size()) throw std::invalid_argument("Invalid planter selection");
-            return items;
-        };
+        preferences.mode=std::get<std::string>(values.at("mode"))=="Items"?Mode::items:Mode::nectar;
+        preferences.secondary=std::get<bool>(values.at("secondary"));
+        const auto selection=[&](const char* id) -> const SettingSelection& { return std::get<SettingSelection>(values.at(id)); };
         preferences.planters.clear();
         for (const auto& label : selection("equipment")) {
             const auto item=std::find_if(equipment().begin(),equipment().end(),[&](const auto& item) { return item.label==label; });
@@ -140,8 +111,8 @@ public:
         const auto& fields=selection("fields"); preferences.fields={fields.begin(),fields.end()};
         for (const auto& field : fields) if (!plan.destinations.contains(field)) throw std::invalid_argument("Planter field has no connected route");
         for (std::size_t i=0;i<5;++i) {
-            preferences.targets[i]={double(integer(values,"target-"+std::to_string(i),100,0)),double(integer(values,"buffer-"+std::to_string(i),20,0))};
-            preferences.priorities[i]=integer(values,"priority-"+std::to_string(i),100,0);
+            preferences.targets[i]={double(std::get<int>(values.at("target-"+std::to_string(i)))),double(std::get<int>(values.at("buffer-"+std::to_string(i))))};
+            preferences.priorities[i]=std::get<int>(values.at("priority-"+std::to_string(i)));
         }
         preferences.materials.clear();
         for(const auto& label:selection("materials")) {

@@ -1,7 +1,6 @@
 #pragma once
 #include "state.hpp"
-#include "detection.hpp"
-#include <memory>
+#include <span>
 
 namespace hive::game {
 enum class SprinklerFeedback { none, too_low, too_high, unavailable };
@@ -14,11 +13,9 @@ struct SprinklerSite {
     bool aligned{},ready{},placed{};
     SprinklerFeedback feedback{SprinklerFeedback::none};
 };
-struct SprinklerDetection final : Detection { SprinklerSite site; };
 class SprinklerSource {
 public:
     virtual ~SprinklerSource()=default;
     virtual Observation<SprinklerSite> read(const ObservationContext& context,const State& state) const=0;
 };
-std::shared_ptr<const SprinklerSource> sprinkler_source(std::shared_ptr<const DetectionSource> source);
 }

@@ -63,11 +63,6 @@ const BuffGlyph& glyph(std::string_view name) {
     return *std::find_if(detail::buff_glyphs.begin(),detail::buff_glyphs.end(),[&](const auto& g) { return g.name==name; });
 }
 }
-MovementBuffCandidates find_movement_buffs(const DetectionInput& input) {
-    auto layout=detail::hud_buff_bar(input);
-    if (!layout && !input.text.empty()) layout=detail::buff_bar(input);
-    return layout?detail::movement_buffs_at(input,*layout):MovementBuffCandidates{};
-}
 MovementBuffCandidates detail::movement_buffs_at(const DetectionInput& input,const BuffBar& bar) {
     MovementBuffCandidates result;
     const auto* layout=&bar;

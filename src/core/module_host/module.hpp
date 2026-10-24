@@ -81,7 +81,7 @@ struct SessionView {
     game::ServerSession server;
     bool reconnecting{};
 };
-void validate_settings(const Manifest& manifest,const Settings& settings);
+inline void validate_settings(const Manifest& manifest,const Settings& settings) { validate_settings(manifest.settings,settings); }
 class Module {
 public:
     virtual ~Module() = default;

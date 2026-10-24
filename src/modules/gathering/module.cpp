@@ -5,13 +5,6 @@
 namespace hive::features::gathering {
 namespace {
 const automation::Permissions permissions{automation::Permission::movement,automation::Permission::tool,automation::Permission::interact};
-int integer(const Settings& settings,const std::string& key,int low,int high) {
-    const auto it=settings.find(key);
-    if (it==settings.end() || !std::holds_alternative<int>(it->second)) throw std::invalid_argument("Missing gathering setting: "+key);
-    const auto value=std::get<int>(it->second);
-    if (value<low || value>high) throw std::invalid_argument("Gathering setting outside limits: "+key);
-    return value;
-}
 std::vector<std::string> choices(const PatternControls& controls) {
     if (controls.presets.empty() || controls.presets.size()>64 || controls.width<1 || controls.width>12
         || controls.minutes<1 || controls.minutes>120 || controls.backpack<1 || controls.backpack>100)
@@ -110,24 +103,12 @@ public:
         }
         for (const auto& setting : schema.settings)
             if (setting.id.starts_with("field-") || setting.id.starts_with("start-") || setting.id=="whirligig-slot" || setting.id=="use-whirligig" || setting.id=="shift-lock" || setting.id=="return-method" || setting.id=="recenter" || setting.id=="pattern-scale" || setting.id=="pattern-repetitions" || setting.id=="invert-fb" || setting.id=="invert-lr" || (!controls_ && setting.id=="fields")) settings.try_emplace(setting.id,setting.initial);
-        if (settings.size()!=schema.settings.size() || std::any_of(schema.settings.begin(),schema.settings.end(),
-            [&](const auto& setting) { return !settings.contains(setting.id); })) throw std::invalid_argument("Unexpected gathering settings");
-        for (const auto& setting : schema.settings) if (setting.id.starts_with("field-")) {
-            const auto& value=settings.at(setting.id);
-            if (value.index()!=setting.initial.index()) throw std::invalid_argument("Invalid field setting type");
-            if (const auto* number=std::get_if<int>(&value)) {
-                if (*number<setting.minimum || *number>setting.maximum) throw std::invalid_argument("Field setting outside limits");
-            } else if (const auto* choice=std::get_if<std::string>(&value)) {
-                if (std::find(setting.choices.begin(),setting.choices.end(),*choice)==setting.choices.end())
-                    throw std::invalid_argument("Unknown field pattern");
-            }
-        }
-        auto plan=defaults_; plan.cycles=integer(settings,"cycles",1,10000); plan.config.duration=Time(integer(settings,"run-seconds",1,28800)*1000);
+        extensions::validate_settings(schema,settings);
+        auto plan=defaults_; plan.cycles=std::get<int>(settings.at("cycles")); plan.config.duration=Time(std::get<int>(settings.at("run-seconds"))*1000);
         if (const auto found=settings.find("fields"); found!=settings.end()) {
             const auto* selected=std::get_if<SettingSelection>(&found->second);
             if (!selected || selected->empty()) throw std::invalid_argument("Select at least one gathering field");
             std::set<std::string> selected_names(selected->begin(),selected->end());
-            if (selected_names.size()!=selected->size()) throw std::invalid_argument("Duplicate gathering field");
             std::vector<FieldPlan> ordered;
             ordered.reserve(plan.fields.size());
             for (const auto& name : *selected) {
@@ -147,12 +128,12 @@ public:
                 const auto* name=found==settings.end()?nullptr:std::get_if<std::string>(&found->second);
                 const auto preset=std::find_if(controls_->presets.begin(),controls_->presets.end(),[&](const auto& item) { return name && item.name==*name; });
                 if (preset==controls_->presets.end()) throw std::invalid_argument("Select an available gathering pattern");
-                const auto width=integer(settings,prefix+"pattern-width",1,12);
-                const auto duration=std::chrono::minutes(integer(settings,prefix+"gather-minutes",1,120));
-                const auto limit=integer(settings,prefix+"backpack-percent",1,100);
+                const auto width=std::get<int>(settings.at(prefix+"pattern-width"));
+                const auto duration=std::chrono::minutes(std::get<int>(settings.at(prefix+"gather-minutes")));
+                const auto limit=std::get<int>(settings.at(prefix+"backpack-percent"));
                 Choice result{{{},duration,double(limit),{},"Gathering"},{}};
-                const Settings parameters{{"width",width},{"scale",integer(settings,prefix+"pattern-scale",25,200)},
-                    {"repetitions",integer(settings,prefix+"pattern-repetitions",1,9)},
+                const Settings parameters{{"width",width},{"scale",std::get<int>(settings.at(prefix+"pattern-scale"))},
+                    {"repetitions",std::get<int>(settings.at(prefix+"pattern-repetitions"))},
                     {"invert-fb",boolean(settings,prefix+"invert-fb")},{"invert-lr",boolean(settings,prefix+"invert-lr")},{"facing",int(heading)}};
                 if (preset->configured) result.strategy=preset->configured(parameters);
                 else if (preset->generate) {
@@ -167,7 +148,6 @@ public:
                 }
                 else {
                     result.strategy=preset->strategy(width);
-                    if (!result.strategy) throw std::invalid_argument("Pattern provider returned no strategy");
                 }
                 if (!preset->generate && !result.strategy) throw std::invalid_argument("Pattern provider returned no strategy");
                 return result;
@@ -180,12 +160,8 @@ public:
                 if (rotation && field.rotation) { rotation->press=field.rotation->press; rotation->release=field.rotation->release; }
                 field.rotation=rotation;
                 field.shift_lock=boolean(settings,prefix+"shift-lock");
-                const auto* extensions=std::get_if<SettingSelection>(&settings.at(prefix+"extend-while"));
-                if (!extensions || std::any_of(extensions->begin(),extensions->end(),[](const auto& name) {
-                    return name!="Pop Star" && name!="Guiding Star" && name!="Field boost";
-                })) throw std::invalid_argument("Invalid gathering extension");
-                field.extend_while=*extensions;
-                field.extension_limit=std::chrono::minutes(integer(settings,prefix+"extend-minutes",1,30));
+                field.extend_while=std::get<SettingSelection>(settings.at(prefix+"extend-while"));
+                field.extension_limit=std::chrono::minutes(std::get<int>(settings.at(prefix+"extend-minutes")));
                 auto chosen=generate(prefix,heading);
                 field.pattern=std::move(chosen.pattern); field.strategy=std::move(chosen.strategy);
             }
@@ -195,23 +171,18 @@ public:
         unsigned slot=1;
         if (sprinklers_ && sprinklers_->equipment) { equipment=sprinklers_->equipment->equipment; slot=sprinklers_->equipment->slot; }
         else if (sprinklers_) {
-            const auto* type=std::get_if<std::string>(&settings.at("sprinkler-type"));
-            const auto types=sprinkler_choices();
-            if (!type || std::find(types.begin(),types.end(),*type)==types.end()) throw std::invalid_argument("Select a sprinkler type");
-            equipment=*type; slot=integer(settings,"sprinkler-slot",1,7);
+            equipment=std::get<std::string>(settings.at("sprinkler-type")); slot=std::get<int>(settings.at("sprinkler-slot"));
             if (equipment!="None") hotbar_uses_.push_back({slot,"Sprinkler","Sprinkler"});
         }
         unsigned return_slot=0;
-        if (plan.whirligig_return && boolean(settings,"use-whirligig")) return_slot=integer(settings,"whirligig-slot",1,7);
+        if (plan.whirligig_return && boolean(settings,"use-whirligig")) return_slot=std::get<int>(settings.at("whirligig-slot"));
         for (auto& field:plan.fields) {
             const auto field_key=field_prefix(field.preference.field)+"-";
             const auto prefix=controls_?field_key:std::string{};
-            field.start_offset={integer(settings,prefix+"start-side",-200,200)/10.,integer(settings,prefix+"start-forward",-200,200)/10.};
+            field.start_offset={std::get<int>(settings.at(prefix+"start-side"))/10.,std::get<int>(settings.at(prefix+"start-forward"))/10.};
             if (plan.route_recovery) {
-                const auto* method=std::get_if<std::string>(&settings.at(prefix+"return-method"));
-                if (!method || std::find(return_methods.begin(),return_methods.end(),*method)==return_methods.end()) throw std::invalid_argument("Invalid gathering return method");
-                field.reset_return=*method=="Reset";
-                if (*method=="Reset") field.return_setup=plan.route_recovery;
+                field.reset_return=std::get<std::string>(settings.at(prefix+"return-method"))=="Reset";
+                if (field.reset_return) field.return_setup=plan.route_recovery;
             }
             if (return_slot) {
                 field.return_item=[create=plan.whirligig_return,slot=return_slot](automation::ProgramFactory return_method) { return create(slot,std::move(return_method)); };

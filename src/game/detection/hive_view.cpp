@@ -75,16 +75,13 @@ public:
         const auto& f=input.frame;
         if (!f.valid() || !input.generation || (input.cancelled && input.cancelled())) return {};
         auto result=std::make_shared<HiveViewDetection>();
-        auto& reading=result->readings["hive.backboard"];
-        reading=result->facing={Knowledge::unknown,false,f.captured,f.window,input.generation};
         result->region={Knowledge::unknown,{},f.captured,f.window,input.generation};
         const double scale=f.width/f.window.bounds.width,scale_y=f.height/f.window.bounds.height;
         if (scale<.5 || scale>4 || scale_y<.5 || scale_y>4 || std::abs(scale-scale_y)>.1
             || f.width>8192 || f.height>8192 || f.window.bounds.width<320 || f.window.bounds.height<200) return result;
         const auto region=centered_honeycomb(f);
         if (input.cancelled && input.cancelled()) return {};
-        reading=result->facing={region?Knowledge::present:Knowledge::absent,bool(region),f.captured,f.window,input.generation};
-        result->region={reading.knowledge,region.value_or(Rect{}),f.captured,f.window,input.generation};
+        result->region={region?Knowledge::present:Knowledge::absent,region.value_or(Rect{}),f.captured,f.window,input.generation};
         return result;
     }
 };
@@ -93,16 +90,15 @@ public:
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         const auto& f=input.frame;
         if (!f.valid() || !input.generation || (input.cancelled && input.cancelled())) return {};
-        auto result=std::make_shared<HiveViewDetection>();
+        auto result=std::make_shared<Landmarks>();
         auto& reading=result->readings["spawn.reference"];
         reading={Knowledge::absent,false,f.captured,f.window,input.generation};
-        result->region={Knowledge::absent,{},f.captured,f.window,input.generation};
         // A hive-row view has several white platforms beneath honeycomb boards.
         // Normalize scene geometry by image size, independently of desktop DPI.
         const double dpi_x=f.width/f.window.bounds.width,dpi_y=f.height/f.window.bounds.height;
         if (dpi_x<.5 || dpi_x>4 || dpi_y<.5 || dpi_y>4 || std::abs(dpi_x-dpi_y)>.1
             || f.width>8192 || f.height>8192 || f.window.bounds.width<320 || f.window.bounds.height<200) {
-            reading.knowledge=result->region.knowledge=Knowledge::unknown; return result;
+            reading.knowledge=Knowledge::unknown; return result;
         }
         cv::Mat rgba(f.height,f.width,CV_8UC4,const_cast<std::uint8_t*>(f.rgba.data())),small;
         const double scale=640./std::max(f.width,f.height);
@@ -142,10 +138,7 @@ public:
                 const double a=box.x+box.width*.5,b=other.x+other.width*.5;
                 if ((!available && !other_red) || std::min(a,b)>small.cols*.45 || std::max(a,b)<small.cols*.55
                     || std::abs(box.y-other.y)>small.rows*.06) continue;
-                const auto row=box|other;
                 reading.knowledge=Knowledge::present; reading.value=true;
-                result->region={Knowledge::present,{double(row.x)/small.cols,double(row.y)/small.rows,
-                    double(row.width)/small.cols,double(row.height)/small.rows},f.captured,f.window,input.generation};
                 return result;
             }
             platforms.emplace_back(box,available);
@@ -157,7 +150,6 @@ class HiveReference final : public LandmarkSource {
     std::shared_ptr<const DetectionSource> pixels_;
     std::shared_ptr<const LandmarkSource> proximity_;
     mutable std::mutex mutex_;
-    mutable Observation<bool> confirmed_;
     mutable ObservationContext context_;
     mutable Time processed_{Time(-1)},armed_until_{Time(-1)};
 public:
@@ -165,38 +157,26 @@ public:
         :pixels_(std::move(pixels)),proximity_(std::move(proximity)) {}
     Observation<bool> read(const ObservationContext& c) const override {
         std::lock_guard lock(mutex_);
-        auto unknown=[&] { confirmed_={}; return Observation<bool>{}; };
         if (c.generation!=context_.generation || c.window.id!=context_.window.id || c.window.process!=context_.window.process
-            || c.window.bounds!=context_.window.bounds) { unknown(); processed_=armed_until_=Time(-1); }
+            || c.window.bounds!=context_.window.bounds) processed_=armed_until_=Time(-1);
         context_=c;
         const auto proximity=proximity_->read(c);
         if (proximity.has_value(c,Time(2000)) && proximity.value) armed_until_=c.now+Time(30000);
         const auto packet=pixels_->read();
-        if (c.now>armed_until_ || !packet || !packet->error.empty()) return unknown();
+        if (c.now>armed_until_ || !packet || !packet->error.empty()) return {};
         const auto& context=packet->context;
         const Observation<bool> envelope{Knowledge::present,true,context.now,context.window,context.generation};
-        if (!envelope.has_value(c,Time(2000))) return unknown();
+        if (!envelope.has_value(c,Time(2000))) return {};
         const auto* detected=dynamic_cast<const HiveViewDetection*>(packet->value.get());
-        if (!detected) return unknown();
-        const auto it=detected->readings.find("hive.backboard");
-        if (it==detected->readings.end()) return unknown();
-        const auto& visible=it->second;
-        if (!visible.usable(c,Time(2000)) || visible.captured!=context.now || context.now<processed_) return unknown();
-        const auto stamp=visible.captured;
-        if (visible.knowledge==Knowledge::absent || !visible.value
-            || (detected->facing.has_value(c,Time(2000)) && !detected->facing.value)) {
-            unknown(); processed_=context.now;
-            return {Knowledge::absent,false,stamp,c.window,c.generation};
-        }
-        if (!detected->facing.has_value(c,Time(2000)) || detected->facing.captured!=context.now) return unknown();
+        if (!detected) return {};
         const auto& region=detected->region;
-        if (!region.has_value(c,Time(2000)) || region.captured!=context.now || !region.value.valid()
-            || region.value.x<0 || region.value.y<0 || region.value.x+region.value.width>1.000001
-            || region.value.y+region.value.height>1.000001) return unknown();
-        if (context.now==processed_) return confirmed_.has_value(c,Time(2000))?confirmed_:Observation<bool>{};
+        if (!region.usable(c,Time(2000)) || region.captured!=context.now || context.now<processed_) return {};
         processed_=context.now;
-        confirmed_={Knowledge::present,true,stamp,c.window,c.generation};
-        return confirmed_;
+        if (region.knowledge==Knowledge::absent) return {Knowledge::absent,false,region.captured,c.window,c.generation};
+        if (!region.value.valid()
+            || region.value.x<0 || region.value.y<0 || region.value.x+region.value.width>1.000001
+            || region.value.y+region.value.height>1.000001) return {};
+        return {Knowledge::present,true,region.captured,c.window,c.generation};
     }
 };
 }

@@ -25,7 +25,6 @@ inline const std::map<std::string,std::set<std::uint64_t>> legacy_defaults{
     {"gummy-entry",{0xb9ad510143252f63ULL}},
     {"helpers",{0x268a1989c39ffbd5ULL,0xd049d4ed3b8c2d3eULL}},
     {"hive",{0x13d4ab1bea02d423ULL}},
-    {"hive-search",{0x8371230e50a12f30ULL}},
     {"items",{0xe6c6915c7fcefcb3ULL}},
     {"memory",{0xa5f175a862d999c9ULL}},
     {"npc",{0x18dc036901ecdad3ULL}},

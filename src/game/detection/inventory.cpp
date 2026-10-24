@@ -197,8 +197,22 @@ public:
 std::string inventory_name(const std::string& text) {
     if (text.size()>160) return {};
     std::string result;
-    for (unsigned char c : text) {
-        if (c>=128 || (c<32 && !std::isspace(c))) return {};
+    std::string_view remaining=text;
+    while (!remaining.empty()) {
+        // OCR may substitute typographic spaces, hyphens or apostrophes.
+        // Ignore those like their ASCII equivalents; never discard unknown
+        // Unicode letters, which could turn a different item into a match.
+        static constexpr std::string_view punctuation[]{"\xc2\xa0","\xc2\xad",
+            "\xe2\x80\x90","\xe2\x80\x91","\xe2\x80\x92","\xe2\x80\x93","\xe2\x80\x94","\xe2\x80\x95",
+            "\xe2\x80\x98","\xe2\x80\x99","\xe2\x80\xaf"};
+        if (static_cast<unsigned char>(remaining.front())>=128) {
+            const auto found=std::find_if(std::begin(punctuation),std::end(punctuation),
+                [&](auto mark) { return remaining.starts_with(mark); });
+            if (found==std::end(punctuation)) return {};
+            remaining.remove_prefix(found->size()); continue;
+        }
+        const unsigned char c=remaining.front(); remaining.remove_prefix(1);
+        if (c<32 && !std::isspace(c)) return {};
         if (std::isalnum(c)) result+=static_cast<char>(std::tolower(c));
     }
     return result;

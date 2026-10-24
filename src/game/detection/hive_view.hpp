@@ -2,9 +2,8 @@
 #include "localization.hpp"
 
 namespace hive::game {
-struct HiveViewDetection final : Landmarks {
+struct HiveViewDetection final : Detection {
     Observation<Rect> region;
-    Observation<bool> facing;
 };
 std::shared_ptr<const Detector> hive_view_detector();
 std::shared_ptr<const Detector> spawn_view_detector();

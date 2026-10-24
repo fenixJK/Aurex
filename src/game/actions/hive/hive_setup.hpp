@@ -41,6 +41,7 @@ struct HiveClaimOptions {
     movement::Source movement;
     bool after_respawn{};
 };
+enum class HiveStart { locate, reset };
 ApproachPrompt hive_row_approach(double speed,movement::Source movement={});
 class WhirligigCooldown {
     std::mutex mutex_;
@@ -52,7 +53,7 @@ std::unique_ptr<Program> whirligig_to_hive(unsigned slot,std::shared_ptr<Whirlig
     std::shared_ptr<const game::LandmarkSource> proximity,ProgramFactory prepare,ProgramFactory return_method);
 std::unique_ptr<Program> acquire_hive(std::shared_ptr<const game::HiveSlotsSource> slots,
     std::shared_ptr<const game::LandmarkSource> spawn,std::shared_ptr<const game::LandmarkSource> reference,
-    std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options={});
+    std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options={},HiveStart start=HiveStart::locate);
 std::unique_ptr<Program> respawn_to_hive(std::shared_ptr<const game::HiveSlotsSource> slots,
     std::shared_ptr<const game::LandmarkSource> spawn,std::shared_ptr<const game::LandmarkSource> reference,
     std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options);
@@ -64,10 +65,6 @@ std::unique_ptr<Program> reconnect_to_hive(std::shared_ptr<const game::HiveSlots
     std::shared_ptr<const game::LandmarkSource> spawn,std::shared_ptr<const game::LandmarkSource> reference,
     std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options,ReconnectStart start=ReconnectStart::request);
 std::unique_ptr<Program> claim_hive_from_spawn(std::shared_ptr<const game::HiveSlotsSource> source, HiveClaimOptions options={});
-std::unique_ptr<Program> survey_hive_slots(std::shared_ptr<const game::HiveSlotsSource> source);
-ApproachLandmark hive_reference_search(std::shared_ptr<const game::LandmarkSource> reference,movement::Source movement={});
-std::unique_ptr<Program> find_hive_reference(std::shared_ptr<const game::LandmarkSource> reference,
-    std::shared_ptr<const game::LandmarkSource> proximity,movement::Source movement={});
 std::unique_ptr<Program> prepare_hive_view(std::shared_ptr<const game::LandmarkSource> reference,
     std::shared_ptr<const game::LandmarkSource> proximity,std::shared_ptr<HiveSetupResult> result={});
 }

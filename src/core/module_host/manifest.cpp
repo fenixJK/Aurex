@@ -382,11 +382,4 @@ void validate_page(const Manifest& manifest) {
     require(settings==known,"Module page must expose every declared setting");
 }
 Settings defaults(const Manifest& m) { Settings result; for (const auto& s : m.settings) result.emplace(s.id,s.initial); return result; }
-void validate_settings(const Manifest& m,const Settings& settings) {
-    require(settings.size()==m.settings.size(),"Settings do not match the extension schema");
-    for (const auto& s : m.settings) {
-        auto it=settings.find(s.id); require(it!=settings.end(),"Missing setting");
-        validate_setting(s,it->second);
-    }
-}
 }

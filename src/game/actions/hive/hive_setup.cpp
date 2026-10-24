@@ -51,11 +51,6 @@ ApproachPrompt hive_row_approach(double speed,movement::Source source) {
     auto plan=movement::snapshot(source)->path("hive",{{"action",std::string("row")}},speed).at(0);
     return {std::move(plan),game::hive_proximity_prompt()};
 }
-ApproachLandmark hive_reference_search(std::shared_ptr<const game::LandmarkSource> reference,movement::Source movement) {
-    if (!reference) throw std::invalid_argument("Hive search requires observed proximity and visual reference");
-    auto plan=movement::snapshot(movement)->path("hive-search",{},28).at(0);
-    return {std::move(plan),std::move(reference)};
-}
 namespace {
 bool claimed_here(const std::shared_ptr<HiveSetupResult>& result,const ObservationContext& context,const Observation<bool>& proximity) {
     const auto claim=result?result->read():std::nullopt;
@@ -83,30 +78,15 @@ public:
         return {ready_?GuardState::ready:GuardState::waiting,ready_?"Hive proximity confirmed":"Waiting for your hive interaction prompt"};
     }
 };
-class FindHiveReference final : public Program {
-    ApproachLandmark search_;
-    std::shared_ptr<const game::LandmarkSource> proximity_;
-public:
-    FindHiveReference(std::shared_ptr<const game::LandmarkSource> source,std::shared_ptr<const game::LandmarkSource> proximity,movement::Source movement)
-        :search_(hive_reference_search(std::move(source),std::move(movement))),proximity_(std::move(proximity)) {
-        if (!proximity_) throw std::invalid_argument("Hive search requires a proximity source");
-    }
-    RunConfig config() const override { return {Time(50000),28,{},true,true}; }
-    std::unique_ptr<RunGuard> guard() const override { return std::make_unique<AtHive>(proximity_); }
-    Step next(const View& view) override {
-        if (!view.completed_steps) { search_.source->read(view.context); return search_; }
-        return Done{"Hive visual reference found"};
-    }
-};
 class PrepareHiveView final : public Program {
-    enum class Stage { claim, unlock, zoom, pitch_limit, pitch, observe, opposite, turn, alternate, reference, restore, zoom_out, done };
+    enum class Stage { claim, unlock, zoom, pitch_limit, pitch, observe, turn, lower, raise, reference, restore, zoom_out, done };
     std::shared_ptr<const game::LandmarkSource> reference_,proximity_;
     std::shared_ptr<HiveSetupResult> result_;
     Stage stage_{Stage::claim};
     Time minimum_{},seen_{Time(-1)};
     Observation<bool> heading_;
     unsigned turns_{};
-    bool opposite_{},alternate_{};
+    bool lowered_{};
     bool started_{};
     void observe(Time finished) {
         stage_=Stage::observe; minimum_=finished+Time(150); seen_=Time(-1);
@@ -138,9 +118,9 @@ public:
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
         case Stage::pitch_limit: return MoveCamera{game::pitch_limit(Key::pitch_up)};
         case Stage::pitch: return MoveCamera{{Key::pitch_down,4}};
-        case Stage::opposite:
-        case Stage::turn: return MoveCamera{{Key::rotate_right,stage_==Stage::opposite?4u:1u,Time(100),Time(50)}};
-        case Stage::alternate: return MoveCamera{{Key::pitch_down,1}};
+        case Stage::turn: return MoveCamera{{Key::rotate_right,turns_?1u:4u,Time(100),Time(50)}};
+        case Stage::lower: return MoveCamera{{Key::pitch_down,1}};
+        case Stage::raise: return MoveCamera{{Key::pitch_up,1}};
         case Stage::reference: return AdoptHeading{0,heading_};
         case Stage::restore: return MoveCamera{{Key::pitch_up,1}};
         case Stage::zoom_out: return MoveCamera{{Key::zoom_out,5}};
@@ -158,12 +138,12 @@ public:
                 stage_=Stage::reference;
                 return next(view);
             }
-            // Respawns commonly face the hive or directly away from it. Try
-            // the opposite view in one batch, then verify before adopting it.
-            // A miss still gets a full sweep to handle other angles or lost taps.
-            if (!opposite_) stage_=Stage::opposite;
-            else if (turns_<8) stage_=Stage::turn;
-            else if (!alternate_) stage_=Stage::alternate;
+            // Try the opposite spawn direction first. If it misses, inspect
+            // both pitches at each heading during one full correction sweep.
+            // Only a fresh honeycomb match establishes the heading.
+            if (!turns_) stage_=Stage::turn;
+            else if (!lowered_) stage_=Stage::lower;
+            else if (turns_<=8) stage_=Stage::raise;
             else throw HiveAlignmentError("Hive reference was not found at either camera pitch");
             return next(view);
         }
@@ -179,10 +159,10 @@ public:
         case Stage::zoom: stage_=Stage::pitch_limit; break;
         case Stage::pitch_limit: stage_=Stage::pitch; break;
         case Stage::pitch: observe(view.context.now); break;
-        case Stage::opposite: opposite_=true; observe(view.context.now); break;
         case Stage::turn: ++turns_; observe(view.context.now); break;
-        case Stage::alternate: alternate_=true; turns_=0; observe(view.context.now); break;
-        case Stage::reference: stage_=alternate_?Stage::restore:Stage::zoom_out; break;
+        case Stage::lower: lowered_=true; observe(view.context.now); break;
+        case Stage::raise: lowered_=false; stage_=Stage::turn; break;
+        case Stage::reference: stage_=lowered_?Stage::restore:Stage::zoom_out; break;
         case Stage::restore: stage_=Stage::zoom_out; break;
         case Stage::zoom_out: stage_=Stage::done; break;
         default: break;
@@ -190,10 +170,6 @@ public:
     }
     void finished(State state) override { if (result_ && state!=State::completed) result_->reset(); }
 };
-}
-std::unique_ptr<Program> find_hive_reference(std::shared_ptr<const game::LandmarkSource> reference,
-    std::shared_ptr<const game::LandmarkSource> proximity,movement::Source movement) {
-    return std::make_unique<FindHiveReference>(std::move(reference),std::move(proximity),std::move(movement));
 }
 std::unique_ptr<Program> prepare_hive_view(std::shared_ptr<const game::LandmarkSource> reference,
     std::shared_ptr<const game::LandmarkSource> proximity,std::shared_ptr<HiveSetupResult> result) {

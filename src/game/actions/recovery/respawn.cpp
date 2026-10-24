@@ -108,6 +108,9 @@ public:
             && !(state->connection.has_value(c,Time(2000)) && state->connection.value==game::Connection::disconnected);
         const bool menu=fresh && (reading.value.screen==game::RespawnScreen::menu
             || reading.value.screen==game::RespawnScreen::confirmation);
+        // Each observed menu transition gets its own response deadline. A slow
+        // Escape menu must not consume the time allowed for R and Enter.
+        if (menu && requested_from_!=reading.value.screen) started_=c.now;
         if (stage_==Stage::transition && !menu) {
             if (completion_.ready(view,*source_,minimum_,transition_)) {
                 stage_=Stage::done; return next(view);
@@ -117,6 +120,10 @@ public:
                 return retry(c.now,"Game returned without a confirmed respawn");
             if (c.now-transition_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return a readable live game view");
             return Wait{Time(100),"Waiting for player respawn"};
+        }
+        if (fresh && reading.value.screen==game::RespawnScreen::respawning) {
+            stage_=Stage::transition; transition_=reading.captured;
+            return next(view);
         }
         if (c.now-started_>=Time(8000)) {
             if ((stage_==Stage::select || stage_==Stage::confirm) && live && fresh && reading.value.screen==game::RespawnScreen::game)
@@ -136,10 +143,6 @@ public:
             return Wait{Time(50),"Waiting for respawn menu"};
         }
         const auto screen=reading.value.screen;
-        if (screen==game::RespawnScreen::respawning) {
-            stage_=Stage::transition; transition_=reading.captured;
-            return next(view);
-        }
         // The HUD can show through a menu animation. Do not toggle Escape
         // again while waiting for the menu or confirmation to finish opening.
         if (screen==game::RespawnScreen::game && stage_!=Stage::locate)
