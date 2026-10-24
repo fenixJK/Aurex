@@ -6,96 +6,6 @@
 
 namespace hive::features::planters {
 using namespace automation;
-Account::Account(std::shared_ptr<Store> store):store_(std::move(store)) {
-    if (!store_) throw std::invalid_argument("Planters needs an account store");
-}
-std::vector<Plant> Account::plants() const { std::lock_guard lock(snapshot_mutex_); return plants_; }
-MaterialHistory Account::materials() const { std::lock_guard lock(snapshot_mutex_); return materials_; }
-Ledger Account::saved() const { return store_->load().value_or(Ledger{}); }
-void Account::apply_offline(Controller& controller) {
-    std::lock_guard lock(snapshot_mutex_);
-    if (offline_.empty()) return;
-    while (!offline_.empty()) {
-        controller.exclude_offline(offline_.front().first,offline_.front().second);
-        offline_.erase(offline_.begin());
-    }
-    plants_=controller.ledger().plants; materials_=controller.ledger().materials;
-}
-void Account::connection(bool reconnecting,WallTime now) {
-    {
-        std::lock_guard lock(snapshot_mutex_);
-        if (reconnecting) { if (!offline_since_) offline_since_=now; return; }
-        if (!offline_since_) return;
-        if (now>*offline_since_) offline_.emplace_back(*offline_since_,now);
-        offline_since_.reset();
-    }
-    if (busy_.exchange(true)) return;
-    try { Controller controller(store_); apply_offline(controller); }
-    catch (...) { busy_=false; throw; }
-    busy_=false;
-}
-PlanningSnapshot Account::forecast_state(std::vector<Group> groups,const Preferences& preferences,WallTime now,std::size_t capacity) const {
-    const auto ledger=saved();
-    if (ledger.pending) throw std::runtime_error("A planter action is in progress. Try again after it finishes.");
-    TravelTimes travel;
-    for (const auto& [field,samples]:ledger.travel) for (double seconds:samples) travel.record(field,seconds);
-    {
-        std::lock_guard lock(snapshot_mutex_);
-        for (auto& group:groups) {
-            const auto i=static_cast<std::size_t>(group.nectar);
-            if (nectar_phases_.at(i)) group.phase=*nectar_phases_[i];
-            for (auto& candidate:group.candidates) candidate.travel=travel.estimate(candidate.stats.field);
-        }
-    }
-    apply_preferences(groups,preferences);
-    auto snapshot=planning_snapshot(ledger,std::move(groups),travel,now,0,capacity);
-    apply_preferences(snapshot.materials,preferences); return snapshot;
-}
-void Account::remove_saved(std::uint64_t id) {
-    if (busy_.exchange(true)) throw std::runtime_error("Planters is using these timers. Try again after its current run.");
-    try {
-        auto ledger=saved();
-        const bool pending=ledger.pending && ledger.pending->plant.id==id;
-        const auto removed=std::erase_if(ledger.plants,[&](const Plant& plant) { return plant.id==id; });
-        if (!removed && !pending) throw std::invalid_argument("Saved planter no longer exists");
-        if (pending) ledger.pending.reset();
-        validate(ledger); store_->save(ledger);
-        { std::lock_guard lock(snapshot_mutex_); plants_=ledger.plants; materials_=ledger.materials; }
-        ++edit_revision_;
-    } catch (...) { busy_=false; throw; }
-    busy_=false;
-}
-void Account::set_saved(std::optional<std::uint64_t> id,const Stats& stats,double progress,WallTime now) {
-    if (busy_.exchange(true)) throw std::runtime_error("Planters is using these timers. Try again after its current run.");
-    try {
-        if (!std::isfinite(progress) || progress<0 || progress>1) throw std::invalid_argument("Invalid planter progress");
-        const auto known=catalog();
-        const auto match=std::find_if(known.begin(),known.end(),[&](const Stats& value) { return value.planter==stats.planter && value.field==stats.field; });
-        if (match==known.end()) throw std::invalid_argument("Unknown planter and field combination");
-        auto ledger=saved();
-        if (id && ledger.pending && ledger.pending->plant.id==*id) {
-            if (ledger.pending->operation==Operation::place) ledger.plants.push_back(ledger.pending->plant);
-            ledger.pending.reset();
-        }
-        const auto duration=Time(static_cast<Time::rep>(std::max(std::ceil(match->full_seconds*1000),std::round(match->full_seconds)*1000)));
-        const auto placed=now-Time(static_cast<Time::rep>(std::floor(progress*duration.count())));
-        if (placed.time_since_epoch()<Time::zero()) throw std::invalid_argument("Invalid planter placement time");
-        Plant plant{id.value_or(ledger.next_ticket),*match,Phase::build,placed,placed+duration,GrowthSample{now,progress}};
-        if (id) {
-            const auto found=std::find_if(ledger.plants.begin(),ledger.plants.end(),[&](const Plant& value) { return value.id==*id; });
-            if (found==ledger.plants.end()) throw std::invalid_argument("Saved planter no longer exists");
-            if (found->stats.planter==stats.planter && found->stats.field==stats.field) {
-                plant.phase=found->phase;
-                plant.due=placed+Time(static_cast<Time::rep>(std::ceil(harvest_fraction(*found)*duration.count())));
-            }
-            *found=plant;
-        } else { ledger.plants.push_back(plant); ++ledger.next_ticket; }
-        validate(ledger); store_->save(ledger);
-        { std::lock_guard lock(snapshot_mutex_); plants_=ledger.plants; materials_=ledger.materials; }
-        ++edit_revision_;
-    } catch (...) { busy_=false; throw; }
-    busy_=false;
-}
 ExecutionReport ExecutionResults::read() const { std::lock_guard lock(mutex_); return report_; }
 class Execution final : public automation::Program {
     ExecutionPlan plan_;
@@ -105,6 +15,7 @@ class Execution final : public automation::Program {
     WallClock clock_;
     std::shared_ptr<ExecutionResults> results_;
     std::unique_ptr<Controller> controller_;
+    TravelTimes travel_;
     std::thread worker_;
     std::atomic_bool planned_{},cancelled_{};
     PlanDecision decision_;
@@ -144,7 +55,7 @@ class Execution final : public automation::Program {
         report.field=selected_.field; report.planter=selected_.planter;
         if (controller_) {
             report.growing=std::count_if(controller_->ledger().plants.begin(),controller_->ledger().plants.end(),[](const Plant& plant) { return !plant.missing; }); report.pending=controller_->ledger().pending;
-            { std::lock_guard lock(account_->snapshot_mutex_); account_->plants_=controller_->ledger().plants; account_->materials_=controller_->ledger().materials; }
+            account_->publish(controller_->ledger());
             report.records.clear();
             for (const auto& plant : controller_->ledger().plants) report.records.emplace_back(plant.id,identity(plant.stats));
         }
@@ -194,7 +105,7 @@ class Execution final : public automation::Program {
         for (const auto& plant : controller_->ledger().plants) {
             if (plant.missing || deferred_.contains(plant.id) || failed_fields_.contains(plant.stats.field) || !plan_.destinations.contains(plant.stats.field)) continue;
             const auto ready=ready_at(plant);
-            const auto travel=account_->travel_.estimate(plant.stats.field);
+            const auto travel=travel_.estimate(plant.stats.field);
             const auto departure=ready-Time(static_cast<Time::rep>(travel.learned?travel.seconds*1000:0));
             if (departure<=now && (!due || ready<earliest)) { due=&plant; earliest=ready; }
         }
@@ -224,10 +135,10 @@ class Execution final : public automation::Program {
                 return selected_only?!matches(selected_):std::none_of(decision_.assignments.begin(),decision_.assignments.end(),[&](const auto& a) { return matches(a.stats); });
             });
             for (auto& candidate : group.candidates) {
-                candidate.travel=account_->travel_.estimate(candidate.stats.field);
+                candidate.travel=travel_.estimate(candidate.stats.field);
             }
         }
-        auto current=planning_snapshot(controller_->ledger(),std::move(groups),account_->travel_,now,view.context.now.count()/1000.0,plan_.capacity);
+        auto current=planning_snapshot(controller_->ledger(),std::move(groups),travel_,now,view.context.now.count()/1000.0,plan_.capacity);
         std::vector<Active> active;
         for (const auto& plant : controller_->ledger().plants) active.push_back({plant.stats.planter,plant.stats.field,plant.material});
         if (plan_.preferences) apply_preferences(current.materials,*plan_.preferences);
@@ -409,8 +320,8 @@ public:
         if (!leased_) {
             if (account_->busy_.exchange(true)) throw std::runtime_error("Another run owns this planter account");
             leased_=true; controller_=std::make_unique<Controller>(account_->store_,plan_.capacity);
-            account_->travel_={};
-            for (const auto& [field,samples]:controller_->ledger().travel) for (double seconds:samples) account_->travel_.record(field,seconds);
+            travel_={};
+            for (const auto& [field,samples]:controller_->ledger().travel) for (double seconds:samples) travel_.record(field,seconds);
             started_=minimum_=view.context.now; deadline_=view.context.now+Time(10000);
         }
         account_->apply_offline(*controller_);
@@ -505,21 +416,12 @@ public:
         auto groups=fresh?snapshot.nectar.value:std::vector<Group>{};
         if (planning && !requires_nectar && groups.empty()) groups=candidate_groups();
         if (!groups.empty()) {
-            std::lock_guard lock(account_->snapshot_mutex_);
             if (!planning) for (auto& group : groups) group.candidates.clear();
             validate_configuration(groups,{},plan_.capacity);
-            for (auto& group : groups) {
-                const auto remembered=account_->nectar_phases_[static_cast<std::size_t>(group.nectar)];
-                if (remembered) group.phase=*remembered;
-            }
-            if (plan_.preferences) apply_preferences(groups,*plan_.preferences);
+            account_->prepare_groups(groups,plan_.preferences);
             for (auto& group:groups) std::erase_if(group.candidates,[&](const auto& candidate) {
                 return failed_fields_.contains(candidate.stats.field) || !plan_.destinations.contains(candidate.stats.field);
             });
-            for (auto& group : groups) {
-                group.phase=group.current_known?planters::phase(group.phase,group.current,group.target):planters::Phase::build;
-                if (group.current_known) account_->nectar_phases_[static_cast<std::size_t>(group.nectar)]=group.phase;
-            }
         }
         if (phase_==Phase::select) {
             if (requires_nectar && !snapshot.nectar.has_value(view.context,Time(2000),started_)) {
@@ -535,10 +437,10 @@ public:
                     return !plan_.destinations.contains(c.stats.field) || unavailable_planters_.contains(c.stats.planter);
                 });
                 for (auto& candidate : group.candidates) {
-                    candidate.travel=account_->travel_.estimate(candidate.stats.field);
+                    candidate.travel=travel_.estimate(candidate.stats.field);
                 }
             }
-            auto planning=planning_snapshot(controller_->ledger(),std::move(groups),account_->travel_,now,view.context.now.count()/1000.0,plan_.capacity);
+            auto planning=planning_snapshot(controller_->ledger(),std::move(groups),travel_,now,view.context.now.count()/1000.0,plan_.capacity);
             if (plan_.preferences) apply_preferences(planning.materials,*plan_.preferences);
             planned_=false; cancelled_=false; error_={}; planned_at_=snapshot.nectar.captured;
             worker_=std::thread([this,planning=std::move(planning)] {
@@ -636,7 +538,7 @@ public:
             started_=minimum_=view.context.now+Time(1); deadline_=view.context.now+Time(10000);
         } else if (phase_==Phase::arriving) {
             const auto seconds=(view.context.now-travel_started_).count()/1000.0;
-            if (learn_travel_.value_or(false) && seconds>=1 && seconds<=1800) { controller_->record_travel(selected_.field,seconds); account_->travel_.record(selected_.field,seconds); }
+            if (learn_travel_.value_or(false) && seconds>=1 && seconds<=1800) { controller_->record_travel(selected_.field,seconds); travel_.record(selected_.field,seconds); }
             phase_=Phase::locating;
             minimum_=view.context.now;
             deadline_=view.context.now+Time(10000);

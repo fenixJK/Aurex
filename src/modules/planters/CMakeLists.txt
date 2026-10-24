@@ -1,4 +1,5 @@
 add_library(hive_planters
+  account.cpp
   preferences.cpp
   materials.cpp
   drops.cpp
@@ -21,5 +22,5 @@ if(HIVE_BUILD_DESKTOP)
   add_library(hive_planter_store store.cpp)
   target_link_libraries(hive_planter_store PUBLIC hive_planters PRIVATE Qt6::Core)
   add_library(hive_planters_ui ui/timers.cpp)
-  target_link_libraries(hive_planters_ui PUBLIC hive_planter_execution Qt6::Widgets)
+  target_link_libraries(hive_planters_ui PUBLIC hive_planters Qt6::Widgets)
 endif()

@@ -40,14 +40,6 @@
 namespace hive {
 namespace {
 QString q(const std::string& value) { return QString::fromStdString(value); }
-void set_number(QWidget* control,int value,const extensions::Setting& field) {
-    if (auto* number=qobject_cast<QDoubleSpinBox*>(control)) number->setValue(value/std::pow(10.,field.decimals));
-    else static_cast<QSpinBox*>(control)->setValue(value);
-}
-int read_number(QWidget* control,const extensions::Setting& field) {
-    if (auto* number=qobject_cast<QDoubleSpinBox*>(control)) return int(std::round(number->value()*std::pow(10.,field.decimals)));
-    return static_cast<QSpinBox*>(control)->value();
-}
 QLabel* text(const QString& value,const char* role=nullptr) {
     auto label=new QLabel(value); label->setTextFormat(Qt::PlainText); label->setWordWrap(true);
     if (role) label->setObjectName(role); return label;
@@ -82,47 +74,13 @@ struct ExtensionsUi::Page {
     std::vector<QPoint> scroll_positions;
     std::map<std::string,std::string> field_choices;
     void update_conditions(const extensions::Manifest& manifest,bool busy) {
-        const auto checked=[&](const std::string& id) {
-            return controls.contains(id)?static_cast<QCheckBox*>(controls.at(id))->isChecked():std::get<bool>(baseline.at(id));
-        };
-        for (const auto& field:manifest.settings) if (!field.enabled_by.empty() && controls.contains(field.id)) {
-            bool active;
-            if (field.enabled_values.empty()) active=checked(field.enabled_by);
-            else {
-                const auto value=controls.contains(field.enabled_by)?static_cast<ChoiceControl*>(controls.at(field.enabled_by))->value():std::get<std::string>(baseline.at(field.enabled_by));
-                active=std::find(field.enabled_values.begin(),field.enabled_values.end(),value)!=field.enabled_values.end();
-                if(!field.dependent_labels.empty()) {
-                    const auto label=field.dependent_labels.find(value);
-                    auto* check=static_cast<QCheckBox*>(controls.at(field.id));
-                    check->setText(q(label==field.dependent_labels.end()?field.label:label->second));
-                    check->setAccessibleName(check->text());
-                }
-            }
-            controls.at(field.id)->setEnabled(!busy && active);
-        }
-        for (const auto& field:manifest.settings) if ((field.step!=1 || !field.step_toggle.empty()) && controls.contains(field.id)) {
-            const int step=!field.step_toggle.empty() && checked(field.step_toggle)?field.checked_step:field.step;
-            auto* control=controls.at(field.id); const QSignalBlocker block(control);
-            const int minimum=int((static_cast<long long>(field.minimum)+step-1)/step*step),maximum=field.maximum/step*step;
-            const int value=std::clamp(read_number(control,field)/step*step,minimum,maximum);
-            if (auto* number=qobject_cast<QDoubleSpinBox*>(control)) {
-                const auto divisor=std::pow(10.,field.decimals);
-                number->setRange(minimum/divisor,maximum/divisor); number->setSingleStep(step/divisor);
-            } else {
-                auto* integer=static_cast<QSpinBox*>(control); integer->setRange(minimum,maximum); integer->setSingleStep(step);
-            }
-            set_number(control,value,field);
-        }
+        update_setting_conditions(manifest.settings,controls,baseline,busy);
     }
     extensions::Settings read(const extensions::Manifest& manifest) const {
         extensions::Settings result=baseline;
         for (const auto& field : manifest.settings) {
             if(!controls.contains(field.id)) continue;
-            auto* control=controls.at(field.id);
-            if (std::holds_alternative<bool>(field.initial)) result[field.id]=static_cast<QCheckBox*>(control)->isChecked();
-            else if (std::holds_alternative<int>(field.initial)) result[field.id]=read_number(control,field);
-            else if (std::holds_alternative<std::string>(field.initial)) result[field.id]=static_cast<ChoiceControl*>(control)->value();
-            else result[field.id]=dynamic_cast<SelectionValue*>(control)->value();
+            result[field.id]=read_setting_value(controls.at(field.id),field);
         }
         return result;
     }
@@ -429,11 +387,7 @@ void ExtensionsUi::build_page(const std::string& id) {
                     const auto& field=*std::find_if(manifest.settings.begin(),manifest.settings.end(),[&](const auto& f) { return f.id==key; });
                     if(field.hidden) continue;
                     if(!controls.contains(key)) {extension_pages_.at(id)->baseline[key]=field.initial;continue;}
-                    auto* control=controls.at(key);
-                    if(const auto* v=std::get_if<bool>(&field.initial)) static_cast<QCheckBox*>(control)->setChecked(*v);
-                    else if(const auto* v=std::get_if<int>(&field.initial)) set_number(control,*v,field);
-                    else if(const auto* v=std::get_if<std::string>(&field.initial)) static_cast<ChoiceControl*>(control)->setValue(*v);
-                    else dynamic_cast<SelectionValue*>(control)->setValue(std::get<SettingSelection>(field.initial));
+                    write_setting_value(controls.at(key),field,field.initial);
                 }
         };
     }
@@ -590,7 +544,7 @@ void ExtensionsUi::build_page(const std::string& id) {
                     } else {
                         auto c=new QSpinBox; c->setRange(field.minimum,field.maximum); c->setKeyboardTracking(false); c->setSuffix(q(field.suffix)); control=c;
                     }
-                    set_number(control,*v,field);
+                    write_setting_value(control,field,*v);
                 }
                 else if (const auto* v=std::get_if<std::string>(&value)) control=choice_control(field,*v,section.row);
                 else if(collections.contains(field.id)) control=collections.at(field.id);
@@ -796,15 +750,7 @@ void ExtensionsUi::configure_module(const std::string& id,const extensions::Sett
     for (const auto& field:host_.entries().at(id).manifest.settings) {
         if (!page.controls.contains(field.id)) continue;
         auto* control=page.controls.at(field.id);const QSignalBlocker block(control);const auto& value=values.at(field.id);
-        if (const auto* v=std::get_if<bool>(&value)) static_cast<QCheckBox*>(control)->setChecked(*v);
-        else if (const auto* v=std::get_if<int>(&value)) {
-            if (auto* number=qobject_cast<QDoubleSpinBox*>(control)) {
-                const auto divisor=std::pow(10.,field.decimals); number->setRange(field.minimum/divisor,field.maximum/divisor);
-            } else static_cast<QSpinBox*>(control)->setRange(field.minimum,field.maximum);
-            set_number(control,*v,field);
-        }
-        else if (const auto* v=std::get_if<std::string>(&value)) static_cast<ChoiceControl*>(control)->setValue(*v);
-        else dynamic_cast<SelectionValue*>(control)->setValue(std::get<SettingSelection>(value));
+        write_setting_value(control,field,value);
     }
     page.update_conditions(host_.entries().at(id).manifest,busy_());
     for (auto* rows:page.ordered_rows) rows->sort();

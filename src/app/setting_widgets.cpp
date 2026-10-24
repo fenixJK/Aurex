@@ -16,11 +16,21 @@
 #include <QButtonGroup>
 #include <QComboBox>
 #include <QSpinBox>
+#include <QDoubleSpinBox>
+#include <cmath>
 #include <algorithm>
 
 namespace hive {
 namespace {
 QString q(const std::string& value) { return QString::fromStdString(value); }
+void set_number(QWidget* control,int value,const extensions::Setting& field) {
+    if (auto* number=qobject_cast<QDoubleSpinBox*>(control)) number->setValue(value/std::pow(10.,field.decimals));
+    else static_cast<QSpinBox*>(control)->setValue(value);
+}
+int read_number(QWidget* control,const extensions::Setting& field) {
+    if (auto* number=qobject_cast<QDoubleSpinBox*>(control)) return int(std::round(number->value()*std::pow(10.,field.decimals)));
+    return static_cast<QSpinBox*>(control)->value();
+}
 QLabel* text(const QString& value,const char* role) { auto label=new QLabel(value);label->setObjectName(role);label->setTextFormat(Qt::PlainText);return label; }
 class ChoiceEditor final : public ChoiceControl {
     std::vector<std::string> choices_;
@@ -289,4 +299,55 @@ CollectionEditor* collection_control(const std::vector<std::string>& choices,con
 ChoiceControl* choice_control(const extensions::Setting& field,const std::string& selected,bool compact) { return new ChoiceEditor(field,selected,compact); }
 QWidget* inline_selection(const extensions::Setting& field,const SettingSelection& selected,bool compact,unsigned columns) { return new InlineSelection(field,selected,compact,columns); }
 QWidget* selection_control(const std::vector<std::string>& choices,const SettingSelection& selected,bool ordered) { return new SelectionControl(choices,selected,ordered); }
+extensions::Value read_setting_value(QWidget* control,const extensions::Setting& field) {
+    if (std::holds_alternative<bool>(field.initial)) return static_cast<QCheckBox*>(control)->isChecked();
+    if (std::holds_alternative<int>(field.initial)) return read_number(control,field);
+    if (std::holds_alternative<std::string>(field.initial)) return static_cast<ChoiceControl*>(control)->value();
+    return dynamic_cast<SelectionValue*>(control)->value();
+}
+void write_setting_value(QWidget* control,const extensions::Setting& field,const extensions::Value& value) {
+    if (const auto* v=std::get_if<bool>(&value)) static_cast<QCheckBox*>(control)->setChecked(*v);
+    else if (const auto* v=std::get_if<int>(&value)) {
+        if (auto* number=qobject_cast<QDoubleSpinBox*>(control)) {
+            const auto divisor=std::pow(10.,field.decimals); number->setRange(field.minimum/divisor,field.maximum/divisor);
+        } else static_cast<QSpinBox*>(control)->setRange(field.minimum,field.maximum);
+        set_number(control,*v,field);
+    } else if (const auto* v=std::get_if<std::string>(&value)) static_cast<ChoiceControl*>(control)->setValue(*v);
+    else dynamic_cast<SelectionValue*>(control)->setValue(std::get<SettingSelection>(value));
+}
+void update_setting_conditions(std::span<const extensions::Setting> schema,const std::map<std::string,QWidget*>& controls,
+    const extensions::Settings& baseline,bool busy) {
+    const auto checked=[&](const std::string& id) {
+        return controls.contains(id)?static_cast<QCheckBox*>(controls.at(id))->isChecked():std::get<bool>(baseline.at(id));
+    };
+    for (const auto& field:schema) if (!field.enabled_by.empty() && controls.contains(field.id)) {
+        bool active;
+        if (field.enabled_values.empty()) active=checked(field.enabled_by);
+        else {
+            const auto value=controls.contains(field.enabled_by)?static_cast<ChoiceControl*>(controls.at(field.enabled_by))->value():std::get<std::string>(baseline.at(field.enabled_by));
+            active=std::find(field.enabled_values.begin(),field.enabled_values.end(),value)!=field.enabled_values.end();
+            if(!field.dependent_labels.empty()) {
+                const auto label=field.dependent_labels.find(value);
+                auto* check=static_cast<QCheckBox*>(controls.at(field.id));
+                check->setText(q(label==field.dependent_labels.end()?field.label:label->second));
+                check->setAccessibleName(check->text());
+            }
+        }
+        controls.at(field.id)->setEnabled(!busy && active);
+    }
+    for (const auto& field:schema) if ((field.step!=1 || !field.step_toggle.empty()) && controls.contains(field.id)) {
+        const int step=!field.step_toggle.empty() && checked(field.step_toggle)?field.checked_step:field.step;
+        auto* control=controls.at(field.id); const QSignalBlocker block(control);
+        const int minimum=int((static_cast<long long>(field.minimum)+step-1)/step*step),maximum=field.maximum/step*step;
+        const int value=std::clamp(read_number(control,field)/step*step,minimum,maximum);
+        if (auto* number=qobject_cast<QDoubleSpinBox*>(control)) {
+            const auto divisor=std::pow(10.,field.decimals);
+            number->setRange(minimum/divisor,maximum/divisor); number->setSingleStep(step/divisor);
+        } else {
+            auto* integer=static_cast<QSpinBox*>(control); integer->setRange(minimum,maximum); integer->setSingleStep(step);
+        }
+        set_number(control,value,field);
+    }
+}
+
 }

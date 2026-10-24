@@ -1,6 +1,7 @@
 #pragma once
-#include "core/module_host/module.hpp"
+#include "core/module_host/settings.hpp"
 #include <QWidget>
+#include <functional>
 
 namespace hive {
 class ChoiceControl : public QWidget {
@@ -27,4 +28,10 @@ CollectionEditor* collection_control(const std::vector<std::string>& choices,con
 ChoiceControl* choice_control(const extensions::Setting& field,const std::string& selected,bool compact=false);
 QWidget* inline_selection(const extensions::Setting& field,const SettingSelection& selected,bool compact,unsigned columns=0);
 QWidget* selection_control(const std::vector<std::string>& choices,const SettingSelection& selected,bool ordered);
+// Schema/value conversion is shared by initial display, defaults, and saved settings.
+extensions::Value read_setting_value(QWidget* control,const extensions::Setting& field);
+void write_setting_value(QWidget* control,const extensions::Setting& field,const extensions::Value& value);
+void update_setting_conditions(std::span<const extensions::Setting> schema,const std::map<std::string,QWidget*>& controls,
+    const extensions::Settings& baseline,bool busy);
+
 }
