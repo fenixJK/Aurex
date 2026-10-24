@@ -164,11 +164,7 @@ void Observer::capture() {
                     alive=health; alive.value=!health.value;
                 }
                 if (controls.size()>=2) shift_lock=read_shift_lock(frame,context.generation);
-                for (const auto& control:controls) if (control.selected==true)
-                    open_menu={Knowledge::present,control.center(),frame.captured,frame.window,context.generation};
-                if (open_menu.knowledge==Knowledge::unknown && controls.size()==3
-                    && std::all_of(controls.begin(),controls.end(),[](const auto& control) { return control.selected==false; }))
-                    open_menu={Knowledge::absent,{},frame.captured,frame.window,context.generation};
+                open_menu=features->open_menu;
             }
             result=std::make_shared<const Frame>(std::move(frame));
         } catch (const std::exception& e) { error=std::string(e.what()).substr(0,4096); if (error.empty()) error="Could not capture game window"; }

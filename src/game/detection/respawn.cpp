@@ -39,6 +39,48 @@ Observation<bool> read_empty_health_bar(const Frame& frame,std::uint64_t generat
     }
     return result;
 }
+Observation<RespawnView> read_respawn_menu(const Frame& f,std::uint64_t generation) {
+    Observation<RespawnView> result{Knowledge::unknown,{},f.captured,f.window,generation};
+    if (!f.valid() || !f.window.id || !generation) return result;
+    // The HUD can remain readable behind Roblox's translucent menu.
+    // Resolve its controls before accepting the underlying game view.
+    static constexpr std::array<std::string_view,7> controls{"Reset","Respawn","Cancel","Don't Respawn","Reset Character","Resume","Leave"};
+    const auto labels=fixed_ui_labels(f,{0,.2,1,.8},controls);
+    const TextLine *reset=nullptr,*cancel=nullptr,*leave=nullptr,*resume=nullptr;
+    for (const auto& label:labels) {
+        const TextLine** target=label.text=="Cancel" || label.text=="Don't Respawn"?&cancel:
+            label.text=="Leave"?&leave:label.text=="Resume"?&resume:&reset;
+        if (*target) return result;
+        *target=&label;
+    }
+    auto aligned=[](const Rect& a,const Rect& b) {
+        return std::abs(a.y+a.height/2-b.y-b.height/2)<std::max(a.height,b.height)*.6;
+    };
+    if (reset && cancel) {
+        const auto a=reset->pixels,b=cancel->pixels;
+        if (aligned(a,b) && std::abs(a.x-b.x)>std::max(a.width,b.width)) {
+            result.knowledge=Knowledge::present;
+            result.value={RespawnScreen::confirmation,Point{(a.x+a.width/2)/f.width,(a.y+a.height/2)/f.height}};
+        }
+        return result;
+    }
+    if (reset && leave) {
+        const auto a=reset->pixels,b=leave->pixels;
+        const double height=std::max(a.height,b.height);
+        const bool horizontal=aligned(a,b) && b.x<a.x
+            && (!resume || (aligned(a,resume->pixels) && a.x<resume->pixels.x));
+        // Roblox also places these shortcuts in a vertical sidebar.
+        const bool vertical=std::abs(a.x-b.x)<=height*1.5 && a.x+a.width<f.width*.5
+            && b.y-a.y>=height && b.y-a.y<=height*6;
+        if (a.y>f.height*.6 && (horizontal || vertical)) {
+            result.knowledge=Knowledge::present;
+            result.value={RespawnScreen::menu,{}};
+            return result;
+        }
+    }
+    result.knowledge=Knowledge::absent;
+    return result;
+}
 namespace {
 struct Packet final : Detection { Observation<RespawnView> view; };
 bool visible_game(const DetectionInput& input) {
@@ -55,42 +97,8 @@ public:
         auto packet=std::make_shared<Packet>();
         packet->view={Knowledge::unknown,{},f.captured,f.window,input.generation};
         const auto health=read_empty_health_bar(f,input.generation);
-        // The HUD can remain readable behind Roblox's translucent menu.
-        // Resolve its controls before accepting the underlying game view.
-        static constexpr std::array<std::string_view,7> controls{"Reset","Respawn","Cancel","Don't Respawn","Reset Character","Resume","Leave"};
-        const auto labels=fixed_ui_labels(f,{0,.2,1,.8},controls);
-        const TextLine *reset=nullptr,*cancel=nullptr,*leave=nullptr,*resume=nullptr;
-        for (const auto& label:labels) {
-            const TextLine** target=label.text=="Cancel" || label.text=="Don't Respawn"?&cancel:
-                label.text=="Leave"?&leave:label.text=="Resume"?&resume:&reset;
-            if (*target) return packet;
-            *target=&label;
-        }
-        auto aligned=[](const Rect& a,const Rect& b) {
-            return std::abs(a.y+a.height/2-b.y-b.height/2)<std::max(a.height,b.height)*.6;
-        };
-        if (reset && cancel) {
-            const auto a=reset->pixels,b=cancel->pixels;
-            if (aligned(a,b) && std::abs(a.x-b.x)>std::max(a.width,b.width)) {
-                packet->view.knowledge=Knowledge::present;
-                packet->view.value={RespawnScreen::confirmation,Point{(a.x+a.width/2)/f.width,(a.y+a.height/2)/f.height}};
-            }
-            return packet;
-        }
-        if (reset && leave) {
-            const auto a=reset->pixels,b=leave->pixels;
-            const double height=std::max(a.height,b.height);
-            const bool horizontal=aligned(a,b) && b.x<a.x
-                && (!resume || (aligned(a,resume->pixels) && a.x<resume->pixels.x));
-            // Roblox also places these shortcuts in a vertical sidebar.
-            const bool vertical=std::abs(a.x-b.x)<=height*1.5 && a.x+a.width<f.width*.5
-                && b.y-a.y>=height && b.y-a.y<=height*6;
-            if (a.y>f.height*.6 && (horizontal || vertical)) {
-                packet->view.knowledge=Knowledge::present;
-                packet->view.value={RespawnScreen::menu,{}};
-                return packet;
-            }
-        }
+        const auto menu=read_respawn_menu(f,input.generation);
+        if (menu.knowledge!=Knowledge::absent) { packet->view=menu; return packet; }
         if (visible_game(input)) {
             packet->view.knowledge=Knowledge::present;
             packet->view.value={health.value?RespawnScreen::respawning:RespawnScreen::game,{}};

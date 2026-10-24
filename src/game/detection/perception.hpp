@@ -6,6 +6,7 @@ namespace hive::game {
 struct DetectionInput;
 struct HudFeatures {
     std::vector<MenuControl> menus;
+    Reading<Point> open_menu;
     Reading<double> backpack;
     Reading<InteractionBanner> interaction_banner;
     std::optional<std::array<Rect,2>> resources;

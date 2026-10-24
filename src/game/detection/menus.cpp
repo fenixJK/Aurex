@@ -1,5 +1,6 @@
 #include "menus.hpp"
 #include "perception.hpp"
+#include "respawn.hpp"
 #include "menu_icons.hpp"
 #include <algorithm>
 #include <array>
@@ -22,6 +23,54 @@ std::optional<int> icon_brightness(std::vector<int>& light) {
     return light[light.size()/2];
 }
 struct Candidate { MenuControl control; std::optional<int> brightness; };
+bool sidebar_visible(const Frame& frame) {
+    // Scroll panels share a straight, solid rail beside their content. Measure
+    // that rail rather than requiring readable text or a visible toggle icon.
+    const int step=std::max(1,frame.width/640);
+    const auto color=[&](int x,int y) {
+        const auto i=(std::size_t(y)*frame.width+x)*4;
+        return std::array<int,3>{frame.rgba[i],frame.rgba[i+1],frame.rgba[i+2]};
+    };
+    const auto rail=[](const auto& c) {
+        return c[0]>=50 && c[1]>=80 && c[2]>=80 && c[1]>=c[0]*.95 && c[2]>=c[0]*.95
+            && *std::max_element(c.begin(),c.end())-*std::min_element(c.begin(),c.end())<=100;
+    };
+    // Keep every column: the rail can be a single pixel after UI scaling.
+    for (int x=int(frame.width*.08);x<frame.width*.45;++x) {
+        int start=0,missed=0,matched=0; auto reference=color(x,0);
+        for (int y=step;y<frame.height;y+=step) {
+            const auto c=color(x,y);
+            if (!rail(c) || !rail(reference) || std::abs(c[0]-reference[0])>18
+                || std::abs(c[1]-reference[1])>18 || std::abs(c[2]-reference[2])>18) {
+                missed+=step;
+                if (missed>frame.height*.015) { start=y; reference=c; missed=matched=0; }
+            } else {
+                missed=0; matched+=step;
+                if (start<frame.height*.4 && y>frame.height*.65 && y-start>frame.height*.45
+                    && matched>=(y-start)*.8) return true;
+            }
+        }
+    }
+    return false;
+}
+}
+Reading<Point> read_open_menu(const Frame& frame,const HudFeatures& hud,std::uint64_t generation) {
+    Reading<Point> result{Knowledge::unknown,{},frame.captured,frame.window,generation};
+    if (!frame.valid() || !frame.window.id || !generation) return result;
+    // Seeing the game underneath Roblox's own menu does not make its controls
+    // available. Use the reset workflow's reader for this distinction too.
+    if (game_hud_visible(hud) && read_respawn_menu(frame,generation).knowledge!=Knowledge::absent) return result;
+    for (const auto& control:hud.menus) if (control.selected==true) {
+        if (result.knowledge==Knowledge::present) return {Knowledge::unknown,{},frame.captured,frame.window,generation};
+        result.knowledge=Knowledge::present; result.value=control.center();
+    }
+    if (result.knowledge==Knowledge::present) return result;
+    // A readable game with no sidebar does not require all three icons to be
+    // visible. A panel with an obscured toggle stays unknown, never closed.
+    const bool controls_closed=hud.menus.size()==3 && std::all_of(hud.menus.begin(),hud.menus.end(),
+        [](const auto& control) { return control.selected==false; });
+    if (controls_closed || (game_hud_visible(hud) && !sidebar_visible(frame))) result.knowledge=Knowledge::absent;
+    return result;
 }
 Point pointer_rest(const ObservationContext& c,const State& state) {
     Point rest{350/c.window.bounds.width,150/c.window.bounds.height};

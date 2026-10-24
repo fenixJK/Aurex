@@ -9,6 +9,7 @@ public:
     virtual ~RespawnSource()=default;
     virtual Observation<RespawnView> read(const ObservationContext&) const=0;
 };
+Observation<RespawnView> read_respawn_menu(const Frame& frame,std::uint64_t generation);
 Observation<bool> read_empty_health_bar(const Frame& frame,std::uint64_t generation);
 std::shared_ptr<const Detector> respawn_detector();
 std::shared_ptr<const RespawnSource> respawn_source(std::shared_ptr<const DetectionSource> source);

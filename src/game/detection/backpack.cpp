@@ -8,8 +8,6 @@ namespace {
 struct BackpackBar { Rect pixels; std::optional<double> percent; };
 std::optional<BackpackBar> backpack_bar(const Frame& frame,bool region_only=false) {
     if (!frame.valid()) return {};
-    const double scale=frame.width/frame.window.bounds.width;
-    if (scale<.5 || scale>4) return {};
     const auto pixel=[&](int x,int y) {
         const auto i=(std::size_t(y)*frame.width+x)*4;
         return std::array<int,4>{frame.rgba[i],frame.rgba[i+1],frame.rgba[i+2],frame.rgba[i+3]};
@@ -24,31 +22,51 @@ std::optional<BackpackBar> backpack_bar(const Frame& frame,bool region_only=fals
     };
     const auto border=[](const auto& c) {
         const auto [lo,hi]=std::minmax({c[0],c[1],c[2]});
-        return c[3]>=240 && lo>=180 && hi-lo<=65;
+        return c[3]>=240 && lo>=165 && c[0]+c[1]+c[2]>=615 && hi-lo<=100;
     };
     const auto interior=[&](int x,int y) { const auto c=pixel(x,y); return !border(c) && (filled(c) || empty(c)); };
-    const int margin=std::max(1,int(std::round(scale*2)));
-    const int first=int(frame.width*.5+35*scale),last=std::min(frame.width-margin-1,int(frame.width*.5+330*scale));
-    const int limit=std::min(frame.height-margin-1,int(140*scale));
+    // Roblox's UI scale is independent of window DPI. Find the bar from its
+    // proportions and centered layout, then measure its border and fill.
+    const int first=frame.width/2,last=frame.width*9/10;
+    const int limit=frame.height/5;
     std::optional<BackpackBar> outlined_bar;
-    for (int y=margin;y<limit;++y) for (int x=first;x<last;) {
+    for (int y=1;y<limit;++y) for (int x=first;x<last;) {
         if (!interior(x,y)) { ++x; continue; }
         const int left=x++;
         while (x<last && interior(x,y)) ++x;
         const int right=x,width=right-left;
-        if (width<190*scale || width>250*scale || left<frame.width*.5+45*scale || left>frame.width*.5+85*scale) continue;
+        if (width<frame.width*.04 || width>frame.width*.3
+            || left-first<width*.18 || left-first>width*.4) continue;
+        const double scale=width/220.;
+        const int margin=std::max(1,int(std::round(scale*2)));
         int top=y,bottom=y+1;
-        const int inset=std::max(1,int(scale));
-        while (top>margin && y-top<40*scale && interior(left+inset,top-1) && interior(right-1,top-1)) --top;
-        while (bottom<limit && bottom-top<40*scale && interior(left+inset,bottom) && interior(right-1,bottom)) ++bottom;
+        const int inset=std::max(2,int(std::round(width*.025)));
+        // Read the right edge away from the left-aligned pollen text.
+        while (top>margin && y-top<40*scale && interior(right-inset,top-1)) --top;
+        while (bottom<limit && bottom-top<40*scale && interior(right-inset,bottom)) ++bottom;
         const int height=bottom-top;
         if (height<24*scale || height>36*scale) continue;
-        bool outlined=border(pixel(left-margin,(top+bottom)/2)) && border(pixel(right+margin-1,(top+bottom)/2));
+        auto edge=[&](int x,int y,bool horizontal) {
+            for (int offset=-margin;offset<=margin;++offset) {
+                const int px=x+(horizontal?offset:0),py=y+(horizontal?0:offset);
+                if (px>=0 && py>=0 && px<frame.width && py<frame.height && border(pixel(px,py))) return true;
+            }
+            return false;
+        };
+        bool outlined=edge(left-margin,(top+bottom)/2,true) && edge(right+margin-1,(top+bottom)/2,true);
         for (int part=0;part<5 && outlined;++part) {
             const int sample=left+inset+(width-2*inset-1)*part/4;
-            outlined=border(pixel(sample,top-margin)) && border(pixel(sample,bottom+margin-1));
+            outlined=edge(sample,top-margin,false) && edge(sample,bottom+margin-1,false);
         }
-        if (!outlined) continue;
+        // The matching honey box on the other side of the center distinguishes
+        // the HUD pair from a similarly colored rectangle in the game world.
+        const double half_width=right-frame.width/2.+14*scale;
+        unsigned honey_top=0,honey_bottom=0;
+        for (double part:{.25,.5,.75}) if (outlined) {
+            const int sample=int(frame.width/2.-half_width*part);
+            honey_top+=edge(sample,top-margin,false); honey_bottom+=edge(sample,bottom+margin-1,false);
+        }
+        if (!outlined || honey_top<2 || honey_bottom<2) continue;
         const Rect region{double(left),double(top),double(width),double(height)};
         if (region_only) return BackpackBar{region,0};
         unsigned fill{},valid{},gaps{};
@@ -70,7 +88,7 @@ std::optional<BackpackBar> backpack_bar(const Frame& frame,bool region_only=fals
     return outlined_bar;
 }
 std::optional<std::array<Rect,2>> resource_regions(const Frame& frame,const Rect& bar) {
-    const double scale=frame.width/frame.window.bounds.width,center=frame.width/2.;
+    const double scale=bar.width/220.,center=frame.width/2.;
     const double width=bar.x+bar.width-center+14*scale;
     const double top=bar.y-5*scale,height=bar.height+10*scale;
     const Rect honey{center-width-6*scale,top,width,height},backpack{center,top,width,height};
@@ -110,10 +128,11 @@ HudFeatures HudInspector::inspect(const Frame& frame,std::uint64_t generation) {
         result.resources=resource_regions(frame,bar->pixels);
         if (bar->percent) { result.backpack.knowledge=Knowledge::present; result.backpack.value=*bar->percent; }
     }
+    result.open_menu=read_open_menu(frame,result,generation);
     return result;
 }
 bool game_hud_visible(const HudFeatures& hud) {
-    return hud.backpack.knowledge==Knowledge::present || std::count_if(hud.menus.begin(),hud.menus.end(),
+    return hud.resources.has_value() || hud.backpack.knowledge==Knowledge::present || std::count_if(hud.menus.begin(),hud.menus.end(),
         [](const auto& menu) { return menu.selected.has_value(); })>=2;
 }
 State read_game_text(const Frame& frame,const std::vector<TextLine>& lines,std::uint64_t generation) {

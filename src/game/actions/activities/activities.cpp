@@ -163,8 +163,8 @@ bool Runner::prepare_menu(const ObservationContext& c,const game::State& s) {
     // will reach the game. Wait for the same shared menu evidence used above.
     if (camera && !fresh && !closed) {
         if (!menu_wait_started_) menu_wait_started_=c.now;
-        if (c.now-*menu_wait_started_>=Time(5000)) throw ObservationUnavailable("Game menu state could not be read before adjusting the camera");
-        progress_.message="Checking game menu before adjusting camera";
+        if (c.now-*menu_wait_started_>=Time(5000)) throw ObservationUnavailable("Could not confirm the sidebar is closed before adjusting the camera");
+        progress_.message="Checking sidebar before adjusting camera";
         return true;
     }
     menu_wait_started_.reset();
