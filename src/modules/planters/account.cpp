@@ -4,9 +4,33 @@
 namespace hive::features::planters {
 Account::Account(std::shared_ptr<Store> store):store_(std::move(store)) {
     if (!store_) throw std::invalid_argument("Planters needs an account store");
+    publish(saved());
 }
 std::vector<Plant> Account::plants() const { std::lock_guard lock(snapshot_mutex_); return plants_; }
 MaterialHistory Account::materials() const { std::lock_guard lock(snapshot_mutex_); return materials_; }
+std::size_t Account::placement_capacity(std::size_t configured) const {
+    std::lock_guard lock(snapshot_mutex_); return planters::placement_capacity(placement_limits_,configured);
+}
+void Account::defer_placements(WallTime now) {
+    std::lock_guard lock(snapshot_mutex_); placement_retry_=now+std::chrono::minutes(5);
+}
+std::optional<WallTime> Account::placement_retry() const {
+    std::lock_guard lock(snapshot_mutex_); return placement_retry_;
+}
+bool Account::resume_placements(WallTime now) {
+    std::lock_guard lock(snapshot_mutex_);
+    if (!placement_retry_ || now<*placement_retry_) return false;
+    placement_retry_.reset(); return true;
+}
+void Account::retry_placements() {
+    if (busy_.exchange(true)) throw std::runtime_error("Planters is using these timers. Try again after its current run.");
+    try {
+        auto ledger=saved(); ledger.placement_limits={}; validate(ledger); store_->save(ledger);
+        publish(ledger); ++edit_revision_;
+        std::lock_guard lock(snapshot_mutex_); placement_retry_.reset();
+    } catch (...) { busy_=false; throw; }
+    busy_=false;
+}
 Ledger Account::saved() const { return store_->load().value_or(Ledger{}); }
 void Account::apply_offline(Controller& controller) {
     std::lock_guard lock(snapshot_mutex_);
@@ -85,7 +109,13 @@ void Account::set_saved(std::optional<std::uint64_t> id,const Stats& stats,doubl
                 plant.due=placed+Time(static_cast<Time::rep>(std::ceil(harvest_fraction(*found)*duration.count())));
             }
             *found=plant;
-        } else { ledger.plants.push_back(plant); ++ledger.next_ticket; }
+        } else {
+            ledger.plants.push_back(plant); ++ledger.next_ticket;
+            // Adding a previously untracked planter turns one reserved slot into
+            // a managed slot; collecting it later can safely free that slot.
+            if (ledger.placement_limits.capacity && ++*ledger.placement_limits.capacity>=3) ledger.placement_limits.capacity.reset();
+        }
+        ledger.placement_limits.occupied_fields.erase(stats.field);
         validate(ledger); store_->save(ledger);
         publish(ledger);
         ++edit_revision_;
@@ -93,7 +123,7 @@ void Account::set_saved(std::optional<std::uint64_t> id,const Stats& stats,doubl
     busy_=false;
 }
 void Account::publish(const Ledger& ledger) {
-    std::lock_guard lock(snapshot_mutex_); plants_=ledger.plants; materials_=ledger.materials;
+    std::lock_guard lock(snapshot_mutex_); plants_=ledger.plants; materials_=ledger.materials; placement_limits_=ledger.placement_limits;
 }
 void Account::prepare_groups(std::vector<Group>& groups,const std::optional<Preferences>& preferences) {
     std::lock_guard lock(snapshot_mutex_);

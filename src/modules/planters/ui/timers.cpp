@@ -39,19 +39,22 @@ class Timers final : public QWidget {
     std::shared_ptr<Account> account_;
     QTableWidget* table_{};
     QLabel* note_{};
-    QPushButton *add_{},*edit_{},*remove_{};
+    QPushButton *add_{},*edit_{},*remove_{},*retry_{};
     std::vector<Plant> plants_;
-    bool editable_{};
+    bool editable_{},limited_{};
     void show_error(const std::exception& error) { QMessageBox::warning(this,"Planter timers",error.what()); }
     void update_controls() {
         const bool editable=editable_ && !account_->busy();
         const bool selected=table_->currentRow()>=0 && table_->currentRow()<table_->rowCount();
         add_->setEnabled(editable && plants_.size()<3);
         edit_->setEnabled(editable && selected); remove_->setEnabled(editable && selected);
+        retry_->setEnabled(editable && limited_);
     }
     void refresh() {
         try {
             const auto ledger=account_->saved(); plants_=ledger.plants;
+            const auto retry=account_->placement_retry();
+            limited_=ledger.placement_limits.capacity.has_value() || !ledger.placement_limits.occupied_fields.empty() || (retry && now()<*retry);
             if (ledger.pending && ledger.pending->operation==Operation::place) plants_.push_back(ledger.pending->plant);
             const auto selected=table_->currentRow()>=0 && table_->currentRow()<table_->rowCount()
                 ?table_->item(table_->currentRow(),0)->data(Qt::UserRole).toULongLong():0;
@@ -73,11 +76,19 @@ class Timers final : public QWidget {
                 if (plant.id==selected) table_->selectRow(row);
             }
             editable_=true; update_controls();
-            note_->setText(plants_.empty()?"No saved planters. Placed planters appear here, or use Add for one you placed yourself.":account_->busy()?"Planters is active. Editing unlocks when its current run finishes.":
+            note_->setText(account_->busy()?"Planters is active. Editing unlocks when its current run finishes.":retry && current<*retry?
+                QString("Placement retry in %1. Capacity is unchanged; known harvests continue.").arg(remaining(*retry,current)):
+                limited_?QString("At most %1 slots can be managed after a confirmed limit or occupied field; your Slots setting still applies. Known planters continue. Add missing timers, or use Retry placements after freeing a slot.")
+                    .arg(placement_capacity(ledger.placement_limits,3)):
+                plants_.empty()?"No saved planters. Placed planters appear here, or use Add for one you placed yourself.":
                 std::any_of(plants_.begin(),plants_.end(),[](const Plant& plant) { return plant.missing; })?"Not found: its slot stays reserved until you correct or remove the timer.":
                 "Saved placements set the timers. Correct a timer after a manual change.");
+            if (!ledger.placement_limits.occupied_fields.empty()) {
+                QStringList fields; for (const auto& field:ledger.placement_limits.occupied_fields) fields.push_back(QString::fromStdString(field));
+                note_->setText(note_->text()+" Occupied fields: "+fields.join(", ")+".");
+            }
         } catch (const std::exception& error) {
-            editable_=false; note_->setText(error.what()); add_->setEnabled(false); edit_->setEnabled(false); remove_->setEnabled(false);
+            editable_=false; note_->setText(error.what()); add_->setEnabled(false); edit_->setEnabled(false); remove_->setEnabled(false); retry_->setEnabled(false);
         }
     }
     void edit(std::optional<std::uint64_t> id) {
@@ -132,7 +143,11 @@ public:
         note_=new QLabel; note_->setWordWrap(true); layout->addWidget(note_);
         auto controls=new QHBoxLayout; layout->addLayout(controls);
         add_=new QPushButton("Add"); edit_=new QPushButton("Edit"); remove_=new QPushButton("Collected");
-        controls->addWidget(add_); controls->addWidget(edit_); controls->addWidget(remove_); controls->addStretch();
+        retry_=new QPushButton("Retry placements");
+        controls->addWidget(add_); controls->addWidget(edit_); controls->addWidget(remove_); controls->addWidget(retry_); controls->addStretch();
+        connect(retry_,&QPushButton::clicked,this,[this] {
+            try { account_->retry_placements(); refresh(); } catch (const std::exception& error) { show_error(error); }
+        });
         connect(add_,&QPushButton::clicked,this,[this] { edit({}); });
         connect(edit_,&QPushButton::clicked,this,[this] {
             const auto row=table_->currentRow(); if (row>=0 && row<static_cast<int>(plants_.size())) edit(plants_[row].id);

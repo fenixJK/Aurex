@@ -155,6 +155,16 @@ public:
         begin(Stage::recover,view);
         return child_step(view);
     }
+    Step prepare_owned(const View& view,const Observation<bool>& owned) {
+        const auto result=options_.result?options_.result->read():std::nullopt;
+        const unsigned slot=result && result->claimed_slot?*result->claimed_slot:options_.existing_slot;
+        if (!slot || !options_.result)
+            throw std::runtime_error("Select your already claimed hive in Setup, or start at spawn to claim one automatically");
+        // Carry the observed ownership into preparation rather than waiting for
+        // the same prompt from another source. Preserve its capture timestamp.
+        options_.result->claimed(slot,{owned.window,owned.generation,owned.captured});
+        begin(Stage::prepare,view); return child_step(view);
+    }
     Step locate_unknown(const View& view) {
         // World colors can resemble spawn elsewhere in the map. Only survey
         // from an unlocated client after resetting; a fresh join bypasses this.
@@ -222,13 +232,7 @@ public:
             const int candidate=owned.value?1:claim.value?2:0;
             if (candidate==2 && options_.result) options_.result->reset();
             if (candidate==1) {
-                auto result=options_.result?options_.result->read():std::nullopt;
-                if (options_.existing_slot && options_.result && (!result || !result->claimed_slot)) {
-                    options_.result->claimed(options_.existing_slot,c); result=options_.result->read();
-                }
-                if (!result || !result->claimed_slot)
-                    throw std::runtime_error("Select your already claimed hive in Setup, or start at spawn to claim one automatically");
-                begin(Stage::prepare,view); return child_step(view);
+                return prepare_owned(view,owned);
             }
             if (recovered_ && !candidate)
                 return wait_for_prompt();
@@ -242,13 +246,7 @@ public:
             const auto claim=game::read_prompt_landmark(c,text,game::hive_claim_prompt());
             // Camera turns invalidate the view reference, not a fresh proximity prompt.
             if (owned.has_value(c,Time(2000)) && owned.value && !claim.value) {
-                auto result=options_.result?options_.result->read():std::nullopt;
-                if (options_.existing_slot && options_.result && (!result || !result->claimed_slot)) {
-                    options_.result->claimed(options_.existing_slot,c); result=options_.result->read();
-                }
-                if (!result || !result->claimed_slot)
-                    throw std::runtime_error("Select your already claimed hive in Setup, or start at spawn to claim one automatically");
-                begin(Stage::prepare,view); return child_step(view);
+                return prepare_owned(view,owned);
             }
         }
         if (c.now-minimum_>=Time(5000)) return recover(view);

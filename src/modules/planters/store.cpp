@@ -97,15 +97,25 @@ public:
         QJsonParseError error; const auto document=QJsonDocument::fromJson(bytes,&error);
         if (error.error!=QJsonParseError::NoError || !document.isObject()) throw std::runtime_error("Invalid planter state document");
         const auto root=document.object();
-        if (root["version"].toInt()==3) keys(root,{"version","nextTicket","plants","pending","calibration","travel"});
+        if (root["version"].toInt()==10) keys(root,{"version","nextTicket","plants","pending","travel","fields","materials","placementLimits"});
+        else if (root["version"].toInt()==3) keys(root,{"version","nextTicket","plants","pending","calibration","travel"});
         else if (root["version"].toInt()>=6 && root["version"].toInt()<=9) keys(root,{"version","nextTicket","plants","pending","travel","fields","materials"});
         else if (root["version"].toInt()==5) keys(root,{"version","nextTicket","plants","pending","travel","fields"});
         else if (root["version"].toInt()==4) keys(root,{"version","nextTicket","plants","pending","travel"});
         else keys(root,{"version","nextTicket","plants","pending"});
         const auto version=number(root["version"]);
-        if ((version!=1 && version!=2 && version!=3 && version!=4 && version!=5 && version!=6 && version!=7 && version!=8 && version!=9) || !root["plants"].isArray() || root["plants"].toArray().size()>3)
+        if (version<1 || version>10 || version!=std::floor(version) || !root["plants"].isArray() || root["plants"].toArray().size()>3)
             throw std::runtime_error("Unsupported planter state version or count");
         Ledger result; result.next_ticket=integer<std::uint64_t>(root["nextTicket"]);
+        if (version>=10) {
+            const auto limits=object(root["placementLimits"]); keys(limits,{"capacity","occupiedFields"});
+            if (!limits["capacity"].isNull()) result.placement_limits.capacity=enumeration(limits["capacity"],3);
+            if (!limits["occupiedFields"].isArray() || limits["occupiedFields"].toArray().size()>3)
+                throw std::invalid_argument("Invalid occupied planter fields");
+            for (const auto& field:limits["occupiedFields"].toArray())
+                if (!result.placement_limits.occupied_fields.insert(text(field).toStdString()).second)
+                    throw std::invalid_argument("Duplicate occupied planter field");
+        }
         for (const auto& value : root["plants"].toArray()) result.plants.push_back(decode(value,static_cast<int>(version)));
         if (!root["pending"].isNull()) {
             const auto pending=object(root["pending"]); keys(pending,{"ticket","operation","plant"});
@@ -146,8 +156,12 @@ public:
         for (const auto& [field,used]:ledger.fields) fields[QString::fromStdString(field)]=QString::number(used.time_since_epoch().count());
         QJsonObject materials;
         for (const auto& [id,progress]:ledger.materials) materials[QString::fromStdString(id)]=QJsonObject{{"step",QString::number(progress.step)},{"ready",QString::number(progress.ready.count())}};
-        const auto bytes=QJsonDocument(QJsonObject{{"version",9},{"nextTicket",QString::number(ledger.next_ticket)},
-            {"plants",plants},{"pending",pending},{"travel",travel},{"fields",fields},{"materials",materials}}).toJson(QJsonDocument::Compact);
+        QJsonArray occupied;
+        for (const auto& field:ledger.placement_limits.occupied_fields) occupied.append(QString::fromStdString(field));
+        const QJsonObject limits{{"capacity",ledger.placement_limits.capacity?QJsonValue(static_cast<int>(*ledger.placement_limits.capacity)):QJsonValue(QJsonValue::Null)},
+            {"occupiedFields",occupied}};
+        const auto bytes=QJsonDocument(QJsonObject{{"version",10},{"nextTicket",QString::number(ledger.next_ticket)},
+            {"plants",plants},{"pending",pending},{"travel",travel},{"fields",fields},{"materials",materials},{"placementLimits",limits}}).toJson(QJsonDocument::Compact);
         if (bytes.size()>65536 || QFileInfo(path_).isSymLink() || !QDir().mkpath(QFileInfo(path_).absolutePath()))
             throw std::runtime_error("Cannot prepare planter state file");
         QSaveFile file(path_); file.setDirectWriteFallback(false);

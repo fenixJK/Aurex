@@ -17,6 +17,8 @@ class Account {
     mutable std::mutex snapshot_mutex_;
     std::vector<Plant> plants_;
     MaterialHistory materials_;
+    PlacementLimits placement_limits_;
+    std::optional<WallTime> placement_retry_;
     std::optional<WallTime> offline_since_;
     std::vector<std::pair<WallTime,WallTime>> offline_;
     void apply_offline(Controller& controller);
@@ -26,6 +28,11 @@ public:
     explicit Account(std::shared_ptr<Store> store);
     std::vector<Plant> plants() const;
     MaterialHistory materials() const;
+    std::size_t placement_capacity(std::size_t configured) const;
+    void retry_placements();
+    void defer_placements(WallTime now);
+    std::optional<WallTime> placement_retry() const;
+    bool resume_placements(WallTime now);
     Ledger saved() const;
     PlanningSnapshot forecast_state(std::vector<Group> groups,const Preferences& preferences,WallTime now,std::size_t capacity) const;
     bool busy() const { return busy_.load(); }

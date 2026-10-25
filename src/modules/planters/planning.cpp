@@ -80,9 +80,10 @@ PlanningSnapshot planning_snapshot(const Ledger& ledger,std::vector<Group> group
     validate(ledger);
     if (ledger.pending) throw std::logic_error("Resolve the pending planter action before planning another");
     if (wall.time_since_epoch()<Time::zero()) throw std::invalid_argument("Invalid planter planning wall clock");
-    PlanningSnapshot snapshot{std::move(groups),{},capacity,session_seconds};
+    PlanningSnapshot snapshot{std::move(groups),{},placement_capacity(ledger.placement_limits,capacity),session_seconds};
     snapshot.materials.history=ledger.materials; snapshot.materials.now=wall.time_since_epoch();
     for (auto& group:snapshot.groups) {
+        std::erase_if(group.candidates,[&](const Candidate& candidate) { return ledger.placement_limits.occupied_fields.contains(candidate.stats.field); });
         Time latest{};
         for (auto& candidate:group.candidates) {
             const auto used=ledger.fields.find(candidate.stats.field);

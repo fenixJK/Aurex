@@ -70,6 +70,11 @@ std::string identity(const Stats& stats) {
     if (!name(stats.planter) || !name(stats.field)) throw std::invalid_argument("Invalid planter identity");
     return stats.planter+"/"+stats.field;
 }
+std::size_t placement_capacity(const PlacementLimits& limits,std::size_t configured) {
+    if (configured>3) throw std::invalid_argument("Invalid planter capacity");
+    const auto available=configured-std::min(configured,limits.occupied_fields.size());
+    return std::min(available,limits.capacity.value_or(configured));
+}
 void validate(const Ledger& ledger) {
     validate_materials(ledger.materials);
     if (!ledger.next_ticket || ledger.plants.size()>3) throw std::invalid_argument("Invalid planter ledger");
@@ -79,6 +84,10 @@ void validate(const Ledger& ledger) {
         if (plant.id>=ledger.next_ticket || !ids.insert(plant.id).second || !types.insert(plant.stats.planter).second || !fields.insert(plant.stats.field).second)
             throw std::invalid_argument("Conflicting saved planters");
     }
+    if (ledger.placement_limits.capacity.value_or(0)>3 || ledger.placement_limits.occupied_fields.size()>3)
+        throw std::invalid_argument("Invalid planter placement limits");
+    for (const auto& field:ledger.placement_limits.occupied_fields)
+        if (!name(field) || fields.contains(field)) throw std::invalid_argument("Conflicting occupied planter field");
     if (ledger.travel.size()>17) throw std::invalid_argument("Too many planter travel records");
     for (const auto& [field,samples]:ledger.travel) {
         if (!name(field) || samples.empty() || samples.size()>3) throw std::invalid_argument("Invalid planter travel history");
@@ -151,7 +160,8 @@ std::uint64_t Controller::place(const Assignment& a,const ObservationContext& c,
         throw std::runtime_error("Placement observation is from another field");
     auto occupied=observed?placements.value.identities:std::set<std::string>{};
     for (const auto& p : ledger_.plants) occupied.insert(identity(p.stats));
-    if (occupied.size()>=capacity_ || ledger_.next_ticket==std::numeric_limits<std::uint64_t>::max())
+    if (occupied.size()>=placement_capacity(ledger_.placement_limits,capacity_) || ledger_.placement_limits.occupied_fields.contains(a.stats.field)
+        || ledger_.next_ticket==std::numeric_limits<std::uint64_t>::max())
         throw std::runtime_error("No planter capacity or action tickets available");
     if (!std::isfinite(a.growth) || a.growth<1 || a.growth>86400 || (a.phase==Phase::build && a.growth<std::round(a.stats.full_seconds)))
         throw std::invalid_argument("Invalid placement growth intent");
@@ -238,6 +248,19 @@ void Controller::reserve_unconfirmed() {
     commit(std::move(next)); interrupt();
 }
 void Controller::interrupt() noexcept { transaction_.reset(); confirmed_at_.reset(); }
+void Controller::reject_capacity(std::uint64_t ticket) {
+    if (!ledger_.pending || ledger_.pending->ticket!=ticket || ledger_.pending->operation!=Operation::place)
+        throw std::logic_error("Capacity rejection needs the current placement attempt");
+    auto next=ledger_;
+    next.placement_limits.capacity=std::min(next.plants.size(),next.placement_limits.capacity.value_or(capacity_));
+    next.pending.reset(); commit(std::move(next)); interrupt();
+}
+void Controller::record_occupied(const std::string& field) {
+    if (ledger_.pending) throw std::logic_error("Cannot record an occupied field during an action");
+    if (ledger_.placement_limits.occupied_fields.contains(field)
+        || std::any_of(ledger_.plants.begin(),ledger_.plants.end(),[&](const Plant& plant) { return plant.stats.field==field; })) return;
+    auto next=ledger_; next.placement_limits.occupied_fields.insert(field); commit(std::move(next));
+}
 bool Controller::mark_missing(std::uint64_t id) {
     if (ledger_.pending) throw std::logic_error("Cannot mark a planter missing during an action");
     auto next=ledger_;

@@ -45,6 +45,7 @@ struct Visit {
     Time loot_duration{};
     ProgramFactory approach;
     std::function<Time()> cooldown_after_completion;
+    std::function<bool(const View&)> ready_to_depart;
 };
 struct VisitPlan {
     std::vector<Visit> visits;

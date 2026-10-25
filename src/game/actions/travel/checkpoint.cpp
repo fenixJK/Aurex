@@ -165,9 +165,12 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
             }
             const auto& path=nudging_?plan_.nudge_path:plan_.path;
             if (!path.empty()) {
-                speed_->advance(*distance_,result.finished,result.execution_time);
-                if (plan_.completion==CheckpointCompletion::launch) minimum_=result.finished+Time(1);
-                if (distance_->complete()) { distance_.reset(); if (++index_==path.size()) confirm(result.finished); }
+                if (plan_.completion==CheckpointCompletion::launch) {
+                    if (++index_==path.size()) confirm(result.finished);
+                } else {
+                    speed_->advance(*distance_,result.finished,result.execution_time);
+                    if (distance_->complete()) { distance_.reset(); if (++index_==path.size()) confirm(result.finished); }
+                }
                 continue;
             }
             const auto& actions=nudging_?plan_.nudge:plan_.approach;
@@ -184,7 +187,11 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
             if (c.now>=minimum_) finish(CheckpointStage::completed,"Route movement completed",tasks);
             return;
         }
-        const bool fresh=!motion && detected.usable(c,plan_.observation_age,minimum_) && detected.captured>seen_;
+        const bool observed=!motion && detected.usable(c,plan_.observation_age,minimum_);
+        const bool fresh=observed && detected.captured>seen_;
+        if (launch && !launched_ && stage_==CheckpointStage::moving && !observed && c.now-seen_>plan_.observation_age) {
+            fail(CheckpointFailure::missing,"Transport prompt observations became unavailable"); return;
+        }
         const bool present=fresh && detected.knowledge==Knowledge::present && detected.value;
         if (fresh) seen_=detected.captured;
         if (launch && !launched_ && present && stage_!=CheckpointStage::confirming) {
@@ -236,11 +243,16 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
             const auto& actions=nudging_?plan_.nudge:plan_.approach;
             const auto& path=nudging_?plan_.nudge_path:plan_.path;
             if (!path.empty()) {
-                if (launch && !fresh) return;
                 const auto& leg=path.at(index_);
-                if (!distance_) distance_.emplace(leg.tiles);
-                pending_=tasks.submit(scope_,TaskClass::travel,
-                    {game::movement_slice(leg,distance_->remaining_tiles(),speed_->current())},plan_.timeout-(c.now-started_.now));
+                // Keep walking while observations arrive independently. Paced walking
+                // owns the distance bound; a seen prompt still cancels it immediately.
+                if (launch) pending_=tasks.submit(scope_,TaskClass::travel,
+                    {game::paced_walk(leg,speed_,c)},plan_.timeout-(c.now-started_.now));
+                else {
+                    if (!distance_) distance_.emplace(leg.tiles);
+                    pending_=tasks.submit(scope_,TaskClass::travel,
+                        {game::movement_slice(leg,distance_->remaining_tiles(),speed_->current())},plan_.timeout-(c.now-started_.now));
+                }
             } else if (plan_.continuous) {
                 auto sequence=actions;
                 for (std::size_t i=0;i<sequence.size();++i) {

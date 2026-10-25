@@ -30,6 +30,11 @@ struct Intent {
     Operation operation{};
     Plant plant;
 };
+struct PlacementLimits {
+    std::optional<std::size_t> capacity;
+    std::set<std::string> occupied_fields;
+};
+std::size_t placement_capacity(const PlacementLimits& limits,std::size_t configured);
 struct Ledger {
     std::uint64_t next_ticket{1};
     std::vector<Plant> plants;
@@ -37,6 +42,7 @@ struct Ledger {
     std::map<std::string,std::vector<double>> travel;
     std::map<std::string,WallTime> fields;
     MaterialHistory materials;
+    PlacementLimits placement_limits;
 };
 void validate(const Ledger& ledger);
 bool exclude_offline(Ledger& ledger,WallTime begin,WallTime end);
@@ -60,6 +66,8 @@ public:
     void input_finished(std::uint64_t ticket,const ObservationContext& context);
     void interrupt() noexcept;
     bool mark_missing(std::uint64_t plant);
+    void record_occupied(const std::string& field);
+    void reject_capacity(std::uint64_t ticket);
     void record_travel(const std::string& field,double seconds);
     void exclude_offline(WallTime begin,WallTime end);
     void abandon_unstarted_placement(std::uint64_t ticket,WallTime wall);

@@ -164,6 +164,10 @@ class VisitProgram final : public Program {
                     prepared_=true; phase_=Phase::preparing; stage(VisitStage::preparing);
                     return emit(RunProgram{plan_.setup});
                 }
+                // Arm observations before entering a field: bees can kill a mob
+                // before arrival, so its first defeat must not become the baseline.
+                if (const auto& ready=plan_.visits[index_].ready_to_depart; ready && !ready(view))
+                    return emit(Wait{Time(100),"Preparing activity observations"});
                 arrived_.reset(); availability_since_.reset();
                 group_begin_=index_; group_end_=index_+1; group_loot_.reset();
                 const auto& group=plan_.visits[index_].group;
@@ -323,6 +327,10 @@ private:
     }
 public:
     void observe(const View& view) override {
+        if (phase_==Phase::preparing) {
+            availability_->read(plan_.visits[index_].id,view);
+            return;
+        }
         if (phase_!=Phase::arriving && phase_!=Phase::action) return;
         if (phase_==Phase::action && plan_.visits[index_].action_program
             && std::holds_alternative<UseStation>(plan_.visits[index_].action)) remember_timer(view);

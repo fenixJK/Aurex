@@ -38,6 +38,8 @@ class Execution final : public automation::Program {
     bool deferred_result_{};
     std::optional<bool> learn_travel_;
     bool had_growth_bar_{},harvest_action_{},initialized_{},ready_for_travel_{};
+    bool capacity_armed_{},capacity_rejected_{};
+    Time placement_started_{};
     std::shared_ptr<Observation<workflows::InventoryMatch>> placement_inventory_;
     bool harvest_action() const {
         if (steps_.empty() || steps_.size()>2) return false;
@@ -79,7 +81,9 @@ class Execution final : public automation::Program {
         if (!controller_ || !controller_->ledger().pending) return;
         // Dragging only opens the purchase dialog. Before its answer is issued,
         // an inventory failure or cancellation cannot have placed a planter.
-        if (controller_->ledger().pending->operation==Operation::place && phase_==Phase::acting
+        if (capacity_rejected_ && controller_->ledger().pending->operation==Operation::place)
+            controller_->reject_capacity(controller_->ledger().pending->ticket);
+        else if (controller_->ledger().pending->operation==Operation::place && phase_==Phase::acting
             && action_step_==1 && std::holds_alternative<DragInventoryItem>(steps_.front()))
             controller_->abandon_unstarted_placement(controller_->ledger().pending->ticket,wall());
         else controller_->reserve_unconfirmed();
@@ -93,6 +97,19 @@ class Execution final : public automation::Program {
         pending_report_=ActivityStatus{"Planter not confirmed",finish_reason_,ActivityKind::failure};
         phase_=Phase::placed; publish(ExecutionStage::returning);
         return next(view);
+    }
+    Step failed_placement(const View& view,const std::string& reason) {
+        account_->defer_placements(wall());
+        return defer_result(view,reason+"; placements deferred for five minutes. Capacity unchanged.");
+    }
+    void observe_capacity(const View& view) {
+        if (harvest_ || (phase_!=Phase::baseline && phase_!=Phase::acting && phase_!=Phase::confirming)) return;
+        const auto warning=placement_limit(view);
+        const auto since=phase_==Phase::baseline?minimum_:placement_started_;
+        if (!warning.usable(view.context,Time(2000),since+Time(1))) return;
+        if (!warning.value) capacity_armed_=true;
+        else if (capacity_armed_ && controller_ && controller_->ledger().pending && warning.captured>placement_started_)
+            capacity_rejected_=true;
     }
     void mark_missing() {
         if (!harvest_ || !controller_->mark_missing(*harvest_)) return;
@@ -140,13 +157,13 @@ class Execution final : public automation::Program {
         }
         auto current=planning_snapshot(controller_->ledger(),std::move(groups),travel_,now,view.context.now.count()/1000.0,plan_.capacity);
         std::vector<Active> active;
-        for (const auto& plant : controller_->ledger().plants) active.push_back({plant.stats.planter,plant.stats.field,plant.material});
+        for (const auto& plant : current.growing) active.push_back({plant.stats.planter,plant.stats.field,plant.material});
         if (plan_.preferences) apply_preferences(current.materials,*plan_.preferences);
         current.materials.goals.clear();
         for (const auto& choice:decision_.assignments) if (!choice.material.empty() && (!selected_only || identity(choice.stats)==identity(selected_)))
             current.materials.goals.push_back(material_goal(choice.material));
         const auto updated=planning_groups(current);
-        return placement_choices(updated,active,plan_.capacity,decision_.selection,current.materials,selected_only);
+        return placement_choices(updated,active,current.capacity,decision_.selection,current.materials,selected_only);
     }
     void validate_actions(const std::vector<Step>& steps) const {
         if (steps.empty() || steps.size()>32) throw std::invalid_argument("Planter actions need a bounded sequence");
@@ -208,6 +225,7 @@ class Execution final : public automation::Program {
     }
     void begin_baseline(const View& view) {
         phase_=Phase::baseline;
+        capacity_armed_=capacity_rejected_=false;
         minimum_=view.context.now;
         deadline_=view.context.now+Time(10000);
         publish(ExecutionStage::checking);
@@ -271,6 +289,11 @@ public:
     }
     ~Execution() override { release(); }
     RunConfig config() const override { return plan_.config; }
+    std::vector<game::FixedLabelQuery> fixed_labels() const override {
+        if (!harvest_ && (phase_==Phase::baseline || phase_==Phase::acting || phase_==Phase::confirming))
+            return {placement_limit_query()};
+        return {};
+    }
     ActivityStatus activity_status() const override {
         if (selected_.field.empty()) return {};
         const auto target=planter_target();
@@ -305,11 +328,13 @@ public:
         action_step_=loot_step_=0; issued_=acknowledged_=view.completed_steps;
         phase_=Phase::select; selected_={}; finish_reason_.clear(); deferred_result_=false; learn_travel_.reset();
         harvest_confirmed_=harvest_action_=had_growth_bar_=initialized_=ready_for_travel_=false;
+        capacity_armed_=capacity_rejected_=false;
         minimum_=view.context.now; deadline_=minimum_+Time(10000);
         publish(ExecutionStage::preparing);
         return true;
     }
     void observe(const View& view) override {
+        observe_capacity(view);
         if (phase_!=Phase::arriving || learn_travel_ || !view.route_execution || !view.route_execution->usable(view.context)
             || view.route_execution->entered<travel_started_) return;
         learn_travel_=plan_.return_to && view.route_execution->from==*plan_.return_to;
@@ -325,6 +350,9 @@ public:
             started_=minimum_=view.context.now; deadline_=view.context.now+Time(10000);
         }
         account_->apply_offline(*controller_);
+        observe_capacity(view);
+        if (capacity_rejected_ && controller_->ledger().pending)
+            return defer_result(view,"Three-planter limit confirmed; keeping only the managed slots. Reconcile missing planters in Timers.");
         if (phase_==Phase::preparing) {
             initialized_=true;
             return navigate(view);
@@ -384,7 +412,17 @@ public:
             unavailable_planters_.insert(selected_.planter);
             return leave(view);
         }
-        if (phase_==Phase::acting) return emit(steps_.at(action_step_++));
+        if (phase_==Phase::acting) {
+            if (!harvest_ && action_step_==1 && std::holds_alternative<DragInventoryItem>(steps_.front())) {
+                // A rejected drag may never open Yes/No. Check the shared dialog
+                // observation and capacity warning before handing over to it.
+                if (!view.observations || !view.observations->confirmation.has_value(view.context,Time(2000),minimum_)) {
+                    if (view.context.now>=deadline_) return failed_placement(view,"Placement confirmation did not appear");
+                    return wait("Waiting for planter confirmation or rejection");
+                }
+            }
+            return emit(steps_.at(action_step_++));
+        }
         if (phase_==Phase::planning && !planned_.load(std::memory_order_acquire)) return wait("Planning planter assignments");
         const auto now=wall();
         if (phase_==Phase::select) {
@@ -396,9 +434,13 @@ public:
             if (const auto* due=due_plant(now)) {
                 selected_=due->stats; harvest_=due->id; assignment_.reset(); return travel(view);
             }
-            if (controller_->ledger().plants.size()>=plan_.capacity) {
+            if (controller_->ledger().plants.size()>=placement_capacity(controller_->ledger().placement_limits,plan_.capacity)) {
                 phase_=Phase::done; publish(ExecutionStage::finished); return Done{"No planter visit is due"};
             }
+            if (const auto retry=account_->placement_retry();retry && now<*retry) {
+                phase_=Phase::done; publish(ExecutionStage::finished); return Done{"Placement retry is deferred; known harvests remain available"};
+            }
+            account_->resume_placements(now);
         }
         if (phase_==Phase::planning) {
             if (worker_.joinable()) { worker_.join(); if (error_) std::rethrow_exception(error_); deadline_=view.context.now+Time(10000); }
@@ -461,12 +503,15 @@ public:
             assignment_=assignments.front(); selected_=assignment_->stats; harvest_.reset(); return travel(view);
         }
         if (phase_==Phase::baseline) {
-            if (!harvest_ && view.context.now>=deadline_) return defer_result(view);
+            if (!harvest_ && view.context.now>=deadline_) return failed_placement(view,"Placement location could not be read");
             if (!harvest_) {
                 const auto prompt=source_->placement_visible(view);
                 if (!prompt.usable(view.context,Time(2000),minimum_)) return wait("Reading placement location");
                 // A planter already visible before the drag cannot confirm a new placement.
-                if (prompt.value) return defer_result(view,"A planter is already here; update Timers before placing another");
+                if (prompt.value) {
+                    controller_->record_occupied(selected_.field);
+                    return defer_result(view,"A planter is already here; field and slot reserved. Other planters can continue; reconcile it in Timers.");
+                }
             }
             if (!scan(view,snapshot)) {
                 if (view.context.now>=deadline_) {
@@ -501,7 +546,10 @@ public:
             harvest_action_=harvest_ && harvest_action();
             had_growth_bar_=snapshot.growth_bar.has_value(view.context,Time(2000),minimum_) && snapshot.growth_bar.value;
             if (harvest_) controller_->harvest(*harvest_,view.context,now,snapshot.placements,{});
-            else controller_->place(*assignment_,view.context,now,snapshot.placements,plan_.attempt_unscanned_placement);
+            else {
+                controller_->place(*assignment_,view.context,now,snapshot.placements,plan_.attempt_unscanned_placement);
+                placement_started_=view.context.now;
+            }
             action_step_=0; phase_=Phase::acting; publish(ExecutionStage::acting);
         }
         if (phase_==Phase::acting) return emit(steps_.at(action_step_++));
@@ -517,7 +565,7 @@ public:
             }
             const auto receipt=harvest_action_?harvest_receipt(selected_,had_growth_bar_,snapshot,view,minimum_):Observation<HarvestEvidence>{};
             const auto result=controller_->observe(controller_->ledger().pending->ticket,view.context,now,evidence,receipt);
-            if (result==Outcome::failed) return defer_result(view,"No planter appeared after placement; no timer was saved");
+            if (result==Outcome::failed) return failed_placement(view,"No planter appeared after placement");
             if (result==Outcome::uncertain) return defer_result(view);
             if (result==Outcome::confirmed) {
                 complete_action();
@@ -544,6 +592,8 @@ public:
             deadline_=view.context.now+Time(10000);
         } else if (phase_==Phase::approaching) {
             begin_baseline(view);
+        } else if (phase_==Phase::acting && !harvest_ && action_step_==1 && std::holds_alternative<DragInventoryItem>(steps_.front())) {
+            minimum_=view.context.now+Time(1); deadline_=view.context.now+Time(10000);
         } else if (phase_==Phase::acting && (action_step_==steps_.size() || (harvest_action_ && action_step_==1))) {
             if (!harvest_action_ || action_step_==1) controller_->input_finished(controller_->ledger().pending->ticket,view.context);
             phase_=Phase::confirming; minimum_=view.context.now+Time(1); deadline_=view.context.now+Time(10000); publish(ExecutionStage::confirming);

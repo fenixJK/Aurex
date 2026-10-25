@@ -153,6 +153,10 @@ automation::VisitPlan visit_plan(Plan plan) {
         }}:std::function<std::unique_ptr<automation::Program>(Time)>{};
         visits.visits.push_back({std::move(enemy.id),std::move(enemy.destination),std::move(enemy.fight),std::move(enemy.loot),defeat_cooldown.value_or(enemy.cooldown),enemy.inspect_when_unknown,plan.options.reset_return && visits.recovery?visits.recovery:std::move(enemy.departure),std::move(enemy.approach_scope),std::move(enemy.approach_location),std::move(enemy.group)});
         visits.visits.back().action_program=observed;
+        if (enemy.observations && enemy.hunt_fields.empty())
+            visits.visits.back().ready_to_depart=[source=game::enemy_source(enemy.observations)](const automation::View& view) {
+                return source->read(view.context).has_value(view.context,Time(2000));
+            };
         visits.visits.back().approach=std::move(approach);
         visits.visits.back().working_status="Fighting";
         visits.visits.back().scheduled=std::move(enemy.scheduled);

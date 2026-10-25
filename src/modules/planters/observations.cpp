@@ -2,6 +2,12 @@
 #include <algorithm>
 
 namespace hive::features::planters {
+game::FixedLabelQuery placement_limit_query() { return {{.5,.4,.5,.6},{"3 Planters"}}; }
+Observation<bool> placement_limit(const automation::View& view) {
+    if (!view.observations) return {};
+    const auto query=placement_limit_query();
+    return game::read_prompt_landmark(view.context,view.observations->fixed_labels,{query.labels,query.region,.9f});
+}
 namespace {
 class ObservedSource final : public Source {
     std::shared_ptr<const game::NectarSource> nectar_;
