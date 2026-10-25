@@ -58,29 +58,44 @@ float words_similarity(const cv::Mat& line,const cv::Mat& pattern,unsigned prefi
     return best;
 }
 float phrase_similarity(const cv::Mat& ink,const cv::Mat& pattern) {
-    // Keep word boundaries, but allow the rest of the caption to wrap independently.
-    // Faint antialiasing and background edges must not join separate text lines.
+    // Unwrap the caption in reading order before matching its identifying phrase.
+    // Keep faint strokes and the shared line height so descenders do not distort words.
     cv::Mat core;
-    cv::threshold(ink,core,128,255,cv::THRESH_BINARY);
-    float best=0;
+    cv::threshold(ink,core,100,255,cv::THRESH_BINARY);
+    std::vector<cv::Rect> lines;
+    int height=0,width=0;
     for (int y=0;y<ink.rows;) {
         if (!cv::countNonZero(core.row(y))) { ++y; continue; }
         const int top=y++;
         while (y<ink.rows && cv::countNonZero(core.row(y))) ++y;
-        const auto line=ink(cv::Rect(0,top,ink.cols,y-top));
-        if (line.rows<8) continue;
-        const auto words=word_boxes(core(cv::Rect(0,top,ink.cols,y-top)));
-        for (std::size_t first=0;first<words.size();++first) for (std::size_t last=first;last<words.size();++last) {
-            for (int edge:{0,1}) {
-                // Include antialiased ascenders/descenders around the bright
-                // core, without using background noise to split the lines.
-                const auto area=cv::Rect(words[first].x-edge,top-edge,
-                    words[last].x+words[last].width-words[first].x+edge*2,y-top+edge*2)
-                    & cv::Rect(0,0,ink.cols,ink.rows);
-                best=std::max(best,similarity(ink(area),pattern));
-            }
-            if (best>=.94f) return best;
+        if (y-top<8) continue;
+        const auto line=cv::boundingRect(core.rowRange(top,y))+cv::Point(0,top);
+        lines.push_back(line); height=std::max(height,line.height); width+=line.width;
+    }
+    const auto expected=word_boxes(pattern);
+    if (lines.empty() || expected.empty()) return 0;
+    int spacing=0;
+    for (std::size_t i=1;i<expected.size();++i) spacing+=expected[i].x-expected[i-1].br().x;
+    const int gap=std::max(1,int(std::lround(double(spacing)*height/pattern.rows/std::max(std::size_t(1),expected.size()-1))));
+    cv::Mat unwrapped(height,width+gap*(lines.size()-1),CV_8UC1,cv::Scalar(0));
+    int x=0;
+    for (const auto& line:lines) {
+        ink(line).copyTo(unwrapped(cv::Rect(x,0,line.width,line.height)));
+        x+=line.width+gap;
+    }
+    cv::copyMakeBorder(unwrapped,unwrapped,1,1,1,1,cv::BORDER_CONSTANT,cv::Scalar(0));
+    cv::threshold(unwrapped,core,100,255,cv::THRESH_BINARY);
+    const auto words=word_boxes(core);
+    float best=0;
+    for (std::size_t first=0;first+expected.size()<=words.size();++first) {
+        cv::Rect phrase;
+        for (std::size_t i=0;i<expected.size();++i) phrase|=words[first+i];
+        for (int edge:{0,1}) {
+            const auto area=(phrase+cv::Size(edge*2,edge*2)-cv::Point(edge,edge))
+                & cv::Rect(0,0,unwrapped.cols,unwrapped.rows);
+            best=std::max(best,similarity(unwrapped(area),pattern));
         }
+        if (best>=.94f) return best;
     }
     return best;
 }

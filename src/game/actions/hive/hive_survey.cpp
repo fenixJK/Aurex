@@ -28,7 +28,7 @@ class HiveSurvey final : public Program {
     std::string result_;
     HiveClaimOptions claim_;
     std::shared_ptr<const movement::Recipes> movement_;
-    unsigned selected_{},next_slot_{},claim_attempts_{},occupied_{};
+    unsigned selected_{},next_slot_{},claim_attempts_{};
     Time pressed_{Time(-1)};
     std::array<bool,6> checked_{};
     workflows::CheckpointPlan approach_;
@@ -41,20 +41,30 @@ class HiveSurvey final : public Program {
     void check_site(Time now) {
         stage_=Stage::check; minimum_=now+Time(150); seen_=Time(-1);
     }
+    Step advance_slot(const View& view) {
+        checked_[selected_-1]=true; next_slot_=0;
+        for (unsigned slot=1;slot<=6;++slot) if (!checked_[slot-1]) {
+            const auto distance=std::abs(int(slot)-int(selected_));
+            const auto previous=std::abs(int(next_slot_)-int(selected_));
+            if (!next_slot_ || distance<previous || (distance==previous && selected_>3)) next_slot_=slot;
+        }
+        if (!next_slot_) throw ObservationUnavailable("Hive row scan did not confirm an owned or claimable hive");
+        stage_=corrections_?Stage::restore_position:Stage::scan; return next(view);
+    }
     Step check_slot(const View& view) {
         const auto& c=view.context;
-        if (c.now-minimum_>=Time(4000)) throw ObservationUnavailable("Hive slot prompt could not be read");
-        const auto wait=[&] { return Step(Wait{Time(50),"Checking hive slot "+std::to_string(selected_)}); };
+        const bool expired=c.now-minimum_>=Time(4000);
+        const auto wait=[&] {
+            if (expired) throw ObservationUnavailable("Hive slot prompt could not be read");
+            return Step(Wait{Time(50),"Checking hive slot "+std::to_string(selected_)});
+        };
         if (!view.observations) return wait();
         const auto& text=view.observations->text;
-        if (!text.has_value(c,Time(2000),minimum_) || text.captured<=seen_) return wait();
+        if (!text.has_value(c,Time(2000),minimum_) || (!expired && text.captured<=seen_)) return wait();
         seen_=text.captured;
         const auto owned=game::read_prompt_landmark(c,text,game::hive_proximity_prompt());
         const auto available=game::read_prompt_landmark(c,text,game::hive_claim_prompt());
-        if ((owned.value && available.value) || (!owned.value && !available.value
-            && (!owned.usable(c,Time(2000),minimum_) || !available.usable(c,Time(2000),minimum_)))) {
-            return wait();
-        }
+        if (owned.value && available.value) return wait();
         const int candidate=owned.value?1:available.value?2:0;
         if (candidate==1) {
             if (claim_.result) claim_.result->claimed(selected_,c);
@@ -70,21 +80,15 @@ class HiveSurvey final : public Program {
         const bool trade=game::read_prompt_landmark(c,text,{{"Trade Request"},
             game::interaction_prompt_search_region,game::hive_prompt_confidence,game::PromptMatch::phrase,true}).value;
         // After E, a missing caption can be the claim transition, not an occupied slot.
-        if ((prompt.value || claim_attempts_) && !trade) return wait();
+        if (claim_attempts_ && !trade) return wait();
+        // One unrecognized banner does not invalidate the known row position.
+        // Visit the remaining slots before resetting the acquisition attempt.
+        const bool unreadable=!owned.usable(c,Time(2000),minimum_) || !available.usable(c,Time(2000),minimum_);
+        if ((prompt.value || unreadable) && !trade) return expired?advance_slot(view):wait();
         if (!trade && corrections_<approach_.attempts && !approach_.nudge_path.empty()) {
             stage_=Stage::correct; return next(view);
         }
-        checked_[selected_-1]=true; occupied_+=trade; next_slot_=0;
-        for (unsigned slot=1;slot<=6;++slot) if (!checked_[slot-1]) {
-            const auto distance=std::abs(int(slot)-int(selected_));
-            const auto previous=std::abs(int(next_slot_)-int(selected_));
-            if (!next_slot_ || distance<previous || (distance==previous && selected_>3)) next_slot_=slot;
-        }
-        if (!next_slot_) {
-            if (occupied_==checked_.size()) throw ClientRejoinRequired("All hive slots are occupied; rejoining Bee Swarm");
-            return Defer{"Hive prompts could not be confirmed across the row; hive setup paused"};
-        }
-        stage_=corrections_?Stage::restore_position:Stage::scan; return next(view);
+        return advance_slot(view);
     }
     bool started_{};
 public:
