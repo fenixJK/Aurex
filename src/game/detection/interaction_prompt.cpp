@@ -118,8 +118,9 @@ bool banner_color(const Frame& frame,int x,int y) {
     return (b>=100 && b>r*1.3 && b>g*1.15) || (r>=100 && r>g*1.3 && r>b*1.15);
 }
 struct PromptRegion { Rect bounds; bool key; };
-std::optional<Rect> colored_caption(const Frame& frame);
-std::optional<PromptRegion> locate_prompt(const Frame& frame,bool captions) {
+enum class CaptionSearch { none, cooldowns, all };
+std::optional<Rect> colored_caption(const Frame& frame,CaptionSearch captions);
+std::optional<PromptRegion> locate_prompt(const Frame& frame,CaptionSearch captions) {
     if (!frame.valid() || frame.region.x!=0 || frame.region.y!=0 || frame.region.width!=1 || frame.region.height<upper_hud_region.height) return {};
     const int viewport_height=frame.viewport_height();
     cv::Mat light(std::min(frame.height,viewport_height/4),frame.width,CV_8UC1,cv::Scalar(0));
@@ -146,8 +147,8 @@ std::optional<PromptRegion> locate_prompt(const Frame& frame,bool captions) {
         if (found) return {};
         found=PromptRegion{{double(left)/frame.width,double(y)/frame.height,double(right-left)/frame.width,double(height)/frame.height},true};
     }
-    if (found || !captions) return found;
-    if (const auto panel=colored_caption(frame)) return PromptRegion{*panel,false};
+    if (found || captions==CaptionSearch::none) return found;
+    if (const auto panel=colored_caption(frame,captions)) return PromptRegion{*panel,false};
     // Join a HUD border across adjacent rows when scaling breaks its thin edge.
     cv::dilate(light,light,cv::getStructuringElement(cv::MORPH_RECT,{1,3}));
     for (int y=0;y<std::min(light.rows,viewport_height/6);++y) {
@@ -173,8 +174,10 @@ std::optional<PromptRegion> locate_prompt(const Frame& frame,bool captions) {
                 const Rect region{x/frame.width,top/frame.height,width/frame.width,height/frame.height};
                 // Cooldown captions keep the banner below the HUD, but hide the E key.
                 if (interaction_cooldown(frame,region)) return PromptRegion{region,false};
-                const auto label=interaction_label(interaction_text_image(frame,region));
-                if (label && label->text=="Collect Pollen") return PromptRegion{region,false};
+                if (captions==CaptionSearch::all) {
+                    const auto label=interaction_label(interaction_text_image(frame,region));
+                    if (label && label->text=="Collect Pollen") return PromptRegion{region,false};
+                }
             }
         }
     }
@@ -245,7 +248,7 @@ bool cooldown_caption(const Frame& frame,Rect region) {
     }
     return false;
 }
-std::optional<Rect> colored_caption(const Frame& frame) {
+std::optional<Rect> colored_caption(const Frame& frame,CaptionSearch captions) {
     // Locate the colored panel independently of the white HUD borders, which can
     // merge into a bright sky. Cooldowns and the empty-bag hive caption have no E key.
     const int viewport_height=frame.viewport_height();
@@ -269,7 +272,7 @@ std::optional<Rect> colored_caption(const Frame& frame) {
         if (box.height<viewport_height*.018 || cv::contourArea(contour)<box.area()*.8) continue;
         // A solid panel or world geometry is not a text-bearing action banner.
         const Rect region{double(box.x)/frame.width,double(box.y)/frame.height,double(box.width)/frame.width,double(box.height)/frame.height};
-        if (cooldown_caption(frame,region) || interaction_label(interaction_text_image(frame,region)))
+        if (cooldown_caption(frame,region) || (captions==CaptionSearch::all && interaction_label(interaction_text_image(frame,region))))
             found.push_back(region);
 
     }
@@ -277,18 +280,20 @@ std::optional<Rect> colored_caption(const Frame& frame) {
 }
 }
 std::optional<Rect> interaction_prompt_region(const Frame& frame) {
-    const auto prompt=locate_prompt(frame,false);
+    const auto prompt=locate_prompt(frame,CaptionSearch::none);
     return prompt?std::optional(prompt->bounds):std::nullopt;
 }
 std::optional<Rect> interaction_text_region(const Frame& frame) {
-    const auto prompt=locate_prompt(frame,true);
+    const auto prompt=locate_prompt(frame,CaptionSearch::all);
     return prompt?std::optional(prompt->bounds):std::nullopt;
 }
 Reading<InteractionBanner> read_interaction_banner(const Frame& frame,std::uint64_t generation,const HudFeatures*) {
     if (!frame.valid() || !generation || frame.region.x!=0 || frame.region.y!=0 || frame.region.width!=1 || frame.region.height<upper_hud_region.height) return {};
     Reading<InteractionBanner> result{Knowledge::present,InteractionBanner::none,frame.captured,frame.window,generation};
     // E and the HUD locate the panel even when its color merges into the scenery.
-    if (const auto prompt=locate_prompt(frame,true)) {
+    // Generic readiness needs only E or a cooldown. Reading unrelated captions
+    // here delays negative observations while approaching an interaction pad.
+    if (const auto prompt=locate_prompt(frame,CaptionSearch::cooldowns)) {
         if (prompt->key && !interaction_cooldown(frame,prompt->bounds)) {
             result.value=InteractionBanner::ready;
             return result;
