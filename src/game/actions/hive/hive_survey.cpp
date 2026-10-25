@@ -1,4 +1,5 @@
 #include "hive_setup.hpp"
+#include "game/actions/field/shift_lock.hpp"
 #include <algorithm>
 
 namespace hive::automation {
@@ -20,7 +21,7 @@ ApproachPrompt claim_approach(unsigned slot,double speed,const movement::Recipes
     return {std::move(plan),game::hive_claim_prompt()};
 }
 class HiveSurvey final : public Program {
-    enum class Stage { zoom,pitch,observe,turn,restore,departure_pitch,departure_zoom,approach,check,correct,restore_position,scan,claim,done };
+    enum class Stage { unlock,zoom,pitch,observe,turn,restore,departure_pitch,departure_zoom,approach,check,correct,restore_position,scan,claim,reference,done };
     Stage stage_{Stage::zoom};
     std::shared_ptr<const game::HiveSlotsSource> source_;
     Time minimum_{},seen_{Time(-1)};
@@ -32,6 +33,7 @@ class HiveSurvey final : public Program {
     Time pressed_{Time(-1)};
     std::array<bool,6> checked_{};
     workflows::CheckpointPlan approach_;
+    Observation<bool> heading_;
     unsigned corrections_{};
     void start_scan() {
         selected_=claim_.preferred_slot?claim_.preferred_slot:1;
@@ -68,7 +70,10 @@ class HiveSurvey final : public Program {
         const int candidate=owned.value?1:available.value?2:0;
         if (candidate==1) {
             if (claim_.result) claim_.result->claimed(selected_,c);
-            result_="Owned hive slot "+std::to_string(selected_)+" confirmed"; stage_=Stage::done; return next(view);
+            result_="Owned hive slot "+std::to_string(selected_)+" confirmed";
+            // The confirmed spawn route preserves yaw through the entire row
+            // scan. Its owned-hive result completes that known camera setup.
+            heading_=owned; stage_=can_scan()?Stage::reference:Stage::done; return next(view);
         }
         if (pressed_>=Time{} && text.captured<pressed_+Time(750)) return wait();
         if (candidate==2) {
@@ -94,7 +99,7 @@ class HiveSurvey final : public Program {
 public:
     explicit HiveSurvey(std::shared_ptr<const game::HiveSlotsSource> source,HiveClaimOptions claim)
         :source_(std::move(source)),claim_(claim) {
-        if (can_scan()) stage_=Stage::pitch;
+        if (can_scan()) stage_=Stage::unlock;
         if (!source_) throw std::invalid_argument("Hive survey requires slot observations");
         if (claim_.confirmed_spawn && claim_.search_opposite_view)
             throw std::invalid_argument("Confirmed spawn scans must preserve their camera orientation");
@@ -106,8 +111,9 @@ public:
     Step next(const View& view) override {
         if (!started_) { if (claim_.result) claim_.result->reset(); started_=true; }
         switch (stage_) {
+        case Stage::unlock: return RunProgram{[] { return set_shift_lock(false); }};
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
-        case Stage::pitch: return MoveCamera{can_scan()?game::CameraMove{Key::pitch_up,5}:game::pitch_limit(Key::pitch_up)};
+        case Stage::pitch: return MoveCamera{game::pitch_limit(Key::pitch_up)};
         case Stage::turn:
         case Stage::restore: return MoveCamera{{Key::rotate_right,4}};
         case Stage::departure_pitch: return MoveCamera{{Key::pitch_down,4}};
@@ -132,7 +138,10 @@ public:
         case Stage::scan: return FollowPath{movement_->path("hive",{{"action",std::string("scan")},
             {"from",int(selected_)},{"to",int(next_slot_)}},claim_.speed).at(0)};
         case Stage::claim: return Hold{{Key::interact},Time(100)};
-        case Stage::done: return Done{result_};
+        case Stage::reference: return AdoptHeading{0,heading_};
+        case Stage::done:
+            if (can_scan() && claim_.result) claim_.result->prepared(view.context);
+            return Done{result_};
         case Stage::observe: break;
         }
         const auto& c=view.context;
@@ -158,7 +167,8 @@ public:
         return Wait{Time(50),"Surveying hive slots from spawn"};
     }
     void step_completed(const View& view) override {
-        if (stage_==Stage::zoom) stage_=Stage::pitch;
+        if (stage_==Stage::unlock || stage_==Stage::zoom) stage_=Stage::pitch;
+        else if (stage_==Stage::reference) stage_=Stage::done;
         else if (stage_==Stage::restore) throw std::runtime_error("No empty hive was found; no claim was attempted");
         else if (stage_==Stage::departure_pitch) stage_=Stage::departure_zoom;
         else if (stage_==Stage::departure_zoom) stage_=Stage::approach;

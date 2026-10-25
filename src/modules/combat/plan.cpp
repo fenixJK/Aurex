@@ -159,6 +159,7 @@ automation::VisitPlan visit_plan(Plan plan) {
             };
         visits.visits.back().approach=std::move(approach);
         visits.visits.back().working_status="Fighting";
+        if (!visits.visits.back().loot.empty()) visits.visits.back().settle=Time(500);
         visits.visits.back().scheduled=std::move(enemy.scheduled);
         visits.visits.back().loot_duration=enemy.loot_duration;
         if (progress) visits.visits.back().retry_after_completion=[progress] { return progress->read().retry; };

@@ -91,7 +91,7 @@ class AcquireHive final : public Program {
         }
         if (!child_running_) child_running_=view.context.now;
         if (local.elapsed>=child_->config().duration) {
-            if (stage_==Stage::prepare) return Defer{"Hive camera alignment timed out; departure skipped"};
+            if (stage_==Stage::prepare) return options_.recovery?recover(view):Step(Defer{"Hive camera alignment timed out; departure skipped"});
             if (stage_==Stage::recover) throw ClientRejoinRequired("Hive reset timed out; rejoining Bee Swarm");
             throw ObservationUnavailable("Hive setup phase timed out");
         }
@@ -99,9 +99,8 @@ class AcquireHive final : public Program {
         try { step=child_->next(local); }
         catch (const HiveAlignmentError& error) {
             if (stage_!=Stage::prepare) throw;
-            // Preparation starts only after ownership is confirmed. A camera
-            // failure is not evidence that the server or hive was lost.
-            return Defer{std::string(error.what())+"; departure skipped"};
+            // Reset restores a reproducible view before considering a rejoin.
+            return options_.recovery?recover(view):Step(Defer{std::string(error.what())+"; departure skipped"});
         }
         catch (const ObservationUnavailable&) {
             if (stage_!=Stage::claim || !recovered_) throw;
@@ -113,7 +112,10 @@ class AcquireHive final : public Program {
                 recovered_=true; turned_=false; options_.confirmed_spawn=false; stage_=Stage::locate; minimum_=view.context.now+Time(1);
                 seen_=Time(-1); return Wait{};
             }
-            if (stage_==Stage::claim) { begin(Stage::prepare,view); return child_step(view); }
+            if (stage_==Stage::claim) {
+                const auto result=options_.result?options_.result->read(view.context,view.observations):std::nullopt;
+                if (!result || !result->camera_prepared) { begin(Stage::prepare,view); return child_step(view); }
+            }
             stage_=Stage::done; return next(view);
         }
         issued_=true;
