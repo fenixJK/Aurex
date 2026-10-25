@@ -141,11 +141,18 @@ public:
         HWND hwnd=reinterpret_cast<HWND>(id);
         return {describe(hwnd),GetForegroundWindow()==hwnd,true,(GetAsyncKeyState(VK_ESCAPE)&0x8000)!=0,(GetAsyncKeyState(VK_F2)&0x8000)!=0};
     }
-    Frame capture(std::uint64_t id) override {
+    Frame capture(std::uint64_t id) override { return capture(id,{0,0,1,1}); }
+    Frame capture(std::uint64_t id,Rect region) override {
+        if (!region.valid() || region.x<0 || region.y<0 || region.x+region.width>1 || region.y+region.height>1)
+            throw std::invalid_argument("Invalid capture region");
         auto snapshot=inspect(id);
         if (!snapshot.window.id || !snapshot.focused) throw std::runtime_error("Keep Roblox visible and in the foreground for capture");
         const auto& r=snapshot.window.bounds;
-        Frame frame{snapshot.window,monotonic_now(),static_cast<int>(r.width),static_cast<int>(r.height),{}};
+        const int left=std::floor(r.width*region.x),top=std::floor(r.height*region.y);
+        const int right=std::min(int(r.width),int(std::ceil(r.width*(region.x+region.width))));
+        const int bottom=std::min(int(r.height),int(std::ceil(r.height*(region.y+region.height))));
+        Frame frame{snapshot.window,monotonic_now(),right-left,bottom-top,{}};
+        frame.region={left/r.width,top/r.height,frame.width/r.width,frame.height/r.height};
         frame.rgba.resize(static_cast<size_t>(frame.width)*frame.height*4);
         HDC screen=GetDC(nullptr), memory=screen?CreateCompatibleDC(screen):nullptr;
         BITMAPINFO info{}; info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER); info.bmiHeader.biWidth=frame.width;
@@ -154,7 +161,7 @@ public:
         HBITMAP bitmap=memory?CreateDIBSection(screen,&info,DIB_RGB_COLORS,&pixels,nullptr,0):nullptr;
         HGDIOBJ previous=bitmap && memory ? SelectObject(memory,bitmap) : nullptr;
         if (previous==HGDI_ERROR) previous=nullptr;
-        bool ok=previous && BitBlt(memory,0,0,frame.width,frame.height,screen,static_cast<int>(r.x),static_cast<int>(r.y),SRCCOPY | CAPTUREBLT) && GdiFlush();
+        bool ok=previous && BitBlt(memory,0,0,frame.width,frame.height,screen,static_cast<int>(r.x)+left,static_cast<int>(r.y)+top,SRCCOPY | CAPTUREBLT) && GdiFlush();
         if (ok) {
             auto bytes=static_cast<std::uint8_t*>(pixels);
             for (size_t i=0; i<frame.rgba.size(); i+=4) {

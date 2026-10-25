@@ -88,7 +88,8 @@ std::vector<MenuControl> menu_controls(const DetectionInput& input,std::optional
     if (!f.valid() || !f.window.id || !input.generation || (input.cancelled && input.cancelled())) return {};
     if (input.hud) return input.hud->menus;
     const int width=search?std::clamp(int(std::ceil((search->x+search->width)*f.width)),1,(f.width+1)/2):(f.width+1)/2;
-    const int height=search?std::clamp(int(std::ceil((search->y+search->height)*f.height)),1,(f.height+1)/2):(f.height+1)/2;
+    const int maximum_height=std::min(f.height,(f.viewport_height()+1)/2);
+    const int height=search?std::clamp(int(std::ceil((search->y+search->height)*f.height)),1,maximum_height):maximum_height;
     const int first_x=search?std::clamp(int(std::floor(search->x*f.width)),0,width-1):0;
     const int first_y=search?std::clamp(int(std::floor(search->y*f.height)),0,height-1):0;
     if (static_cast<std::size_t>(width)*height>8000000) return {};

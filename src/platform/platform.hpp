@@ -30,6 +30,7 @@ public:
     virtual std::vector<Window> windows() = 0;
     virtual Snapshot inspect(std::uint64_t id) = 0;
     virtual Frame capture(std::uint64_t id) = 0;
+    virtual Frame capture(std::uint64_t id,Rect region) { return capture(id).crop(region); }
     virtual std::vector<TextLine> recognize(const Frame& frame) = 0;
     virtual std::vector<TextLine> recognize(const Frame& frame,const std::function<bool()>& cancelled) {
         if (cancelled && cancelled()) throw std::runtime_error("OCR cancelled");

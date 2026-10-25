@@ -38,8 +38,8 @@ public:
     bool wait_window(Time now,const std::string& status={});
     void replace_window(const ObservationContext& context,ModuleScope scope);
     bool request_yield();
-    bool observes_game() const;
-    bool observes_interaction() const;
+    game::ObservationNeeds observation_needs() const;
+    bool needs_movement_speed() const;
     std::vector<Rect> text_regions() const;
     std::vector<game::FixedLabelQuery> fixed_labels() const;
 private:
@@ -97,6 +97,7 @@ private:
     bool recover(Interruption interruption,const ObservationContext& context,const game::State& observations);
     bool same_context(const ObservationContext& context) const;
     bool prepare_menu(const ObservationContext& context,const game::State& observations);
+    bool prepares_menu() const;
     bool activity(const ObservationContext& context,const game::State& observations);
     void complete_step(const ObservationContext& context,const game::State& observations);
     void check_scope(ModuleScope scope) const;

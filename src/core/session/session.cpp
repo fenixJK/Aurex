@@ -24,6 +24,15 @@ public:
 void Session::configure_hotbar(std::shared_ptr<automation::HotbarSource> source) {
     std::lock_guard lock(mutex_); hotbar_=std::move(source);
 }
+game::ObservationNeeds Session::observation_needs() const {
+    if (!feature_) return {};
+    auto needs=feature_->observation_needs();
+    const auto progress=feature_->progress();
+    if (hotbar_ && hotbar_->needs_backpack() && progress.state==automation::State::running
+        && progress.activity==WorkActivity::gathering && feature_grant_.capabilities.contains(Capability::interaction))
+        needs.insert(game::ObservationKind::backpack);
+    return needs;
+}
 Session::Session(Desktop& desktop): desktop_(desktop), observer_(desktop), runtime_(desktop), worker_([this]() {
     while (!exiting_.load()) {
         {
@@ -35,7 +44,7 @@ Session::Session(Desktop& desktop): desktop_(desktop), observer_(desktop), runti
                     if (snapshot.focused && snapshot.pause_down && !pause_down_) ++pause_requests_;
                     pause_down_=snapshot.pause_down;
                     const auto now=monotonic_now();
-                    const auto observations=feature_?observer_.latest().state:game::State{};
+                    const auto observations=feature_?observer_.latest(feature_->needs_movement_speed()).state:game::State{};
                     bool recovering=false;
                     const bool starting=feature_ && feature_->waiting_for_game_view() && !runtime_.has_work();
                     const bool pending_handoff=managed_ && continue_features_ && !feature_ && !runtime_.has_work();
@@ -61,7 +70,7 @@ Session::Session(Desktop& desktop): desktop_(desktop), observer_(desktop), runti
                         observer_.stop(); runtime_.stop("Updating startup window");
                         runtime_.start(snapshot.window,now,CompletionMode::managed);
                         active_window_=snapshot.window; window_id_=snapshot.window.id;
-                        observer_.watch({active_window_,tasks_.generation(),now},feature_->observes_game(),bool(connection_reconnect_),feature_->observes_interaction());
+                        observer_.watch({active_window_,tasks_.generation(),now},observation_needs());
                         startup_window_missing_=Time(-1); recovering=true;
                     }
                     else if (starting && !snapshot.window.id &&
@@ -83,7 +92,7 @@ Session::Session(Desktop& desktop): desktop_(desktop), observer_(desktop), runti
                         if (runtime_.status().state==RunState::running) {
                             feature_->update({snapshot.window,tasks_.generation(),monotonic_now()},observations);
                             runtime_.tick(monotonic_now(),snapshot);
-                            observer_.watch({snapshot.window,tasks_.generation(),monotonic_now()},feature_->observes_game(),bool(connection_reconnect_),feature_->observes_interaction());
+                            observer_.watch({snapshot.window,tasks_.generation(),monotonic_now()},observation_needs());
                             observer_.request_text(feature_->text_regions());
                             observer_.request_labels(feature_->fixed_labels());
                             const auto progress=feature_->progress();
@@ -118,7 +127,7 @@ void Session::start(Window window, std::vector<Job> jobs) {
     tasks_.reset(now); session_id_=tasks_.generation(); recovery_counts_=std::make_shared<RecoveryCounts>(); active_window_=window; managed_=false; continue_features_=false;
     try { for (auto& job : jobs) { job.due+=now; if (job.expires) *job.expires+=now; runtime_.enqueue(std::move(job)); } }
     catch (...) { runtime_.stop("Invalid session configuration"); throw; }
-    if (observer_.has_detectors()) observer_.watch({window,tasks_.generation(),now},false);
+    if (observer_.has_detectors()) observer_.watch({window,tasks_.generation(),now});
 }
 void Session::pause() {
     std::lock_guard lock(mutex_);
@@ -130,7 +139,7 @@ void Session::pause() {
 void Session::resume() {
     std::lock_guard lock(mutex_); const auto now=monotonic_now(); const auto snapshot=desktop_.inspect(window_id_);
     runtime_.resume(now,snapshot);
-    if (runtime_.status().state==RunState::running && observer_.has_detectors()) observer_.watch({snapshot.window,tasks_.generation(),now},false);
+    if (runtime_.status().state==RunState::running && observer_.has_detectors()) observer_.watch({snapshot.window,tasks_.generation(),now});
 }
 void Session::stop(std::string reason) { std::lock_guard lock(mutex_); if (feature_) feature_->stop(reason); runtime_.stop(std::move(reason)); window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); observer_.stop(); }
 Status Session::status() { std::lock_guard lock(mutex_); return runtime_.status(); }
@@ -162,7 +171,7 @@ void Session::start_managed(Window window) {
     runtime_.start(window,now,CompletionMode::managed); window_id_=window.id; tasks_.reset(now); managed_=true; continue_features_=true;
     active_window_=window; session_id_=tasks_.generation(); recovery_counts_=std::make_shared<RecoveryCounts>();
     rejoin_schedule_.arm(wall_time());
-    if (observer_.has_detectors()) observer_.watch({window,tasks_.generation(),now},false);
+    if (observer_.has_detectors()) observer_.watch({window,tasks_.generation(),now});
 }
 void Session::clear_feature(bool stop_observer) {
     if (stop_observer) observer_.stop();
@@ -293,7 +302,7 @@ void Session::launch_feature(Window window,automation::Launch launch,Time now) {
         feature_->start({window,tasks_.generation(),now});
         next_server_read_={};
         if (managed_ && requested_rejoin(now)) begin_client_rejoin(now,true);
-        if (!client_rejoin_) observer_.watch({window,tasks_.generation(),now},feature_->observes_game(),bool(connection_reconnect_),feature_->observes_interaction());
+        if (!client_rejoin_) observer_.watch({window,tasks_.generation(),now},observation_needs());
     } catch (...) { clear_feature(); if (!continue_features_) runtime_.stop("Feature could not start"); throw; }
 }
 bool Session::yield_feature(const std::string& id) {

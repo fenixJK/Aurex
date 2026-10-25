@@ -19,6 +19,7 @@ class ObservationGuard final : public RunGuard {
     bool gathering_{};
 public:
     ObservationGuard(const RunConfig& config,WorkActivity activity):limit_(config.backpack_limit),gathering_(activity==WorkActivity::gathering) {}
+    game::ObservationNeeds observation_needs() const override { return limit_?game::ObservationNeeds{game::ObservationKind::backpack}:game::ObservationNeeds{}; }
     GuardDecision evaluate(const View& view,Time started) override {
         const auto& c=view.context;
         const auto* state=view.observations;

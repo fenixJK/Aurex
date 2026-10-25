@@ -1,6 +1,7 @@
 #include "game/detection/movement_buffs.hpp"
 #include <algorithm>
 #include "game/detection/buff_bar.hpp"
+#include "game/detection/perception.hpp"
 
 namespace hive::game {
 namespace {
@@ -49,6 +50,7 @@ class BuffDetector final : public Detector {
     mutable std::optional<detail::BuffBar> layout_;
     mutable int width_{},height_{};
 public:
+    Rect capture_region() const override { return upper_hud_region; }
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         std::lock_guard lock(mutex_);
         auto result=std::make_shared<MovementBuffDetection>();
@@ -58,8 +60,8 @@ public:
             || context_->window.process!=frame.window.process || context_->window.bounds!=frame.window.bounds
             || frame.captured<context_->now) { layout_.reset(); }
         context_=ObservationContext{frame.window,input.generation,frame.captured};
-        if (width_!=frame.width || height_!=frame.height) layout_.reset();
-        width_=frame.width; height_=frame.height;
+        if (width_!=frame.width || height_!=frame.viewport_height()) layout_.reset();
+        width_=frame.width; height_=frame.viewport_height();
         if (const auto layout=detail::hud_buff_bar(input)) layout_=layout;
         if (layout_) result->buffs=detail::movement_buffs_at(input,*layout_);
         return result;

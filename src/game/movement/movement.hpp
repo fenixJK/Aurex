@@ -40,5 +40,6 @@ private:
     Time observed_{Time(-1)};
 };
 Action movement_slice(const WalkLeg& leg,double remaining_tiles,double speed,Time checkpoint=Time(100),bool use_tool=false);
-Action paced_walk(const WalkLeg& leg,std::shared_ptr<MovementSpeed> speed,ObservationContext context,bool use_tool=false);
+Action paced_walk(const WalkLeg& leg,std::shared_ptr<MovementSpeed> speed,ObservationContext context,bool use_tool=false,
+    std::shared_ptr<DistanceIntegrator> progress={});
 }

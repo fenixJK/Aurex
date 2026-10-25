@@ -72,6 +72,7 @@ public:
             || plan_.duration<Time(1000) || plan_.duration>std::chrono::minutes(10)
             || unsigned(plan_.color)>unsigned(game::PetalColor::red)) throw std::invalid_argument("Invalid petal collection plan");
     }
+    game::ObservationNeeds observation_needs() const override { return {game::ObservationKind::backpack}; }
     RunConfig config() const override { return {plan_.duration+std::chrono::minutes(8),plan_.speed,{},true,true}; }
     WorkActivity activity() const noexcept override { return stage_>=Stage::select && stage_<=Stage::recenter?WorkActivity::gathering:WorkActivity::other; }
     std::string field() const override { return game::field_at(plan_.field)->name; }

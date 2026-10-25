@@ -54,6 +54,7 @@ public:
     automation::ProgramFactory recovery(automation::Interruption reason,const automation::View& view) override {
         auto result=run_.program->recovery(reason,view); flush(); return result;
     }
+    game::ObservationNeeds observation_needs() const override { return run_.program->observation_needs(); }
     std::vector<Rect> text_regions() const override { return run_.program->text_regions(); }
     std::vector<game::FixedLabelQuery> fixed_labels() const override { return run_.program->fixed_labels(); }
     std::unique_ptr<automation::RunGuard> guard() const override { return run_.program->guard(); }

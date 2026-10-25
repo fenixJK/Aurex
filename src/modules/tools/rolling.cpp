@@ -39,6 +39,7 @@ public:
         report_.status="Waiting for the open result"; publish();
     }
     RunConfig config() const override { return {std::chrono::hours(8),28,{},true,true}; }
+    game::ObservationNeeds observation_needs() const override { return {game::ObservationKind::confirmation}; }
     std::vector<Rect> text_regions() const override { return {}; }
     void step_completed(const View& view) override {
         if (!acted_) return;
@@ -111,6 +112,7 @@ class Hatcher final : public Rolling {
     bool jelly_{};
     std::optional<Bee> previous_;
 public:
+    game::ObservationNeeds observation_needs() const override { return stage_==Stage::confirm?Rolling::observation_needs():game::ObservationNeeds{}; }
     Hatcher(HatchPlan plan,std::shared_ptr<RollProgress> progress):Rolling(std::move(progress)),plan_(std::move(plan)) {
         if (!plan_.target.valid() || !plan_.inventory || !plan_.eggs || plan_.eggs>1000000)
             throw std::invalid_argument("Select a bee and set a Basic Egg limit");
@@ -166,6 +168,7 @@ class Jelly final : public Rolling {
         return RunProgram{[inventory=inventory_,receipt=receipt_] { return feed_item("Neonberry",1,inventory,receipt); }};
     }
 public:
+    game::ObservationNeeds observation_needs() const override { return stage_==Stage::confirm?Rolling::observation_needs():game::ObservationNeeds{}; }
     Jelly(JellyPlan plan,std::shared_ptr<RollProgress> progress):Rolling(std::move(progress)),plan_(std::move(plan)) {
         validate(plan_.filter,plan_.require_mutation);
         if (plan_.require_mutation) validate(plan_.mutations);

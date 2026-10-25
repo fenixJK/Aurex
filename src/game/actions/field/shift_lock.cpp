@@ -8,6 +8,7 @@ class ShiftLock final : public Program {
 public:
     explicit ShiftLock(bool enabled):enabled_(enabled) {}
     RunConfig config() const override { return {Time(5000),28,{},true,true}; }
+    game::ObservationNeeds observation_needs() const override { return {game::ObservationKind::shift_lock}; }
     Step next(const View& view) override {
         if (parked_) return Done{"Shift lock confirmed"};
         if (!view.observations) return Wait{Time(25),"Reading shift lock"};

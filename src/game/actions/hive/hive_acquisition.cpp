@@ -133,6 +133,11 @@ public:
         }
         return stage_==Stage::locate || stage_==Stage::observe?std::vector<Rect>{game::hive_proximity_prompt().region}:std::vector<Rect>{};
     }
+    game::ObservationNeeds observation_needs() const override {
+        auto needs=child_?child_->observation_needs():game::ObservationNeeds{};
+        if (child_guard_) { const auto requested=child_guard_->observation_needs(); needs.insert(requested.begin(),requested.end()); }
+        return needs;
+    }
     std::vector<game::FixedLabelQuery> fixed_labels() const override { return child_?child_->fixed_labels():std::vector<game::FixedLabelQuery>{}; }
     bool expects_respawn() const noexcept override { return child_ && child_->expects_respawn(); }
     ProgramFactory recovery(Interruption reason,const View&) override {

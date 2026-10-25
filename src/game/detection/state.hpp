@@ -1,5 +1,6 @@
 #pragma once
 #include "core/runtime/model.hpp"
+#include <set>
 
 namespace hive::game {
 using Context = ObservationContext;
@@ -9,6 +10,8 @@ enum class Connection { connected, disconnected };
 struct TextSnapshot { int width{},height{}; std::vector<TextLine> lines; };
 struct InteractionCaption { std::string label; bool cooldown{}; };
 enum class InteractionBanner { none, ready, cooldown };
+enum class ObservationKind { health, connection, menus, backpack, confirmation, shift_lock, interaction };
+using ObservationNeeds = std::set<ObservationKind>;
 struct DialogButtons { Point yes,no; };
 enum class MenuTab { inventory,quests,settings };
 struct MenuControl {

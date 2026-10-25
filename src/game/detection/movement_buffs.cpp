@@ -66,7 +66,7 @@ const BuffGlyph& glyph(std::string_view name) {
 MovementBuffCandidates detail::movement_buffs_at(const DetectionInput& input,const BuffBar& bar) {
     MovementBuffCandidates result;
     const auto* layout=&bar;
-    if (input.text.empty() && layout->bottom>input.frame.height*.35) return result;
+    if (input.text.empty() && layout->bottom>input.frame.viewport_height()*.35) return result;
     const double scale=layout->scale,pitch=layout->pitch,top=layout->bottom-pitch;
     if (top<0 || layout->bottom>input.frame.height || pitch<15 || pitch>160) return result;
     const double left=std::max(0.,layout->origin),width=input.frame.width-left;

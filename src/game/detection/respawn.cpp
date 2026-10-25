@@ -84,9 +84,7 @@ Observation<RespawnView> read_respawn_menu(const Frame& f,std::uint64_t generati
 namespace {
 struct Packet final : Detection { Observation<RespawnView> view; };
 bool visible_game(const DetectionInput& input) {
-    const auto inspected=input.hud?HudFeatures{}:inspect_hud(input.frame,input.generation);
-    const auto& hud=input.hud?*input.hud:inspected;
-    return (game_hud_visible(hud) || interaction_prompt_region(input.frame).has_value())
+    return (game_hud_visible(input.frame,input.generation) || interaction_prompt_region(input.frame).has_value())
         && connection_dialog_regions(input.frame).empty();
 }
 class RespawnDetector final : public Detector {

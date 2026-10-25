@@ -120,8 +120,9 @@ bool banner_color(const Frame& frame,int x,int y) {
 struct PromptRegion { Rect bounds; bool key; };
 std::optional<Rect> colored_caption(const Frame& frame);
 std::optional<PromptRegion> locate_prompt(const Frame& frame,bool captions) {
-    if (!frame.valid()) return {};
-    cv::Mat light(frame.height/4,frame.width,CV_8UC1,cv::Scalar(0));
+    if (!frame.valid() || frame.region.x!=0 || frame.region.y!=0 || frame.region.width!=1 || frame.region.height<upper_hud_region.height) return {};
+    const int viewport_height=frame.viewport_height();
+    cv::Mat light(std::min(frame.height,viewport_height/4),frame.width,CV_8UC1,cv::Scalar(0));
     for (int y=0;y<light.rows;++y) for (int x=frame.width/5;x<frame.width*4/5;++x) {
         const auto i=(std::size_t(y)*frame.width+x)*4;
         const int r=frame.rgba[i],g=frame.rgba[i+1],b=frame.rgba[i+2];
@@ -133,7 +134,7 @@ std::optional<PromptRegion> locate_prompt(const Frame& frame,bool captions) {
     for (const auto& contour:contours) {
         const auto key=cv::boundingRect(contour);
         if (cv::contourArea(contour)<key.area()*.7) continue;
-        if (key.height<frame.height*.018 || key.height>frame.height*.13 || key.width<key.height*.75 || key.width>key.height*1.3
+        if (key.height<viewport_height*.018 || key.height>viewport_height*.13 || key.width<key.height*.75 || key.width>key.height*1.3
             || !interact_key(frame,key)) continue;
         const int inset=std::max(2,key.height/12);
         const int left=key.x+key.width+inset,y=key.y,right=frame.width-key.x+inset,height=key.height;
@@ -149,7 +150,7 @@ std::optional<PromptRegion> locate_prompt(const Frame& frame,bool captions) {
     if (const auto panel=colored_caption(frame)) return PromptRegion{*panel,false};
     // Join a HUD border across adjacent rows when scaling breaks its thin edge.
     cv::dilate(light,light,cv::getStructuringElement(cv::MORPH_RECT,{1,3}));
-    for (int y=0;y<frame.height/6;++y) {
+    for (int y=0;y<std::min(light.rows,viewport_height/6);++y) {
         std::vector<std::pair<int,int>> runs;
         const auto* row=light.ptr<unsigned char>(y);
         for (int x=frame.width/5;x<frame.width*4/5;) {
@@ -157,7 +158,7 @@ std::optional<PromptRegion> locate_prompt(const Frame& frame,bool captions) {
             const int begin=x++;
             // The two HUD bars can touch after rasterization; keep their halves separate.
             while (x<frame.width*4/5 && row[x] && x!=frame.width/2) ++x;
-            if (x-begin>=frame.height*.12 && x-begin<=frame.height*.6) runs.emplace_back(begin,x);
+            if (x-begin>=viewport_height*.12 && x-begin<=viewport_height*.6) runs.emplace_back(begin,x);
         }
         for (std::size_t i=1;i<runs.size();++i) {
             const auto [a,b]=runs[i-1];const auto [c,d]=runs[i];
@@ -247,7 +248,8 @@ bool cooldown_caption(const Frame& frame,Rect region) {
 std::optional<Rect> colored_caption(const Frame& frame) {
     // Locate the colored panel independently of the white HUD borders, which can
     // merge into a bright sky. Cooldowns and the empty-bag hive caption have no E key.
-    cv::Mat colored(frame.height/4,frame.width,CV_8UC1,cv::Scalar(0));
+    const int viewport_height=frame.viewport_height();
+    cv::Mat colored(std::min(frame.height,viewport_height/4),frame.width,CV_8UC1,cv::Scalar(0));
     for (int y=0;y<colored.rows;++y) for (int x=frame.width/4;x<frame.width*3/4;++x) {
         if (banner_color(frame,x,y)) colored.at<unsigned char>(y,x)=255;
     }
@@ -256,15 +258,15 @@ std::optional<Rect> colored_caption(const Frame& frame) {
     std::vector<Rect> found;
     for (const auto& contour:contours) {
         auto box=cv::boundingRect(contour);
-        if (box.height<frame.height*.018 || box.height>frame.height*.1 || box.width<box.height*3 || box.width>box.height*14
-            || std::abs(box.x+box.width/2.-frame.width/2.)>box.height || box.y<frame.height*.025) continue;
+        if (box.height<viewport_height*.018 || box.height>viewport_height*.1 || box.width<box.height*3 || box.width>box.height*14
+            || std::abs(box.x+box.width/2.-frame.width/2.)>box.height || box.y<viewport_height*.025) continue;
         // World pixels can touch the panel's edge. Keep the rows supported by
         // its full background instead of extending the crop into the hive.
         int top=box.y,bottom=box.y+box.height;
         while (top<bottom && cv::countNonZero(colored.row(top).colRange(box.x,box.x+box.width))<box.width*.65) ++top;
         while (bottom>top && cv::countNonZero(colored.row(bottom-1).colRange(box.x,box.x+box.width))<box.width*.65) --bottom;
         box.y=top; box.height=bottom-top;
-        if (box.height<frame.height*.018 || cv::contourArea(contour)<box.area()*.8) continue;
+        if (box.height<viewport_height*.018 || cv::contourArea(contour)<box.area()*.8) continue;
         // A solid panel or world geometry is not a text-bearing action banner.
         const Rect region{double(box.x)/frame.width,double(box.y)/frame.height,double(box.width)/frame.width,double(box.height)/frame.height};
         if (cooldown_caption(frame,region) || interaction_label(interaction_text_image(frame,region)))
@@ -283,7 +285,7 @@ std::optional<Rect> interaction_text_region(const Frame& frame) {
     return prompt?std::optional(prompt->bounds):std::nullopt;
 }
 Reading<InteractionBanner> read_interaction_banner(const Frame& frame,std::uint64_t generation,const HudFeatures*) {
-    if (!frame.valid() || !generation) return {};
+    if (!frame.valid() || !generation || frame.region.x!=0 || frame.region.y!=0 || frame.region.width!=1 || frame.region.height<upper_hud_region.height) return {};
     Reading<InteractionBanner> result{Knowledge::present,InteractionBanner::none,frame.captured,frame.window,generation};
     // E and the HUD locate the panel even when its color merges into the scenery.
     if (const auto prompt=locate_prompt(frame,true)) {

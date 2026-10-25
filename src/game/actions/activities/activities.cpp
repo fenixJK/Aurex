@@ -6,14 +6,40 @@
 #include <utility>
 
 namespace hive::automation {
-bool Runner::observes_interaction() const {
-    return config_.observe_interaction || (step_ && (std::holds_alternative<UseStation>(*step_) || std::holds_alternative<Navigate>(*step_)))
-        || (recovery_ && recovery_->observes_interaction()) || (child_ && child_->observes_interaction())
-        || (pattern_ && pattern_->observes_interaction());
+game::ObservationNeeds Runner::observation_needs() const {
+    using K=game::ObservationKind;
+    if (progress_.state!=State::running) return {};
+    if (recovery_) return recovery_->observation_needs();
+    game::ObservationNeeds needs;
+    if (config_.observe || config_.backpack_limit || connection_reconnect_) needs={K::health,K::connection};
+    if (awaiting_window_) return needs;
+    auto include=[&](const game::ObservationNeeds& requested) { needs.insert(requested.begin(),requested.end()); };
+    include(program_->observation_needs());
+    if (guard_) include(guard_->observation_needs());
+    if (config_.backpack_limit) needs.insert(K::backpack);
+    if (config_.observe_interaction) needs.insert(K::interaction);
+    for (const auto* child:{child_.get(),pattern_.get()}) if (child) include(child->observation_needs());
+    if (pending_.empty() && prepares_menu()) needs.insert(K::menus);
+    if (step_) std::visit([&](const auto& step) {
+        using T=std::decay_t<decltype(step)>;
+        if constexpr (std::is_same_v<T,AnswerDialog>) needs.insert(K::confirmation);
+        else if constexpr (std::is_same_v<T,DragInventoryItem> || std::is_same_v<T,InspectInventoryItem>) needs.insert(K::menus);
+        else if constexpr (std::is_same_v<T,Convert>) needs.insert(K::backpack);
+        else if constexpr (std::is_same_v<T,UseStation>) needs.insert(K::interaction);
+        else if constexpr (std::is_same_v<T,Navigate>) {
+            needs.insert(K::interaction);
+            if (step.inventory_search && (!navigation_ || travel_inventory_)) needs.insert(K::menus);
+        }
+    },*step_);
+    return needs;
 }
-bool Runner::observes_game() const {
-    return config_.observe || config_.backpack_limit
-        || (recovery_ && recovery_->observes_game()) || (child_ && child_->observes_game()) || (pattern_ && pattern_->observes_game());
+bool Runner::needs_movement_speed() const {
+    if (progress_.state!=State::running || awaiting_window_) return false;
+    if (recovery_) return recovery_->needs_movement_speed();
+    if ((child_ && child_->needs_movement_speed()) || (pattern_ && pattern_->needs_movement_speed())) return true;
+    return step_ && (std::holds_alternative<Walk>(*step_) || std::holds_alternative<Navigate>(*step_)
+        || std::holds_alternative<FollowPath>(*step_) || std::holds_alternative<ApproachLandmark>(*step_)
+        || std::holds_alternative<ApproachPrompt>(*step_));
 }
 std::vector<game::FixedLabelQuery> Runner::fixed_labels() const {
     if (recovery_) return recovery_->fixed_labels();
@@ -57,6 +83,7 @@ class PatternGuard final : public RunGuard {
     std::function<bool()> yield_;
 public:
     PatternGuard(RunConfig config,std::function<bool()> yield,WorkActivity activity):observations_(observation_guard(config,activity)),duration_(config.duration),yield_(std::move(yield)) {}
+    game::ObservationNeeds observation_needs() const override { return observations_->observation_needs(); }
     GuardDecision evaluate(const View& view,Time started) override {
         const auto decision=observations_->evaluate(view,started);
         if (decision.state!=GuardState::ready) return decision;
@@ -121,7 +148,8 @@ std::optional<game::MenuTab> Runner::movement_menu() const {
     if (auto menu=program_->movement_menu()) return menu;
     return parent_menu_?parent_menu_():std::nullopt;
 }
-bool Runner::prepare_menu(const ObservationContext& c,const game::State& s) {
+bool Runner::prepares_menu() const {
+    if (!step_) return false;
     if (!permissions_.contains(Permission::interact) || checkpoint_ || navigation_ || sprinkler_) return false;
     if (const auto* travel=std::get_if<Navigate>(&*step_); travel && travel->inventory_search) return false;
     const auto* hold=std::get_if<Hold>(&*step_);
@@ -132,7 +160,10 @@ bool Runner::prepare_menu(const ObservationContext& c,const game::State& s) {
         || std::holds_alternative<MoveCamera>(*step_) || std::holds_alternative<SetHeading>(*step_)
         || std::holds_alternative<FollowPath>(*step_)
         || std::holds_alternative<ApproachLandmark>(*step_) || std::holds_alternative<ApproachPrompt>(*step_);
-    if (!moving) return false;
+    return moving;
+}
+bool Runner::prepare_menu(const ObservationContext& c,const game::State& s) {
+    if (!prepares_menu()) return false;
     if (!menu_pending_.empty()) {
         for (const auto& result:tasks_.results(scope_)) if (result.id==menu_pending_) {
             menu_pending_.clear();

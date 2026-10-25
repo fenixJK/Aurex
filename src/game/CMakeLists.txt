@@ -1,4 +1,5 @@
 add_library(hive_game
+  detection/state_observation.cpp
   detection/respawn.cpp
   detection/enemies.cpp
   data/fields.cpp

@@ -31,7 +31,7 @@ class Execution final : public automation::Program {
     enum class Phase { select, initializing, planning, preparing, arriving, locating, approaching, baseline, acting, placed, confirming, looting, departing, returning, checking_backpack, converting, done } phase_{Phase::select};
     std::optional<ActivityStatus> pending_report_;
     Time started_{},deadline_{},planned_at_{},minimum_{},travel_started_{};
-    bool leased_{},harvest_confirmed_{};
+    bool leased_{},harvest_confirmed_{},passive_step_{};
     std::optional<WallTime> last_wall_;
     Stats selected_;
     std::string finish_reason_;
@@ -49,7 +49,11 @@ class Execution final : public automation::Program {
         const auto* answer=std::get_if<AnswerDialog>(&steps_.back());
         return answer && answer->plan.choice==workflows::DialogChoice::yes;
     }
-    Step emit(Step step) { ++issued_; return step; }
+    Step emit(Step step) {
+        ++issued_;
+        passive_step_=std::holds_alternative<Wait>(step) || std::holds_alternative<ReportActivity>(step);
+        return step;
+    }
     Step wait(const std::string& reason) { return emit(Wait{Time(50),reason}); }
     void publish(ExecutionStage stage) {
         std::lock_guard lock(results_->mutex_);
@@ -288,6 +292,11 @@ public:
         if (plan_.preferences) validate(*plan_.preferences);
     }
     ~Execution() override { release(); }
+    game::ObservationNeeds observation_needs() const override {
+        if (phase_==Phase::checking_backpack) return {game::ObservationKind::backpack};
+        if (phase_==Phase::baseline || phase_==Phase::acting || phase_==Phase::confirming) return {game::ObservationKind::confirmation};
+        return {};
+    }
     RunConfig config() const override { return plan_.config; }
     std::vector<game::FixedLabelQuery> fixed_labels() const override {
         if (!harvest_ && (phase_==Phase::baseline || phase_==Phase::acting || phase_==Phase::confirming))
@@ -581,6 +590,9 @@ public:
     void step_completed(const View& view) override {
         if (view.completed_steps!=issued_ || acknowledged_+1!=issued_) throw std::logic_error("Unexpected planter operation completion");
         acknowledged_=issued_;
+        // Polling and status updates acknowledge progress without completing
+        // game input again or changing its observation window and deadline.
+        if (passive_step_) return;
         if (phase_==Phase::initializing) {
             phase_=Phase::select; ready_for_travel_=true;
             started_=minimum_=view.context.now+Time(1); deadline_=view.context.now+Time(10000);

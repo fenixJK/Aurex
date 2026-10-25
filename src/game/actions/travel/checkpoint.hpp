@@ -39,7 +39,7 @@ public:
 private:
     CheckpointPlan plan_;
     std::shared_ptr<game::MovementSpeed> speed_;
-    std::optional<game::DistanceIntegrator> distance_;
+    std::shared_ptr<game::DistanceIntegrator> distance_;
     CheckpointStage stage_{CheckpointStage::idle};
     CheckpointFailure failure_{CheckpointFailure::none};
     ObservationContext started_;
@@ -47,7 +47,7 @@ private:
     std::string pending_,reason_;
     Time last_{},minimum_{},seen_{Time(-1)},executed_{};
     std::size_t index_{},attempts_{};
-    bool owned_{},nudging_{},awaiting_view_{},launched_{};
+    bool owned_{},nudging_{},awaiting_view_{},launched_{},observation_paused_{};
     void finish(CheckpointStage stage,std::string reason,TaskPort& tasks);
     void confirm(Time stopped);
     Time cancel_tasks(TaskPort& tasks,Time stopped={});

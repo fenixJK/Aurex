@@ -28,7 +28,7 @@ std::optional<BackpackBar> backpack_bar(const Frame& frame,bool region_only=fals
     // Roblox's UI scale is independent of window DPI. Find the bar from its
     // proportions and centered layout, then measure its border and fill.
     const int first=frame.width/2,last=frame.width*9/10;
-    const int limit=frame.height/5;
+    const int limit=std::min(frame.height,frame.viewport_height()/5);
     std::optional<BackpackBar> outlined_bar;
     for (int y=1;y<limit;++y) for (int x=first;x<last;) {
         if (!interior(x,y)) { ++x; continue; }
@@ -116,35 +116,45 @@ std::optional<std::array<Rect,2>> resource_hud_regions(const DetectionInput& inp
     return input.hud?input.hud->resources:resource_hud_regions(input.frame);
 }
 HudFeatures inspect_hud(const Frame& frame,std::uint64_t generation) { return HudInspector{}.inspect(frame,generation); }
-HudFeatures HudInspector::inspect(const Frame& frame,std::uint64_t generation) {
+HudFeatures HudInspector::inspect(const Frame& frame,std::uint64_t generation,bool menus,bool backpack) {
     if (frame.window.id!=window_.id || frame.window.process!=window_.process || frame.window.bounds!=window_.bounds || frame.width!=width_ || frame.height!=height_ || generation!=generation_) {
         pollen_activity_={};
         menu_region_.reset(); menu_hints_.clear(); window_=frame.window; width_=frame.width; height_=frame.height; generation_=generation;
     }
     HudFeatures result;
-    if (menu_region_) result.menus=menu_controls({frame,{},generation,{}},menu_region_,menu_hints_);
-    if (result.menus.size()!=3) {
-        result.menus=menu_controls({frame,{},generation,{}}); menu_region_.reset();
-        if (result.menus.size()==3) {
-            double left=1,top=1,right=0,bottom=0,pad_x=0,pad_y=0;
-            for (const auto& menu:result.menus) {
-                left=std::min(left,menu.bounds.x); top=std::min(top,menu.bounds.y);
-                right=std::max(right,menu.bounds.x+menu.bounds.width); bottom=std::max(bottom,menu.bounds.y+menu.bounds.height);
-                pad_x=std::max(pad_x,menu.bounds.width*.4); pad_y=std::max(pad_y,menu.bounds.height*.4);
+    if (menus) {
+        if (menu_region_) result.menus=menu_controls({frame,{},generation,{}},menu_region_,menu_hints_);
+        if (result.menus.size()!=3) {
+            result.menus=menu_controls({frame,{},generation,{}}); menu_region_.reset();
+            if (result.menus.size()==3) {
+                double left=1,top=1,right=0,bottom=0,pad_x=0,pad_y=0;
+                for (const auto& menu:result.menus) {
+                    left=std::min(left,menu.bounds.x); top=std::min(top,menu.bounds.y);
+                    right=std::max(right,menu.bounds.x+menu.bounds.width); bottom=std::max(bottom,menu.bounds.y+menu.bounds.height);
+                    pad_x=std::max(pad_x,menu.bounds.width*.4); pad_y=std::max(pad_y,menu.bounds.height*.4);
+                }
+                menu_region_=Rect{left-pad_x,top-pad_y,right-left+2*pad_x,bottom-top+2*pad_y};
             }
-            menu_region_=Rect{left-pad_x,top-pad_y,right-left+2*pad_x,bottom-top+2*pad_y};
         }
+        menu_hints_=result.menus;
     }
-    menu_hints_=result.menus;
     result.backpack={Knowledge::unknown,0,frame.captured,frame.window,generation};
-    if (generation) if (const auto bar=backpack_bar(frame)) {
+    if (backpack && generation) if (const auto bar=backpack_bar(frame)) {
         result.resources=resource_regions(frame,bar->pixels);
         if (bar->percent) { result.backpack.knowledge=Knowledge::present; result.backpack.value=*bar->percent; }
         if (const auto changed=pollen_activity_.observe(frame,bar->pixels))
             result.pollen_changed_at={Knowledge::present,*changed,frame.captured,frame.window,generation};
     }
-    result.open_menu=read_open_menu(frame,result,generation);
+    if (menus) {
+        if (!result.resources) result.resources=resource_hud_regions(frame);
+        result.open_menu=read_open_menu(frame,result,generation);
+    }
     return result;
+}
+bool game_hud_visible(const Frame& frame,std::uint64_t generation) {
+    if (resource_hud_regions(frame)) return true;
+    HudFeatures hud; hud.menus=menu_controls({frame,{},generation,{}});
+    return game_hud_visible(hud);
 }
 bool game_hud_visible(const HudFeatures& hud) {
     return hud.resources.has_value() || hud.backpack.knowledge==Knowledge::present || std::count_if(hud.menus.begin(),hud.menus.end(),

@@ -266,6 +266,10 @@ void Runtime::cancel_owner(std::uint64_t owner,Time now) {
     if (active_ && active_->job.owner==owner) {
         if (!release()) { fault(status_.reason); return; }
         const auto stopped=now+std::chrono::duration_cast<Time>(std::chrono::steady_clock::now()-began);
+        if (active_->begun) if (const auto& pacing=active_->job.actions.at(active_->index).pacing) {
+            try { pacing->next(active_->segment_start,stopped); }
+            catch (const std::exception& error) { fault(error.what()); return; }
+        }
         finish(*active_,TaskOutcome::cancelled,stopped,"Module work cancelled"); active_.reset();
         status_.job.clear(); status_.action.clear(); interrupted_interaction_=false;
     }

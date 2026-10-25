@@ -216,6 +216,7 @@ public:
         })) { yielding_=true; objective_complete_=true; }
     }
     bool request_yield() override { if (stage_!=Stage::gathered) return false; yielding_=true; return true; }
+    game::ObservationNeeds observation_needs() const override { return stage_<=Stage::arrived || stage_==Stage::converted?game::ObservationNeeds{game::ObservationKind::backpack}:game::ObservationNeeds{}; }
     automation::RunConfig config() const override { return plan_.config; }
     std::optional<game::MenuTab> movement_menu() const override {
         return stage_<=Stage::gathered?tracking_menu_:std::nullopt;

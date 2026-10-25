@@ -16,6 +16,7 @@ public:
         if (!source_ || station_.empty()) throw std::invalid_argument("Memory Match needs board observations and a station");
     }
     automation::RunConfig config() const override { return {std::chrono::minutes(3),28,{},true,true,true}; }
+    game::ObservationNeeds observation_needs() const override { return !playing_ && !accepted_?game::ObservationNeeds{game::ObservationKind::confirmation}:game::ObservationNeeds{}; }
     ActivityStatus activity_status() const override { return {"Playing",station_}; }
     automation::Step next(const automation::View& view) override {
         using namespace automation;

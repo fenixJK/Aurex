@@ -7,6 +7,7 @@
 #include <string>
 #include <stdexcept>
 #include <vector>
+#include <algorithm>
 
 namespace hive {
 using Time = std::chrono::milliseconds;
@@ -60,11 +61,30 @@ struct Frame {
     Time captured{};
     int width{}, height{};
     std::vector<std::uint8_t> rgba;
-    bool valid() const { return width > 0 && height > 0 && window.bounds.valid() && rgba.size() == static_cast<std::size_t>(width)*height*4; }
+    Rect region{0,0,1,1}; // Captured portion of the window; pixels remain local to this image.
+    bool valid() const { return width > 0 && height > 0 && window.bounds.valid() && region.valid()
+        && region.x>=0 && region.y>=0 && region.x+region.width<=1.000001 && region.y+region.height<=1.000001
+        && rgba.size() == static_cast<std::size_t>(width)*height*4; }
+    int viewport_height() const { return static_cast<int>(std::lround(height/region.height)); }
+    Frame crop(Rect area) const {
+        if (!valid() || !area.valid() || area.x<0 || area.y<0 || area.x+area.width>1 || area.y+area.height>1)
+            throw std::invalid_argument("Invalid capture region");
+        const int left=std::floor(area.x*width),top=std::floor(area.y*height);
+        const int right=std::min(width,int(std::ceil((area.x+area.width)*width)));
+        const int bottom=std::min(height,int(std::ceil((area.y+area.height)*height)));
+        Frame result{window,captured,right-left,bottom-top,{}};
+        result.region={region.x+region.width*left/width,region.y+region.height*top/height,
+            region.width*result.width/width,region.height*result.height/height};
+        result.rgba.resize(std::size_t(result.width)*result.height*4);
+        for (int y=0;y<result.height;++y) std::copy_n(rgba.data()+(std::size_t(top+y)*width+left)*4,
+            std::size_t(result.width)*4,result.rgba.data()+std::size_t(y)*result.width*4);
+        return result;
+    }
     Point screen_point(Point pixel) const {
         if (!valid() || pixel.x < 0 || pixel.y < 0 || pixel.x >= width || pixel.y >= height)
             throw std::out_of_range("Point is outside the captured frame");
-        return {window.bounds.x+pixel.x*window.bounds.width/width, window.bounds.y+pixel.y*window.bounds.height/height};
+        return {window.bounds.x+(region.x+pixel.x*region.width/width)*window.bounds.width,
+            window.bounds.y+(region.y+pixel.y*region.height/height)*window.bounds.height};
     }
 };
 struct TextLine { std::string text; Rect pixels; std::optional<float> confidence; };

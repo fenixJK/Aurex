@@ -68,24 +68,24 @@ void MovementSpeed::advance(DistanceIntegrator& distance,Time finished,Time dura
 namespace {
 class PacedWalk final : public ActionPacing {
     WalkLeg leg_;
-    DistanceIntegrator distance_;
+    std::shared_ptr<DistanceIntegrator> distance_;
     std::shared_ptr<MovementSpeed> speed_;
     ObservationContext context_;
 public:
-    PacedWalk(WalkLeg leg,std::shared_ptr<MovementSpeed> speed,ObservationContext context)
-        :leg_(leg),distance_(leg.tiles),speed_(std::move(speed)),context_(std::move(context)) {}
+    PacedWalk(WalkLeg leg,std::shared_ptr<MovementSpeed> speed,ObservationContext context,std::shared_ptr<DistanceIntegrator> progress)
+        :leg_(leg),distance_(progress?std::move(progress):std::make_shared<DistanceIntegrator>(leg.tiles)),speed_(std::move(speed)),context_(std::move(context)) {}
     Time next(Time from,Time to) override {
         context_.now=to; speed_->observe(context_,{});
-        speed_->advance(distance_,to,to-from);
-        return distance_.complete()?Time{}:movement_slice(leg_,distance_.remaining_tiles(),speed_->current()).duration;
+        speed_->advance(*distance_,to,to-from);
+        return distance_->complete()?Time{}:movement_slice(leg_,distance_->remaining_tiles(),speed_->current()).duration;
     }
 };
 }
-Action paced_walk(const WalkLeg& leg,std::shared_ptr<MovementSpeed> speed,ObservationContext context,bool tool) {
+Action paced_walk(const WalkLeg& leg,std::shared_ptr<MovementSpeed> speed,ObservationContext context,bool tool,std::shared_ptr<DistanceIntegrator> progress) {
     if (!speed) throw std::invalid_argument("Walking needs a movement speed source");
     auto action=movement_slice(leg,leg.tiles,speed->current(),Time(100),tool);
     action.duration=Time(100);
-    action.pacing=std::make_shared<PacedWalk>(leg,std::move(speed),std::move(context));
+    action.pacing=std::make_shared<PacedWalk>(leg,std::move(speed),std::move(context),std::move(progress));
     return action;
 }
 Action movement_slice(const WalkLeg& leg,double remaining,double speed,Time checkpoint,bool tool) {

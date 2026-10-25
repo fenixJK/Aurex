@@ -82,7 +82,7 @@ public:
             if (input.cancelled && input.cancelled()) return {};
             if (labelled_growth_bar(frame,bar)) { present=true; break; }
         }
-        const bool readable=present || game_hud_visible(input.hud?*input.hud:inspect_hud(frame,input.generation));
+        const bool readable=present || (input.hud?game_hud_visible(*input.hud):game_hud_visible(frame,input.generation));
         growth.value=present;
         growth.knowledge=present?Knowledge::present:readable?Knowledge::absent:Knowledge::unknown;
         if (!present) if (const auto region=interaction_prompt_region(frame))

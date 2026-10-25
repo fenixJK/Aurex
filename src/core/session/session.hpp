@@ -107,6 +107,7 @@ private:
     std::atomic<bool> exiting_{false};
     std::thread worker_;
     void clear_feature(bool stop_observer=true);
+    game::ObservationNeeds observation_needs() const;
     void launch_feature(Window window,automation::Launch launch,Time now);
     bool begin_window_recovery(Time now);
     void recover_window(Time now);

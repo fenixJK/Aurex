@@ -12,6 +12,7 @@ class InteractionPromptDetector final : public Detector {
     std::string label_;
 public:
     explicit InteractionPromptDetector(std::string label):label_(std::move(label)) {}
+    Rect capture_region() const override { return upper_hud_region; }
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         if (!input.frame.valid() || !input.generation || (input.cancelled && input.cancelled())) return {};
         const auto& frame=input.frame;

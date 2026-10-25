@@ -63,6 +63,9 @@ std::optional<Window> window_info(std::uint64_t id) {
 class MacDesktop final : public Desktop {
     bool primary_down_{};
     std::optional<Point> pending_pointer_;
+    std::mutex capture_mutex_;
+    Window capture_window_;
+    SCContentFilter* capture_filter_{};
 public:
     bool client_lifecycle_available() const override { return true; }
     std::vector<std::int64_t> client_processes() override {
@@ -181,21 +184,30 @@ public:
             return {*window, active == window->process, AXIsProcessTrusted() != 0, escape, pause};
         }
     }
-    Frame capture(std::uint64_t id) override {
+    Frame capture(std::uint64_t id) override { return capture(id,{0,0,1,1}); }
+    Frame capture(std::uint64_t id,Rect region) override {
+        if (!region.valid() || region.x<0 || region.y<0 || region.x+region.width>1 || region.y+region.height>1)
+            throw std::invalid_argument("Invalid capture region");
         @autoreleasepool {
             if (!CGPreflightScreenCaptureAccess()) throw std::runtime_error("Screen Recording permission is required");
             auto window = window_info(id);
             if (!window) throw std::runtime_error("Game window is no longer visible");
-            auto content = std::make_shared<Reply<__strong SCShareableContent*>>();
-            [SCShareableContent getShareableContentExcludingDesktopWindows:YES onScreenWindowsOnly:NO completionHandler:^(SCShareableContent* value, NSError* error) {
-                std::lock_guard lock(content->mutex);
-                content->value = value; content->error = text(error.localizedDescription); content->done = true; content->changed.notify_one();
-            }];
-            content->wait();
-            SCWindow* target = nil;
-            for (SCWindow* candidate in content->value.windows) if (candidate.windowID == id) { target = candidate; break; }
-            if (!target) throw std::runtime_error("Game window disappeared before capture");
-            SCContentFilter* filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:target];
+            std::lock_guard capture_lock(capture_mutex_);
+            if (!capture_filter_ || capture_window_.id!=window->id || capture_window_.process!=window->process
+                || capture_window_.bounds!=window->bounds) {
+                auto content = std::make_shared<Reply<__strong SCShareableContent*>>();
+                [SCShareableContent getShareableContentExcludingDesktopWindows:YES onScreenWindowsOnly:NO completionHandler:^(SCShareableContent* value, NSError* error) {
+                    std::lock_guard lock(content->mutex);
+                    content->value = value; content->error = text(error.localizedDescription); content->done = true; content->changed.notify_one();
+                }];
+                content->wait();
+                SCWindow* target = nil;
+                for (SCWindow* candidate in content->value.windows) if (candidate.windowID == id) { target = candidate; break; }
+                if (!target) throw std::runtime_error("Game window disappeared before capture");
+                capture_filter_ = [[SCContentFilter alloc] initWithDesktopIndependentWindow:target];
+                capture_window_=*window;
+            }
+            SCContentFilter* filter=capture_filter_;
             SCStreamConfiguration* config = [SCStreamConfiguration new];
             config.width = static_cast<size_t>(filter.contentRect.size.width * filter.pointPixelScale);
             config.height = static_cast<size_t>(filter.contentRect.size.height * filter.pointPixelScale);
@@ -203,24 +215,36 @@ public:
             config.ignoreShadowsSingleWindow = YES;
             auto reply = std::make_shared<Reply<Frame>>();
             const Window observed = *window;
+            const auto captured=monotonic_now();
             [SCScreenshotManager captureImageWithFilter:filter configuration:config completionHandler:^(CGImageRef image, NSError* error) {
                 std::lock_guard lock(reply->mutex);
                 reply->error = text(error.localizedDescription);
                 if (image) {
+                    // Window capture ignores sourceRect on supported macOS
+                    // versions. Crop the CGImage before allocating/copying RGBA.
+                    const double width=CGImageGetWidth(image),height=CGImageGetHeight(image);
+                    const double left=std::floor(width*region.x),top=std::floor(height*region.y);
+                    const double right=std::min(width,std::ceil(width*(region.x+region.width)));
+                    const double bottom=std::min(height,std::ceil(height*(region.y+region.height)));
+                    CGImageRef cropped=CGImageCreateWithImageInRect(image,CGRectMake(left,top,right-left,bottom-top));
                     auto& frame = reply->value;
-                    frame.window = observed; frame.captured = monotonic_now();
-                    frame.width = static_cast<int>(CGImageGetWidth(image)); frame.height = static_cast<int>(CGImageGetHeight(image));
+                    frame.window = observed; frame.captured = captured;
+                    frame.region={left/width,top/height,(right-left)/width,(bottom-top)/height};
+                    frame.width = cropped?static_cast<int>(CGImageGetWidth(cropped)):0;
+                    frame.height = cropped?static_cast<int>(CGImageGetHeight(cropped)):0;
                     frame.rgba.resize(static_cast<size_t>(frame.width)*frame.height*4);
                     auto space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
                     auto context = CGBitmapContextCreate(frame.rgba.data(), frame.width, frame.height, 8, frame.width*4, space, static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedLast) | kCGBitmapByteOrder32Big);
                     CGColorSpaceRelease(space);
                     if (context) {
-                        CGContextDrawImage(context, CGRectMake(0,0,frame.width,frame.height), image); CGContextRelease(context);
+                        CGContextDrawImage(context, CGRectMake(0,0,frame.width,frame.height), cropped); CGContextRelease(context);
                     } else reply->error = "Could not allocate capture buffer";
+                    if (cropped) CGImageRelease(cropped);
                 } else if (reply->error.empty()) reply->error = "Screen capture returned no image";
                 reply->done = true; reply->changed.notify_one();
             }];
-            reply->wait();
+            try { reply->wait(); }
+            catch (...) { capture_filter_=nil; throw; }
             auto latest = window_info(id);
             if (!latest || latest->bounds != window->bounds) throw std::runtime_error("Window geometry changed during capture");
             return std::move(reply->value);

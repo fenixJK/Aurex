@@ -54,6 +54,7 @@ struct GuardDecision { GuardState state{GuardState::ready}; std::string message;
 class RunGuard {
 public:
     virtual ~RunGuard()=default;
+    virtual game::ObservationNeeds observation_needs() const { return {}; }
     virtual std::vector<Rect> text_regions() const { return {}; }
     virtual GuardDecision evaluate(const View& view,Time started)=0;
 };
@@ -114,6 +115,7 @@ using Step = std::variant<Walk,Hold,MoveCamera,SetHeading,AdoptHeading,ObserveHe
 class Program {
 public:
     virtual ~Program() = default;
+    virtual game::ObservationNeeds observation_needs() const { return {}; }
     virtual RunConfig config() const = 0;
     virtual std::vector<Rect> text_regions() const { return {}; }
     virtual std::vector<game::FixedLabelQuery> fixed_labels() const { return {}; }

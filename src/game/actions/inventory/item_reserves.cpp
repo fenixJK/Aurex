@@ -15,6 +15,7 @@ public:
     InspectReserves(std::shared_ptr<game::ItemStock> stock,std::shared_ptr<const game::InventorySource> inventory,game::ItemAmounts cost)
         :stock_(std::move(stock)),inventory_(std::move(inventory)),cost_(std::move(cost)),unread_(stock_->unread(cost_)) {}
     RunConfig config() const override { return {std::chrono::minutes(5),28,{},true,true}; }
+    game::ObservationNeeds observation_needs() const override { return closing_?game::ObservationNeeds{}:game::ObservationNeeds{game::ObservationKind::menus}; }
     ActivityStatus activity_status() const override { return {"Checking supplies",index_<unread_.size()?unread_[index_]:std::string{}}; }
     Step next(const View& view) override {
         if (reading_) {

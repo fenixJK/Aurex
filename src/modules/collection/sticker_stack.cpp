@@ -18,6 +18,7 @@ public:
         *result_={};
     }
     automation::RunConfig config() const override { return {Time(45000),28,{},true,true}; }
+    game::ObservationNeeds observation_needs() const override { return phase_==Phase::purchase || phase_==Phase::submitted?game::ObservationNeeds{game::ObservationKind::confirmation}:game::ObservationNeeds{}; }
     ActivityStatus activity_status() const override { return {"Activating Sticker Stack","25 tickets"}; }
     std::vector<Rect> text_regions() const override {
         return phase_==Phase::purchase || phase_==Phase::submitted?std::vector<Rect>{{.1,.1,.85,.85}}:std::vector<Rect>{};

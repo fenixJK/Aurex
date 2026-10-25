@@ -111,6 +111,6 @@ void Session::adopt_window(const Window& window,Time now) {
     if (client_rejoin_) joined_server_=std::exchange(joining_server_,{});
     window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset();
     if (feature_->progress().state!=automation::State::running) { runtime_.stop(feature_->progress().message); return; }
-    observer_.watch({active_window_,tasks_.generation(),now},feature_->observes_game(),bool(connection_reconnect_),feature_->observes_interaction());
+    observer_.watch({active_window_,tasks_.generation(),now},observation_needs());
 }
 }

@@ -122,6 +122,10 @@ Time Checkpoint::cancel_tasks(TaskPort& tasks,Time stopped) {
     tasks.cancel(scope_);
     for (const auto& result : tasks.results(scope_)) {
         if (result.outcome==TaskOutcome::faulted) throw std::runtime_error("Checkpoint input could not be released");
+        if (result.id==pending_ && distance_ && plan_.completion!=CheckpointCompletion::launch && result.execution_time>Time{}) {
+            auto context=started_; context.now=std::max(last_,result.finished); speed_->observe(context,{});
+            speed_->advance(*distance_,result.finished,result.execution_time);
+        }
         stopped=std::max(stopped,result.finished);
     }
     return stopped;
@@ -166,6 +170,7 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
             const auto& path=nudging_?plan_.nudge_path:plan_.path;
             if (!path.empty()) {
                 if (plan_.completion==CheckpointCompletion::launch) {
+                    distance_.reset();
                     if (++index_==path.size()) confirm(result.finished);
                 } else {
                     speed_->advance(*distance_,result.finished,result.execution_time);
@@ -188,11 +193,24 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
         }
         const bool observed=!motion && detected.usable(c,plan_.observation_age,minimum_);
         const bool fresh=observed && detected.captured>seen_;
-        if (launch && !launched_ && stage_==CheckpointStage::moving && !observed && c.now-seen_>plan_.observation_age) {
-            fail(CheckpointFailure::missing,"Transport prompt observations became unavailable"); return;
+        if (!motion && !launched_ && !plan_.path.empty() && stage_==CheckpointStage::moving && !observed && c.now-seen_>plan_.observation_age) {
+            if (!observation_paused_) {
+                minimum_=cancel_tasks(tasks,c.now)+Time(1); pending_.clear(); observation_paused_=true;
+                reason_="Waiting for fresh route observations; movement released";
+            }
+            return;
         }
         const bool present=fresh && detected.knowledge==Knowledge::present && detected.value;
         if (fresh) seen_=detected.captured;
+        if (observation_paused_) {
+            if (!fresh) return;
+            observation_paused_=false;
+            reason_.clear();
+            // This frame was taken after input was released. A positive result
+            // already confirms the stationary position; otherwise resume only
+            // the untravelled distance, without restarting or backtracking.
+            if (present) stage_=CheckpointStage::confirming;
+        }
         if (launch && !launched_ && present && stage_!=CheckpointStage::confirming) {
             const auto stopped=pending_.empty()?c.now:cancel_tasks(tasks,c.now);
             pending_.clear();
@@ -239,10 +257,15 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
                 const auto& leg=path.at(index_);
                 // Keep walking while observations arrive independently. Paced walking
                 // owns the distance bound; a seen prompt still cancels it immediately.
-                if (launch) pending_=tasks.submit(scope_,TaskClass::travel,
-                    {game::paced_walk(leg,speed_,c)},plan_.timeout-(c.now-started_.now));
+                if (launch) {
+                    if (!distance_) distance_=std::make_shared<game::DistanceIntegrator>(leg.tiles);
+                    if (distance_->complete()) { confirm(c.now); return; }
+                    auto remaining=leg; remaining.tiles=distance_->remaining_tiles();
+                    pending_=tasks.submit(scope_,TaskClass::travel,
+                        {game::paced_walk(remaining,speed_,c,false,distance_)},plan_.timeout-(c.now-started_.now));
+                }
                 else {
-                    if (!distance_) distance_.emplace(leg.tiles);
+                    if (!distance_) distance_=std::make_shared<game::DistanceIntegrator>(leg.tiles);
                     pending_=tasks.submit(scope_,TaskClass::travel,
                         {game::movement_slice(leg,distance_->remaining_tiles(),speed_->current())},plan_.timeout-(c.now-started_.now));
                 }

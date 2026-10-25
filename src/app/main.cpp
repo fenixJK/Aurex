@@ -453,10 +453,7 @@ public:
         const auto hive_proximity=hive::game::landmark_source(channels.at("navigation-landmarks"),"hive.proximity");
         const auto hive_reference=hive::game::hive_reference_source(channels.at("hive-view"));
         native_modules_.transport_prompt=hive::game::landmark_source(channels.at("interaction-prompt"),"interaction.prompt");
-        localization_=std::make_shared<hive::automation::LandmarkNavigation>(channels.at("navigation-landmarks"),
-            std::map<std::string,std::shared_ptr<const hive::game::LandmarkSource>>{
-                {"interaction.prompt",native_modules_.transport_prompt},
-                {"transport.red-cannon",native_modules_.transport_prompt}});
+        localization_=std::make_shared<hive::automation::LandmarkNavigation>(channels.at("navigation-landmarks"));
         native_modules_.blooms=channels.at("blooms");
         native_modules_.quests.inventory=native_modules_.planters.inventory;
         native_modules_.quests.hive_view=channels.at("hive-view");
