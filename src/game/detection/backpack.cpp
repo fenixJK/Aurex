@@ -22,7 +22,7 @@ std::optional<BackpackBar> backpack_bar(const Frame& frame,bool region_only=fals
     };
     const auto border=[](const auto& c) {
         const auto [lo,hi]=std::minmax({c[0],c[1],c[2]});
-        return c[3]>=240 && lo>=165 && c[0]+c[1]+c[2]>=615 && hi-lo<=100;
+        return c[3]>=240 && lo>=165 && c[0]+c[1]+c[2]>=585 && hi-lo<=100;
     };
     const auto interior=[&](int x,int y) { const auto c=pixel(x,y); return !border(c) && (filled(c) || empty(c)); };
     // Roblox's UI scale is independent of window DPI. Find the bar from its
@@ -33,17 +33,29 @@ std::optional<BackpackBar> backpack_bar(const Frame& frame,bool region_only=fals
     for (int y=1;y<limit;++y) for (int x=first;x<last;) {
         if (!interior(x,y)) { ++x; continue; }
         const int left=x++;
-        while (x<last && interior(x,y)) ++x;
-        const int right=x,width=right-left;
+        int right=x;
+        // Antialiasing can leave unclassified pixels at the fill boundary.
+        // The white outline, rather than that color transition, ends the bar.
+        while (x<last && !border(pixel(x,y))) {
+            if (interior(x,y)) right=x+1;
+            ++x;
+        }
+        const int width=right-left;
         if (width<frame.width*.04 || width>frame.width*.3
             || left-first<width*.18 || left-first>width*.4) continue;
         const double scale=width/220.;
         const int margin=std::max(1,int(std::round(scale*2)));
         int top=y,bottom=y+1;
         const int inset=std::max(2,int(std::round(width*.025)));
-        // Read the right edge away from the left-aligned pollen text.
-        while (top>margin && y-top<40*scale && interior(right-inset,top-1)) --top;
-        while (bottom<limit && bottom-top<40*scale && interior(right-inset,bottom)) ++bottom;
+        // The gain-per-second caption reaches into the right inset. Measure
+        // height at the trailing edge, where the bar's padding stays visible.
+        const auto trailing_edge=[&](int row) {
+            unsigned matches=0;
+            for (int column=right-3;column<right;++column) matches+=interior(column,row);
+            return matches>=2;
+        };
+        while (top>margin && y-top<40*scale && trailing_edge(top-1)) --top;
+        while (bottom<limit && bottom-top<40*scale && trailing_edge(bottom)) ++bottom;
         const int height=bottom-top;
         if (height<24*scale || height>36*scale) continue;
         auto edge=[&](int x,int y,bool horizontal) {

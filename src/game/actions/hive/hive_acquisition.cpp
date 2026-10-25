@@ -202,19 +202,22 @@ public:
                 return Wait{Time(100),"Waiting for Bee Swarm to load"};
             }
             spawn_->read(c);
-            if (c.now-minimum_>=Time(10000)) return locate_unknown(view);
-            if (!view.observations) return Wait{};
+            const auto wait_for_prompt=[&]() -> Step {
+                if (c.now-minimum_>=Time(10000)) return locate_unknown(view);
+                return Wait{Time(50),recovered_?"Waiting for the hive prompt after respawn":"Reading hive interaction prompt"};
+            };
+            if (!view.observations) return wait_for_prompt();
             const auto& text=view.observations->text;
-            // HUD pixels arrive before the prompt reader. Give that reader a
-            // fresh frame before changing the camera to search for spawn.
-            if (!text.has_value(c,Time(2000)))
-                return Wait{Time(50),"Reading hive interaction prompt"};
-            if (text.captured==seen_) return Wait{};
+            // Neither a pre-reset capture nor the HUD behind the dying
+            // character establishes where the player has respawned.
+            if (!text.has_value(c,Time(2000),recovered_?minimum_:Time{}))
+                return wait_for_prompt();
+            if (text.captured==seen_) return wait_for_prompt();
             seen_=text.captured;
             const auto owned=game::read_prompt_landmark(c,text,game::hive_proximity_prompt());
             const auto claim=game::read_prompt_landmark(c,text,game::hive_claim_prompt());
             if (owned.value && claim.value) {
-                return Wait{Time(50),"Reading hive interaction prompt"};
+                return wait_for_prompt();
             }
             const int candidate=owned.value?1:claim.value?2:0;
             if (candidate==2 && options_.result) options_.result->reset();
@@ -227,6 +230,8 @@ public:
                     throw std::runtime_error("Select your already claimed hive in Setup, or start at spawn to claim one automatically");
                 begin(Stage::prepare,view); return child_step(view);
             }
+            if (recovered_ && !candidate)
+                return wait_for_prompt();
             return locate_unknown(view);
         }
         case Stage::observe: break;

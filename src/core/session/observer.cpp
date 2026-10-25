@@ -163,8 +163,9 @@ void Observer::capture() {
                 if (health.knowledge==Knowledge::present && (health.value || game_hud.value)) {
                     alive=health; alive.value=!health.value;
                 }
-                if (controls.size()>=2) shift_lock=read_shift_lock(frame,context.generation);
                 open_menu=features->open_menu;
+                if (game_hud.value)
+                    shift_lock=read_shift_lock(frame,context.generation);
             }
             result=std::make_shared<const Frame>(std::move(frame));
         } catch (const std::exception& e) { error=std::string(e.what()).substr(0,4096); if (error.empty()) error="Could not capture game window"; }
