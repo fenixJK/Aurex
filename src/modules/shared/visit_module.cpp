@@ -142,6 +142,7 @@ class VisitModule final : public extensions::Module {
     bool started_{},interrupt_{};
     Demand demand_;
     std::shared_ptr<Cooldowns> saved_;
+    std::optional<ObservationContext> demand_context_;
     std::set<std::string> selected_;
     mutable std::map<std::string,Time> ready_;
     mutable std::uint64_t generation_{};
@@ -150,6 +151,13 @@ class VisitModule final : public extensions::Module {
     mutable std::map<std::string,Time> retry_after_;
     std::map<std::string,Time> travel_costs_;
     mutable std::string planned_visit_;
+    Time ready_at(const automation::Visit& visit,const ObservationContext& context) const {
+        auto ready=context.now;
+        if (saved_) ready+=std::max(Time{},saved_->remaining(visit.id,visit.cooldown));
+        else if (generation_==context.generation) if (const auto found=ready_.find(visit.id);found!=ready_.end()) ready=std::max(ready,found->second);
+        if (generation_==context.generation) if (const auto found=retry_after_.find(visit.id);found!=retry_after_.end()) ready=std::max(ready,found->second);
+        return ready;
+    }
     void remember_run(Time now=Time(-1)) const {
         if (!results_) return;
         const auto report=results_->read();
@@ -215,12 +223,13 @@ public:
         automation::visit_program(plan,network_,availability_);
         if (saved_) saved_->load();
         selected_=std::move(selected); interrupt_=std::get<bool>(values.at("interrupt-gather"));
-        plan_=std::move(plan); results_.reset(); ready_.clear(); retry_after_.clear(); generation_=0; detail_.clear(); started_=true;
+        plan_=std::move(plan); results_.reset(); ready_.clear(); retry_after_.clear(); generation_=0; demand_context_.reset(); detail_.clear(); started_=true;
     }
     void update(const extensions::SessionView& view) override {
         if (!started_) throw std::logic_error("Activity module is stopped");
         detail_=view.feature && view.feature->module_id==id_?view.feature->message:std::string{};
         remember_run(view.now);
+        demand_context_=view.status.state==RunState::running && view.generation?std::optional(ObservationContext{{},view.generation,view.now}):std::nullopt;
     }
     std::vector<extensions::Metric> metrics() const override {
         if (!started_) return {{"Status","Stopped"}};
@@ -254,18 +263,29 @@ public:
     }
     std::vector<extensions::ModuleTimer> timers() const override {
         const auto records=saved_?saved_->records():game::CooldownRecords{};
+        const auto requested=demand_ && demand_context_?demand_(*demand_context_):RequestedVisits{};
         std::vector<extensions::ModuleTimer> result;
-        for (const auto& visit:plan_.visits) if (selected_.contains(visit.id)) {
+        for (const auto& visit:plan_.visits) if (selected_.contains(visit.id) || requested.contains(visit.id)) {
             const auto found=records.find(visit.id);
-            const auto remaining=found==records.end()?std::optional<Time>{}:saved_->remaining(visit.id,visit.cooldown);
-            result.push_back({visit.id,visit.id,found!=records.end() && found->second.estimated?"Estimated cooldown":"",remaining});
+            auto remaining=found==records.end()?std::optional<Time>{}:saved_->remaining(visit.id,visit.cooldown);
+            std::string detail=found!=records.end() && found->second.estimated?"Estimated cooldown":"";
+            if (demand_context_) {
+                const auto wait=ready_at(visit,*demand_context_)-demand_context_->now;
+                if (wait>Time{}) {
+                    if (generation_==demand_context_->generation)
+                        if (const auto retry=retry_after_.find(visit.id);retry!=retry_after_.end() && retry->second==demand_context_->now+wait) detail="Retry delay";
+                    remaining=wait;
+                }
+            }
+            if (requested.contains(visit.id)) detail=detail.empty()?"Requested task":"Requested task · "+detail;
+            result.push_back({visit.id,visit.id,std::move(detail),remaining});
         }
         return result;
     }
     std::optional<std::vector<extensions::Metric>> report_metrics() const override {
         return std::vector<extensions::Metric>{{"Status",metrics().front().value},{"Selected",std::to_string(selected_.size())}};
     }
-    void stop() noexcept override { started_=false; results_.reset(); detail_.clear(); }
+    void stop() noexcept override { started_=false; results_.reset(); demand_context_.reset(); detail_.clear(); }
     std::optional<extensions::RoutineParticipation> routine() const override { return extensions::RoutineParticipation{40,Time{},false,true,true,interrupt_}; }
     bool pending_work(const extensions::SessionView& view) const override {
         const auto work=next_work(view); return work && work->ready<=view.now;
@@ -280,10 +300,7 @@ public:
         for (const auto& visit:plan_.visits) {
             if (demand_ && !selected_.contains(visit.id) && !requested.contains(visit.id)) continue;
             if (visit.scheduled && !visit.scheduled({{},view.generation,view.now})) continue;
-            auto ready=view.now;
-            if (saved_) ready+=std::max(Time{},saved_->remaining(visit.id,visit.cooldown));
-            else if (const auto found=ready_.find(visit.id);found!=ready_.end()) ready=std::max(ready,found->second);
-            if (const auto found=retry_after_.find(visit.id);found!=retry_after_.end()) ready=std::max(ready,found->second);
+            const auto ready=ready_at(visit,{{},view.generation,view.now});
             Time duration=visit.settle+visit.loot_duration;
             if (const auto found=travel_costs_.find(visit.id);found!=travel_costs_.end()) duration+=found->second;
             if (const auto* interaction=std::get_if<automation::UseStation>(&visit.action)) duration+=interaction->timeout;

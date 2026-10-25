@@ -134,17 +134,29 @@ class VisitProgram final : public Program {
         advance(); return select(view);
     }
     Step finish_member(const View& view) {
-        if (evidence_[index_].confirmed && plan_.visits[index_].settle>Time{} && phase_!=Phase::settling) {
-            phase_=Phase::settling; stage(VisitStage::settling);
-            settle_until_=view.context.now+plan_.visits[index_].settle;
-        }
-        if (phase_==Phase::settling && view.context.now<settle_until_)
-            return emit(Wait{std::min(Time(1000),settle_until_-view.context.now),"Waiting for rewards"});
         if (evidence_[index_].confirmed) stage(plan_.visits[index_].loot.empty()?VisitStage::completed:VisitStage::awaiting_loot);
         if (evidence_[index_].confirmed && !plan_.visits[index_].loot.empty() && !group_loot_) group_loot_=index_;
         if (index_+1<group_end_) {
             ++index_; availability_since_.reset(); phase_=Phase::arriving;
             return next(view);
+        }
+        // A shared encounter settles once, after its last confirmed reward.
+        // Time spent fighting the other members already counts toward this wait.
+        if (phase_!=Phase::settling) {
+            settle_until_=view.context.now;
+            std::lock_guard lock(results_->mutex_);
+            for (auto i=group_begin_;i<group_end_;++i)
+                if (const auto confirmed=results_->report_.visits[i].confirmed_at)
+                    settle_until_=std::max(settle_until_,*confirmed+plan_.visits[i].settle);
+        }
+        if (view.context.now<settle_until_) {
+            phase_=Phase::settling;
+            {
+                std::lock_guard lock(results_->mutex_);
+                for (auto i=group_begin_;i<group_end_;++i) if (evidence_[i].confirmed)
+                    results_->report_.visits[i].stage=VisitStage::settling;
+            }
+            return emit(Wait{std::min(Time(1000),settle_until_-view.context.now),"Waiting for rewards"});
         }
         if (group_loot_) {
             phase_=Phase::loot; loot_=0; loot_started_=view.context.now;
@@ -204,9 +216,8 @@ public:
                 || !network->contains(visit.destination) || visit.cooldown<Time::zero() || visit.cooldown>std::chrono::days(7)
                 || visit.loot.size()>32 || visit.group.size()>80 || visit.settle<Time{} || visit.settle>Time(30000)
                 || visit.loot_duration<Time{} || visit.loot_duration>Time(120000)
-                || (!visit.group.empty() && visit.settle>Time{})
                 || std::any_of(visit.group.begin(),visit.group.end(),[](unsigned char c) { return c<32 || c==127; }))
-                throw std::invalid_argument("Invalid destination activity");
+                throw std::invalid_argument("Invalid destination activity: "+visit.id);
             if (!visit.group.empty()) {
                 if (!std::holds_alternative<Pattern>(visit.action)) throw std::invalid_argument("Only observed patterns can share an encounter");
                 if (previous && previous->group==visit.group) {

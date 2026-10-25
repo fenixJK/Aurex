@@ -10,11 +10,13 @@ class QuestModule final : public extensions::Module {
     std::shared_ptr<const Source> source_;
     Tracker tracker_;
     Report report_;
-    Time freshness_,since_{},last_{};
+    Time freshness_,lifetime_,since_{},last_{};
+    mutable Time refresh_at_{Time::max()};
     mutable Time scan_seen_{Time(-1)};
     std::uint64_t generation_{},revision_{};
     std::string state_{"Stopped"};
-    bool started_{},other_running_{};
+    bool started_{},relevant_work_{};
+    std::string other_module_;
     mutable bool scan_requested_{true};
     std::string id_;
     bool interrupt_gather_{true};
@@ -29,7 +31,7 @@ class QuestModule final : public extensions::Module {
     mutable std::shared_ptr<ScanResults> scan_{std::make_shared<ScanResults>()};
 public:
     QuestModule(const extensions::Manifest& manifest,std::shared_ptr<const Source> source,std::vector<Field> fields,Time freshness,int priority,std::shared_ptr<const BrowserSource> browser,Time retention,std::optional<CyclePlan> cycle)
-        :source_(std::move(source)),tracker_(std::move(fields),freshness,priority,retention),freshness_(freshness),cycle_(std::move(cycle)),browser_(std::move(browser)) {
+        :source_(std::move(source)),tracker_(std::move(fields),freshness,priority,retention),freshness_(freshness),lifetime_(std::max(freshness,retention)),cycle_(std::move(cycle)),browser_(std::move(browser)) {
         id_=manifest.id;
         const automation::Permissions required=cycle_?automation::Permissions{automation::Permission::movement,automation::Permission::interact,automation::Permission::tool}:browser_?automation::Permissions{automation::Permission::interact}:automation::Permissions{};
         if (!source_ || manifest.permissions!=required || manifest.requests!=std::set{extensions::RequestService::fields,extensions::RequestService::enemies,extensions::RequestService::stations}
@@ -67,24 +69,18 @@ public:
     }
     void update(const extensions::SessionView& view) override {
         if (!started_) throw std::logic_error("Quest module is not started");
-        if (view.now<Time::zero() || view.now>Time::max()-freshness_) throw std::invalid_argument("Invalid quest module time");
+        if (view.now<Time::zero() || view.now>Time::max()-lifetime_) throw std::invalid_argument("Invalid quest module time");
         if (view.status.state!=RunState::running || !view.generation) {
             // Keep the last cards for the GUI, but withdraw all work. The next
             // running generation clears the tracker before accepting fresh reads.
-            context_.reset(); report_={}; generation_=revision_=0; last_=view.now; other_running_=false; scan_requested_=true; state_="Waiting for a session"; return;
+            context_.reset(); report_={}; generation_=revision_=0; last_=view.now; other_module_.clear(); relevant_work_=false; scan_requested_=true; state_="Waiting for a session"; return;
         }
         if (generation_!=view.generation) {
             tracker_.reset(); context_.reset(); report_={}; generation_=view.generation; revision_=0; since_=last_=view.now;
-            scan_requested_=true; other_running_=false;
+            scan_requested_=true; other_module_.clear(); relevant_work_=false;
         }
         if (view.now<last_) throw std::invalid_argument("Quest module clock moved backwards");
         last_=view.now;
-        if (view.feature && view.feature->module_id!=id_) {
-            if (view.feature->state==automation::State::running) other_running_=true;
-            else if (other_running_ && automation::can_handoff(view.feature->state)) {
-                scan_requested_=scan_requested_ || (view.feature->state==automation::State::completed && view.feature->steps>0); other_running_=false;
-            }
-        }
         if (revision_==std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("Quest request revisions exhausted");
         // The browser may scroll away before the host observes the same page.
         // Consume its saved pages directly, preserving each card's capture time.
@@ -99,7 +95,7 @@ public:
                 context_=current;
             }
         }
-        const bool gathering=view.feature && view.feature->state==automation::State::running && view.feature->activity==WorkActivity::gathering;
+        const bool gathering=view.feature && view.feature->state==automation::State::running && gathering_for_quest(*view.feature);
         auto snapshot=browser_ && !gathering?source_->peek():source_->read();
         if (!snapshot || snapshot->context.generation!=generation_ || snapshot->context.now<since_
             || snapshot->context.now>view.now || view.now-snapshot->context.now>freshness_) {
@@ -116,15 +112,36 @@ public:
         }
         for (const auto& [giver,objective]:report_.actions)
             if (!cycle_ || !cycle_->actions.contains(objective.target)) report_.blocked.push_back(giver+": "+objective.text+" needs an action provider");
-        if (cycle_ && cycle_->work) {
-            const auto work=cycle_->work->read();
-            if (work.generation==generation_) for (const auto& [giver,card]:tracker_.observed_cards()) {
-                const auto reason=request_blockers(card.value,work);
-                if (!reason.empty()) report_.blocked.push_back(giver+": "+reason);
-            }
+        const auto work=cycle_ && cycle_->work?cycle_->work->read():extensions::WorkSnapshot{};
+        if (work.generation==generation_) for (const auto& [giver,card]:tracker_.observed_cards()) {
+            const auto reason=request_blockers(card.value,work);
+            if (!reason.empty()) report_.blocked.push_back(giver+": "+reason);
         }
+        observe_work(view,work);
         report_.requests.generation=generation_; report_.requests.revision=++revision_;
     }
+    bool gathering_for_quest(const automation::Progress& feature) const {
+        return feature.activity==WorkActivity::gathering && std::any_of(report_.requests.fields.begin(),report_.requests.fields.end(),[&](const auto& request) {
+            return !request.complete && (request.field==feature.field || std::find(request.alternatives.begin(),request.alternatives.end(),feature.field)!=request.alternatives.end());
+        });
+    }
+    void observe_work(const extensions::SessionView& view,const extensions::WorkSnapshot& work) {
+        if (!view.feature || view.feature->module_id==id_) { other_module_.clear(); relevant_work_=false; return; }
+        const auto& feature=*view.feature;
+        if (feature.state==automation::State::running) {
+            if (other_module_!=feature.module_id) { other_module_=feature.module_id; relevant_work_=false; }
+            // Visit providers carry the requester on their work offer. Gathering
+            // chooses fields while running, so use the field actually worked.
+            if (work.generation==generation_) if (const auto* offer=work.find(feature.module_id))
+                relevant_work_=relevant_work_ || offer->requested_by.contains(id_);
+            relevant_work_=relevant_work_ || gathering_for_quest(feature);
+        } else {
+            if (feature.module_id==other_module_ && relevant_work_ && feature.state==automation::State::completed && feature.steps>0)
+                scan_requested_=true;
+            other_module_.clear(); relevant_work_=false;
+        }
+    }
+    bool needs_scan(Time now) const { return scan_requested_ || now>=refresh_at_; }
     std::vector<extensions::Metric> metrics() const override {
         std::vector<extensions::Metric> result;
         const auto& cards=tracker_.observed_cards();
@@ -193,11 +210,11 @@ public:
     std::optional<extensions::RoutineParticipation> routine() const override { return browser_?std::optional(extensions::RoutineParticipation{80,Time{},false,true,true,interrupt_gather_}):std::nullopt; }
     bool pending_work(const extensions::SessionView& view) const override {
         return started_ && browser_ && (!cycle_ || !cycle_->givers.empty())
-            && view.status.state==RunState::running && (scan_requested_ || due_visit(view.now) || pending_action());
+            && view.status.state==RunState::running && (needs_scan(view.now) || due_visit(view.now) || pending_action());
     }
     std::optional<extensions::WorkEstimate> next_work(const extensions::SessionView& view) const override {
         if (!pending_work(view)) return {};
-        if (scan_requested_) return extensions::WorkEstimate{"Read quests",{},Time{},view.now,view.now};
+        if (needs_scan(view.now)) return extensions::WorkEstimate{"Read quests",{},Time{},view.now,view.now};
         return extensions::WorkEstimate{pending_action()?"Complete quest objective":"Talk to quest giver",{},Time{},view.now,{}};
     }
     bool pending_action() const {
@@ -217,6 +234,7 @@ public:
     }
     void acknowledge_scan() const {
         scan_requested_=false;
+        refresh_at_=last_+lifetime_;
         for(const auto& [giver,status]:cycle_results_->read()) if(status.next_visit<=last_) checked_deadlines_[giver]=status.next_visit;
     }
     bool executable() const noexcept override { return bool(browser_); }
@@ -237,7 +255,7 @@ public:
         }
         return requests;
     }
-    void stop() noexcept override { tracker_.reset(); cycle_results_->clear(); checked_deadlines_.clear(); context_.reset(); report_={}; generation_=revision_=0; started_=other_running_=false; scan_requested_=true; state_="Stopped"; }
+    void stop() noexcept override { tracker_.reset(); cycle_results_->clear(); checked_deadlines_.clear(); context_.reset(); report_={}; generation_=revision_=0; started_=relevant_work_=false; other_module_.clear(); refresh_at_=Time::max(); scan_requested_=true; state_="Stopped"; }
 };
 }
 extensions::Manifest module_manifest(std::string id,std::string provider,bool browser,bool cycle) {
