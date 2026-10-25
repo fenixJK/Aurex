@@ -132,17 +132,32 @@ void Navigation::update(const ObservationContext& c,const NavigationObservations
         }
         execution_->context=c;
         const auto found=observations.checkpoints.find(checkpoint_->detector());
+        const auto& plan=plans.at(next_checkpoint_);
+        const bool transport=plan.completion==CheckpointCompletion::launch && !checkpoint_->launched();
+        const bool arrival=next_checkpoint_+1==plans.size() && plan.completion==CheckpointCompletion::observation;
+        // A generic interaction prompt establishes proximity, not identity. Do
+        // not override a fresh known location with the route we hoped to follow.
+        if ((transport || arrival) && found!=observations.checkpoints.end()
+            && found->second.has_value(c,plan.observation_age,execution_->entered) && found->second.value
+            && anchor.has_value(c,plan.observation_age,execution_->entered+Time(1))) {
+            const auto& expected=transport?plan.detector:leg_->route.to;
+            if (anchor.value!=expected) {
+                finish(TravelStage::failed,"Expected "+expected+" but detected "+anchor.value+" on "+status_.route,TravelFailure::location);
+                return;
+            }
+        }
         checkpoint_->update(c,found==observations.checkpoints.end()?Observation<bool>{}:found->second,*this,observations.movement_speed);
         launched_=launched_ || checkpoint_->launched();
         status_.reason="Following "+status_.route+(status_.checkpoint.empty()?"":": "+status_.checkpoint);
         if (checkpoint_->stage()==CheckpointStage::failed) {
             const auto failure=checkpoint_->failure();
+            const auto reason=checkpoint_->reason()+" ("+status_.route+", checkpoint "+std::to_string(next_checkpoint_+1)
+                +"/"+std::to_string(plans.size())+(status_.checkpoint.empty()?", movement":", "+status_.checkpoint)+")";
             if (launched_ || (failure!=CheckpointFailure::missing && failure!=CheckpointFailure::timeout)) {
-                finish(TravelStage::failed,checkpoint_->reason(),failure==CheckpointFailure::context?TravelFailure::context:
+                finish(TravelStage::failed,reason,failure==CheckpointFailure::context?TravelFailure::context:
                     failure==CheckpointFailure::input?TravelFailure::input:failure==CheckpointFailure::missing?TravelFailure::location:
                     failure==CheckpointFailure::timeout?TravelFailure::timeout:TravelFailure::interrupted); return;
             }
-            const auto reason=checkpoint_->reason();
             if (!travel_.finished(leg_->ticket,c,false)) { finish(TravelStage::failed,travel_.reason(),travel_.failure()); return; }
             checkpoint_.reset(); leg_.reset(); status_.stage=TravelStage::confirming;
             execution_.reset();

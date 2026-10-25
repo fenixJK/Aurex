@@ -257,6 +257,7 @@ void Runtime::finish(const Pending& p,TaskOutcome outcome,Time now,std::string r
     results_.push_back({p.job.id,p.job.owner,outcome,now,p.index,p.started,std::move(reason),p.execution_time+(p.begun?std::max(Time::zero(),now-p.segment_start):Time::zero())});
 }
 void Runtime::cancel_owner(std::uint64_t owner,Time now) {
+    const auto began=std::chrono::steady_clock::now();
     if (tap_release_ && tap_release_->owner==owner) {
         auto keep=held_; keep.erase(tap_release_->key);
         if (!release(keep)) { fault(status_.reason); return; }
@@ -264,7 +265,8 @@ void Runtime::cancel_owner(std::uint64_t owner,Time now) {
     if (pointer_tasks_ && pointer_tasks_->scope().id==owner && !stop_pointer()) { fault(status_.reason); return; }
     if (active_ && active_->job.owner==owner) {
         if (!release()) { fault(status_.reason); return; }
-        finish(*active_,TaskOutcome::cancelled,now,"Module work cancelled"); active_.reset();
+        const auto stopped=now+std::chrono::duration_cast<Time>(std::chrono::steady_clock::now()-began);
+        finish(*active_,TaskOutcome::cancelled,stopped,"Module work cancelled"); active_.reset();
         status_.job.clear(); status_.action.clear(); interrupted_interaction_=false;
     }
     std::erase_if(queue_,[&](const Pending& p) {

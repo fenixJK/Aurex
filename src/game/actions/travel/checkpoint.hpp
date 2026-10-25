@@ -47,11 +47,9 @@ private:
     std::string pending_,reason_;
     Time last_{},minimum_{},seen_{Time(-1)},executed_{};
     std::size_t index_{},attempts_{};
-    enum class AimStage { pending,running,finished };
-    AimStage aim_{AimStage::pending};
     bool owned_{},nudging_{},awaiting_view_{},launched_{};
     void finish(CheckpointStage stage,std::string reason,TaskPort& tasks);
     void confirm(Time stopped);
-    void cancel_tasks(TaskPort& tasks);
+    Time cancel_tasks(TaskPort& tasks,Time stopped={});
 };
 }
