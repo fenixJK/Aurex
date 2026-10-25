@@ -113,7 +113,9 @@ void Navigation::update(const ObservationContext& c,const NavigationObservations
         if (travel_.stage()!=TravelStage::locating) departure_.reset();
         status_.stage=travel_.stage();
         if (status_.stage==TravelStage::failed || status_.stage==TravelStage::arrived) {
-            finish(status_.stage,travel_.reason(),travel_.failure()); return;
+            const auto reason=travel_.failure()==TravelFailure::location && !status_.route.empty()
+                ?status_.reason+"; "+travel_.reason():travel_.reason();
+            finish(status_.stage,reason,travel_.failure()); return;
         }
         if (!owned_) { status_.reason="Waiting for navigation control"; return; }
         if (dispatched) {

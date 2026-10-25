@@ -58,7 +58,6 @@ std::optional<TravelLeg> Travel::update(const ObservationContext& c,const Observ
         else if (c.now-phase_started_>=std::min(limits_.leg_timeout,active_->route.timeout)) fail(TravelFailure::timeout,"Travel leg timed out");
         return {};
     }
-    if (c.now-phase_started_>=limits_.location_timeout) { fail(TravelFailure::location,"Travel location could not be confirmed"); return {}; }
     const bool carried=stage_==TravelStage::locating && departure && departure->usable(c) && network_.contains(departure->location);
     const bool observed=location.has_value(c,Time(2000),carried?departure->context.now:minimum_) && network_.contains(location.value)
         && (!carried || location.captured>=departure->context.now)
@@ -66,7 +65,10 @@ std::optional<TravelLeg> Travel::update(const ObservationContext& c,const Observ
     const bool confirmed=stage_==TravelStage::confirming && executed_ && position_ && position_->basis==PositionBasis::observed
         && position_->usable(c) && position_->location==active_->route.to;
     const bool estimated=stage_==TravelStage::confirming && executed_ && active_->route.arrival==game::RouteArrival::estimated;
-    if (!observed && !estimated && !carried && !confirmed) return {};
+    if (!observed && !estimated && !carried && !confirmed) {
+        if (c.now-phase_started_>=limits_.location_timeout) fail(TravelFailure::location,"Travel location could not be confirmed");
+        return {};
+    }
     if (observed) position_=TravelPosition{location.value,PositionBasis::observed,{location.window,location.generation,location.captured}};
     else if (carried) position_=departure;
     else if (!confirmed) position_=TravelPosition{active_->route.to,PositionBasis::route_execution,{c.window,c.generation,minimum_}};

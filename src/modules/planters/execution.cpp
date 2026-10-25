@@ -603,6 +603,11 @@ public:
         }
     }
     void finished(State state) override {
+        // An inventory search can fail before the placement dialog is opened.
+        // Keep its slot free, but use the same backoff as other failed placements.
+        if (state==State::failed && !harvest_ && phase_==Phase::acting && action_step_==1
+            && !steps_.empty() && std::holds_alternative<DragInventoryItem>(steps_.front()))
+            account_->defer_placements(wall());
         settle_action();
         release(); std::lock_guard lock(results_->mutex_); auto& report=results_->report_; report.state=state;
         if (controller_) { report.pending=controller_->ledger().pending;

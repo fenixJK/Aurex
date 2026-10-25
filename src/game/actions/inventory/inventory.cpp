@@ -130,11 +130,17 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
             finish(InventoryStage::completed,"Item not confirmed on the visible inventory page",tasks,scope);
             return;
         }
-        if (!view.readable && view.items.empty()) {
-            if (unreadable_since_<Time{}) unreadable_since_=c.now;
-            if (c.now-unreadable_since_>=Time(5000)) fail("Inventory titles could not be read; item availability is unknown");
-            else reason_="Waiting for readable inventory rows";
-            return;
+        // Give an incomplete page one fresh reread before scrolling it away.
+        // Persistent unread rows prevent an absence claim, not a later match.
+        if (!view.readable) {
+            if (unreadable_since_<Time{}) {
+                unreadable_since_=c.now; reason_="Rereading inventory titles"; return;
+            }
+            if (view.items.empty()) {
+                if (c.now-unreadable_since_>=Time(5000)) fail("Inventory titles could not be read; item availability is unknown");
+                else reason_="Waiting for readable inventory rows";
+                return;
+            }
         }
         unreadable_since_=Time(-1);
         int correction=0;
