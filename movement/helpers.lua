@@ -39,6 +39,7 @@ function M.flight(slot)
     launch.approach={}; launch.launch_prepare={}
     local f={path=path,held={},current=launch}
     function f:flush()
+        assert(not self.double_jump,"Double jump requires a timed flight leg")
         if #self.current.approach>0 then self.path[#self.path+1]=self.current end
         self.current={kind="checkpoint",continuous=true,attempts=0,completion="movement",timeout=2000,approach={}}
         self.held={}
@@ -49,20 +50,33 @@ function M.flight(slot)
     function f:launch_moving(key) self.current.launch_movement={key} end
     function f:hold(keys,ms)
         self.current.timeout=self.current.timeout+ms
-        M.actions(self.current.approach,keys,ms,"Cannon flight")
+        local actions=self.current.approach
+        if self.double_jump then
+            -- Space the taps within this leg, preserving its steering and duration.
+            local gap=50
+            assert(ms>gap,"Flight leg is too short for a double jump")
+            actions[#actions+1]={keys=keys,ms=gap,label="Cannon flight",tap="jump"}
+            ms=ms-gap
+        end
+        local first=#actions+1
+        M.actions(actions,keys,ms,"Cannon flight")
+        if self.double_jump then actions[first].tap="jump"; self.double_jump=nil end
         self.held=keys
     end
-    -- Jump presses are ordered inputs, separate from the following timed leg.
-    -- Preserve current steering unless the route explicitly releases it.
+    -- Double jumps run inside the following timed leg; single taps stay at its boundary.
     function f:jump(count,keys)
-        local held=keys or self.held
-        for i=1,count or 1 do
-            local pressed={table.unpack(held)}; pressed[#pressed+1]="jump"
-            self:hold(pressed,50); self:hold(held,50)
+        assert(not self.double_jump and (count==nil or count==1 or count==2),"Invalid flight jump sequence")
+        if count==2 then
+            assert(not keys,"Double jump uses the following flight leg's steering")
+            self.double_jump=true
+            return
         end
+        self:hold(keys or self.held,1)
+        local action=self.current.approach[#self.current.approach]
+        action.tap="jump"
     end
     function f:steer(keys,ms,key,count)
-        assert(ms>0)
+        assert(ms>0 and not self.double_jump)
         local first=#self.current.approach+1
         self:hold(keys,ms); self.current.approach[first].tap=key; self.current.approach[first].tap_count=count
     end
