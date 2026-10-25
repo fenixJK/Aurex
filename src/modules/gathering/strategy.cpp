@@ -19,7 +19,7 @@ class PatternGuard final : public RunGuard {
     TimeExtension extension_;
 public:
     PatternGuard(RunConfig limits,std::shared_ptr<Control> control,TimeExtension extension)
-        :observations_(observation_guard(limits)),control_(std::move(control)),duration_(limits.duration),extension_(std::move(extension)) {}
+        :observations_(observation_guard(limits,WorkActivity::gathering)),control_(std::move(control)),duration_(limits.duration),extension_(std::move(extension)) {}
     GuardDecision evaluate(const View& view,Time started) override {
         const auto reading=observations_->evaluate(view,started);
         if (reading.state==GuardState::failed || reading.state==GuardState::waiting) return reading;

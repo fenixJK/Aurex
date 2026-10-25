@@ -47,15 +47,15 @@ std::optional<BackpackBar> backpack_bar(const Frame& frame,bool region_only=fals
         const int margin=std::max(1,int(std::round(scale*2)));
         int top=y,bottom=y+1;
         const int inset=std::max(2,int(std::round(width*.025)));
-        // The gain-per-second caption reaches into the right inset. Measure
-        // height at the trailing edge, where the bar's padding stays visible.
-        const auto trailing_edge=[&](int row) {
+        // Text can reach the trailing edge at some UI scales. Locate the
+        // horizontal outline across the bar instead of stopping at a glyph.
+        const auto horizontal_edge=[&](int row) {
             unsigned matches=0;
-            for (int column=right-3;column<right;++column) matches+=interior(column,row);
-            return matches>=2;
+            for (int column=left+inset;column<right-inset;++column) matches+=border(pixel(column,row));
+            return matches>=(width-2*inset)*.85;
         };
-        while (top>margin && y-top<40*scale && trailing_edge(top-1)) --top;
-        while (bottom<limit && bottom-top<40*scale && trailing_edge(bottom)) ++bottom;
+        while (top>margin && y-top<40*scale && !horizontal_edge(top-1)) --top;
+        while (bottom<limit && bottom-top<40*scale && !horizontal_edge(bottom)) ++bottom;
         const int height=bottom-top;
         if (height<24*scale || height>36*scale) continue;
         auto edge=[&](int x,int y,bool horizontal) {
@@ -118,6 +118,7 @@ std::optional<std::array<Rect,2>> resource_hud_regions(const DetectionInput& inp
 HudFeatures inspect_hud(const Frame& frame,std::uint64_t generation) { return HudInspector{}.inspect(frame,generation); }
 HudFeatures HudInspector::inspect(const Frame& frame,std::uint64_t generation) {
     if (frame.window.id!=window_.id || frame.window.process!=window_.process || frame.window.bounds!=window_.bounds || frame.width!=width_ || frame.height!=height_ || generation!=generation_) {
+        pollen_activity_={};
         menu_region_.reset(); menu_hints_.clear(); window_=frame.window; width_=frame.width; height_=frame.height; generation_=generation;
     }
     HudFeatures result;
@@ -139,6 +140,8 @@ HudFeatures HudInspector::inspect(const Frame& frame,std::uint64_t generation) {
     if (generation) if (const auto bar=backpack_bar(frame)) {
         result.resources=resource_regions(frame,bar->pixels);
         if (bar->percent) { result.backpack.knowledge=Knowledge::present; result.backpack.value=*bar->percent; }
+        if (const auto changed=pollen_activity_.observe(frame,bar->pixels))
+            result.pollen_changed_at={Knowledge::present,*changed,frame.captured,frame.window,generation};
     }
     result.open_menu=read_open_menu(frame,result,generation);
     return result;

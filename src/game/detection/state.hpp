@@ -25,6 +25,7 @@ struct State {
     Reading<bool> alive, at_hive;
     Reading<bool> interaction_prompt;
     Reading<double> backpack_percent;
+    Reading<Time> pollen_changed_at;
     Reading<HivePrompt> hive_prompt;
     Reading<TextSnapshot> text;
     Reading<TextSnapshot> fixed_labels;

@@ -1,5 +1,6 @@
 #pragma once
 #include "state.hpp"
+#include "counter_activity.hpp"
 #include <array>
 
 namespace hive::game {
@@ -8,6 +9,7 @@ struct HudFeatures {
     std::vector<MenuControl> menus;
     Reading<Point> open_menu;
     Reading<double> backpack;
+    Reading<Time> pollen_changed_at;
     Reading<InteractionBanner> interaction_banner;
     std::optional<std::array<Rect,2>> resources;
 };
@@ -19,6 +21,7 @@ class HudInspector {
     Window window_;
     int width_{},height_{};
     std::uint64_t generation_{};
+    CounterActivity pollen_activity_;
 public:
     HudFeatures inspect(const Frame& frame,std::uint64_t generation);
 };

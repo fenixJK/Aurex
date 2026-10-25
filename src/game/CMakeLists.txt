@@ -21,6 +21,7 @@ add_library(hive_game
   data/item_stock.cpp
   detection/feeding.cpp
   detection/backpack.cpp
+  detection/counter_activity.cpp
   detection/honey.cpp
   detection/text.cpp
   movement/navigation.cpp

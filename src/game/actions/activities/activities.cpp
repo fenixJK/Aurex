@@ -56,7 +56,7 @@ class PatternGuard final : public RunGuard {
     Time duration_;
     std::function<bool()> yield_;
 public:
-    explicit PatternGuard(RunConfig config,std::function<bool()> yield):observations_(observation_guard(config)),duration_(config.duration),yield_(std::move(yield)) {}
+    PatternGuard(RunConfig config,std::function<bool()> yield,WorkActivity activity):observations_(observation_guard(config,activity)),duration_(config.duration),yield_(std::move(yield)) {}
     GuardDecision evaluate(const View& view,Time started) override {
         const auto decision=observations_->evaluate(view,started);
         if (decision.state!=GuardState::ready) return decision;
@@ -79,7 +79,7 @@ public:
     }
     WorkActivity activity() const noexcept override { return pattern_.activity; }
     RunConfig config() const override { return {pattern_.duration,speed_,pattern_.backpack_limit,true}; }
-    std::unique_ptr<RunGuard> guard() const override { return std::make_unique<PatternGuard>(config(),pattern_.yield); }
+    std::unique_ptr<RunGuard> guard() const override { return std::make_unique<PatternGuard>(config(),pattern_.yield,pattern_.activity); }
     Step next(const View& view) override {
         if (pattern_.hotbar && view.context.now-used_slot_>=Time(2000)) {
             const auto slot=pattern_.hotbar(view);

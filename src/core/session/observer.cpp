@@ -142,6 +142,7 @@ void Observer::capture() {
         Observation<DialogButtons> confirmation;
         Observation<InteractionBanner> interaction_banner;
         Observation<double> backpack;
+        Observation<Time> pollen_changed_at;
         ConnectionView connection_view;
         try {
             auto frame=desktop_.capture(context.window.id);
@@ -154,6 +155,7 @@ void Observer::capture() {
                 if (interaction) inspected.interaction_banner=read_interaction_banner(frame,context.generation,&inspected);
                 features=std::make_shared<const HudFeatures>(std::move(inspected));
                 backpack=features->backpack;
+                pollen_changed_at=features->pollen_changed_at;
                 const auto& controls=features->menus;
                 menus={Knowledge::present,controls,frame.captured,frame.window,context.generation};
                 game_hud={Knowledge::present,game_hud_visible(*features),frame.captured,frame.window,context.generation};
@@ -178,7 +180,7 @@ void Observer::capture() {
             capture_error_=std::move(error);
             if (result) {
                 if (hud) latest_.state.interaction_banner=interaction_banner;
-                if (hud) { latest_.state.backpack_percent=backpack; latest_.state.alive=alive; latest_.state.game_hud=game_hud; latest_.state.shift_lock=shift_lock; latest_.state.open_menu=open_menu; latest_.state.menus=std::move(menus); latest_.state.confirmation=confirmation; }
+                if (hud) { latest_.state.backpack_percent=backpack; latest_.state.pollen_changed_at=pollen_changed_at; latest_.state.alive=alive; latest_.state.game_hud=game_hud; latest_.state.shift_lock=shift_lock; latest_.state.open_menu=open_menu; latest_.state.menus=std::move(menus); latest_.state.confirmation=confirmation; }
                 if (connection) {
                     latest_.state.connection=connection_view.connection;
                     latest_.state.reconnect=connection_view.reconnect;
