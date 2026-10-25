@@ -148,22 +148,20 @@ public:
 };
 class HiveReference final : public LandmarkSource {
     std::shared_ptr<const DetectionSource> pixels_;
-    std::shared_ptr<const LandmarkSource> proximity_;
     mutable std::mutex mutex_;
     mutable ObservationContext context_;
-    mutable Time processed_{Time(-1)},armed_until_{Time(-1)};
+    mutable Time processed_{Time(-1)};
 public:
-    HiveReference(std::shared_ptr<const DetectionSource> pixels,std::shared_ptr<const LandmarkSource> proximity)
-        :pixels_(std::move(pixels)),proximity_(std::move(proximity)) {}
+    explicit HiveReference(std::shared_ptr<const DetectionSource> pixels):pixels_(std::move(pixels)) {}
     Observation<bool> read(const ObservationContext& c) const override {
         std::lock_guard lock(mutex_);
         if (c.generation!=context_.generation || c.window.id!=context_.window.id || c.window.process!=context_.window.process
-            || c.window.bounds!=context_.window.bounds) processed_=armed_until_=Time(-1);
+            || c.window.bounds!=context_.window.bounds) processed_=Time(-1);
         context_=c;
-        const auto proximity=proximity_->read(c);
-        if (proximity.has_value(c,Time(2000)) && proximity.value) armed_until_=c.now+Time(30000);
+        // This source reports camera geometry. The hive workflow owns the
+        // proximity prerequisite; a second prompt read must not hide frames.
         const auto packet=pixels_->read();
-        if (c.now>armed_until_ || !packet || !packet->error.empty()) return {};
+        if (!packet || !packet->error.empty()) return {};
         const auto& context=packet->context;
         const Observation<bool> envelope{Knowledge::present,true,context.now,context.window,context.generation};
         if (!envelope.has_value(c,Time(2000))) return {};
@@ -182,9 +180,8 @@ public:
 }
 std::shared_ptr<const Detector> hive_view_detector() { return std::make_shared<HiveView>(); }
 std::shared_ptr<const Detector> spawn_view_detector() { return std::make_shared<SpawnView>(); }
-std::shared_ptr<const LandmarkSource> hive_reference_source(std::shared_ptr<const DetectionSource> pixels,
-    std::shared_ptr<const LandmarkSource> proximity) {
-    if (!pixels || !proximity) throw std::invalid_argument("Hive reference requires pixel and proximity observations");
-    return std::make_shared<HiveReference>(std::move(pixels),std::move(proximity));
+std::shared_ptr<const LandmarkSource> hive_reference_source(std::shared_ptr<const DetectionSource> pixels) {
+    if (!pixels) throw std::invalid_argument("Hive reference requires pixel observations");
+    return std::make_shared<HiveReference>(std::move(pixels));
 }
 }

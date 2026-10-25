@@ -50,14 +50,18 @@ void Dialog::update(const ObservationContext& c,const game::State& state,TaskPor
                 pending_=tasks.submit(scope,TaskClass::interaction,
                     {{"Move away from dialog",{},Time(40),game::pointer_rest(c,state)}},Time(1000));
                 stage_=DialogStage::parking;
+                return;
             }
-            return;
+            // A completed input task does not prove the game accepted the click.
+            // Retry only a still-visible dialog after the same response grace as interactions.
+            if (attempts_>=3 || reading.captured<minimum_+Time(750)) return;
         }
         if (reading.knowledge!=Knowledge::present) return;
         const auto point=plan_.choice==DialogChoice::yes?reading.value.yes:reading.value.no;
         pending_=tasks.submit(scope,TaskClass::interaction,{
             {"Move to dialog choice",{},Time(40),point},
             {"Choose dialog response",{Key::primary},Time(60),{}}},Time(1000));
+        ++attempts_;
         stage_=DialogStage::clicking; reason_="Answering confirmation dialog";
     } catch (const std::exception& e) { fail(e.what()); }
 }

@@ -17,6 +17,31 @@ struct Pixels {
         if (x<0 || y<0 || x>=frame.width || y>=frame.height) return false;
         const auto c=at(x,y); return *std::min_element(c.begin(),c.end())>=195 && *std::max_element(c.begin(),c.end())-*std::min_element(c.begin(),c.end())<=35;
     }
+    std::vector<std::pair<int,int>> bands(int left,int right,int top,int bottom) const {
+        // Sample enough of the edge that a single glyph cannot cover it.
+        const int width=right-left,sample=right-std::max(2,static_cast<int>(width*0.1));
+        std::vector<std::pair<int,int>> result; int start=-1;
+        for (int y=top;y<=bottom;++y) {
+            int light=0;
+            if (y<bottom) for (int x=sample;x<right;++x) light+=pale(x,y);
+            const bool card=y<bottom && light>=0.25*(right-sample);
+            if (card && start<0) start=y;
+            if (!card && start>=0) { result.emplace_back(start,y); start=-1; }
+        }
+        std::vector<int> heights;
+        for (const auto& [a,b]:result) if (b-a>=width*0.18 && b-a<=width*0.4) heights.push_back(b-a);
+        if (heights.empty()) return result;
+        std::sort(heights.begin(),heights.end()); const int height=heights[heights.size()/2];
+        const int gap=std::max(1,static_cast<int>(std::ceil(width*0.01)));
+        // Join stroke-sized holes only when the combined band still fits one
+        // observed row. A short separator between two full rows must remain.
+        for (std::size_t i=0;i+1<result.size();) {
+            if (result[i+1].first-result[i].second<=gap && result[i+1].second-result[i].first<=height*1.2) {
+                result[i].second=result[i+1].second; result.erase(result.begin()+i+1);
+            } else ++i;
+        }
+        return result;
+    }
 };
 struct Card { int left,right,top,bottom; };
 bool title(const TextLine& line,const Frame& frame) {
@@ -31,7 +56,7 @@ bool title(const TextLine& line,const Frame& frame) {
 int median(std::vector<int> values) { std::sort(values.begin(),values.end()); return values[values.size()/2]; }
 std::optional<Card> card(const Pixels& pixels,const TextLine& line) {
     const auto r=line.pixels;
-    const int y=static_cast<int>(r.y-r.height*0.18),seed=static_cast<int>(std::ceil(r.x+r.width+r.height*0.12));
+    const int y=static_cast<int>(r.y-r.height*0.18),seed=static_cast<int>(r.x+r.width/2);
     if (!pixels.pale(seed,y)) return {};
     int left=seed,right=seed;
     while (pixels.pale(left-1,y)) --left;
@@ -39,20 +64,33 @@ std::optional<Card> card(const Pixels& pixels,const TextLine& line) {
     const int width=right-left;
     const double center=(r.x+r.width/2-left)/width;
     if (width<r.height*8 || width>r.height*24 || center<0.58 || center>0.8) return {};
-    auto band=[&](int yy) {
-        int count=0,total=0;
-        for (int x=right-std::max(2,static_cast<int>(width*0.015));x<right;++x) { ++total; count+=pixels.pale(x,yy); }
-        return count>=total*0.25;
-    };
-    int top=y,bottom=y;
-    while (top>0 && band(top-1)) --top;
-    while (bottom<pixels.frame.height && band(bottom)) ++bottom;
+    const auto bands=pixels.bands(left,right,0,pixels.frame.height);
+    const auto found=std::find_if(bands.begin(),bands.end(),[&](const auto& band) { return band.first<=y && y<band.second; });
+    if (found==bands.end()) return {};
+    const auto [top,bottom]=*found;
     const int height=bottom-top;
     if (height<width*0.18 || height>width*0.4 || r.y+r.height>bottom || r.y+r.height/2>top+height*0.35) return {};
     const int sample_y=top+std::max(1,static_cast<int>(height*0.08));
     const auto icon=pixels.at(left+static_cast<int>(width*0.28),sample_y),body=pixels.at(left+static_cast<int>(width*0.96),sample_y);
     if (body[0]+body[1]+body[2]-icon[0]-icon[1]-icon[2]<30) return {};
     return Card{left,right,top,bottom};
+}
+std::vector<InventoryRow> rows(const Pixels& pixels,Rect viewport) {
+    const auto& frame=pixels.frame;
+    const auto top=static_cast<int>(std::ceil(viewport.y*frame.height)),bottom=static_cast<int>(std::floor((viewport.y+viewport.height)*frame.height));
+    const auto left=static_cast<int>(viewport.x*frame.width),right=static_cast<int>((viewport.x+viewport.width)*frame.width);
+    if (right<=left) return {};
+    auto bands=pixels.bands(left,right,top,bottom);
+    std::erase_if(bands,[](const auto& band) { return band.second-band.first<10; });
+    if (bands.size()<2 || bands.size()>32) return {};
+    std::vector<int> heights; for (const auto& [a,b] : bands) heights.push_back(b-a);
+    std::sort(heights.begin(),heights.end()); const auto height=heights[heights.size()/2];
+    std::vector<InventoryRow> result;
+    for (const auto& [a,b] : bands) if (a>top && b<bottom && b-a>=height*0.85 && b-a<=height*1.2) {
+        const Rect row{viewport.x,double(a)/frame.height,viewport.width,double(b-a)/frame.height};
+        result.push_back({row,{row.x+row.width*0.32,row.y,row.width*0.67,row.height*0.35},{row.x+row.width*0.14,row.y+row.height*0.5}});
+    }
+    return result;
 }
 std::optional<InventoryLayout> panel(const Pixels& pixels,const std::vector<Card>& cards) {
     std::vector<int> lefts,rights,heights;
@@ -109,7 +147,7 @@ std::optional<InventoryLayout> panel(const Pixels& pixels,const std::vector<Card
     layout.viewport={double(left)/pixels.frame.width,double(top)/pixels.frame.height,double(width)/pixels.frame.width,double(bottom-top)/pixels.frame.height};
     layout.at_top=scroll_known && top==track_top && thumbs[0].first-top<=width*0.045;
     layout.at_bottom=scroll_known && bottom==track_bottom && bottom-thumbs[0].second<=width*0.045;
-    layout.rows=inventory_rows(pixels.frame,layout.viewport);
+    layout.rows=rows(pixels,layout.viewport);
     if (layout.rows.size()<2) return {};
     return layout;
 }

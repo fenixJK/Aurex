@@ -246,10 +246,13 @@ Observation<InventoryView> read_inventory(const DetectionInput& input,const Obse
             if (!region(row.bounds) || !region(row.title) || !contains(l.viewport,row.bounds) || !contains(row.bounds,row.title) || !inside(row.bounds,row.grab)
                 || std::any_of(occupied.begin(),occupied.end(),[&](Rect r) { return overlaps(r,row.bounds); })) throw std::invalid_argument("Ambiguous inventory layout");
             occupied.push_back(row.bounds); std::vector<TextLine> words; bool complete=true;
+            // OCR boxes have subpixel coordinates; allow one capture pixel of rounding.
+            const Rect text_bounds{row.bounds.x-1./input.frame.width,row.bounds.y-1./input.frame.height,
+                row.bounds.width+2./input.frame.width,row.bounds.height+2./input.frame.height};
             for (const auto& line : input.text) {
                 const Rect r{line.pixels.x/input.frame.width,line.pixels.y/input.frame.height,line.pixels.width/input.frame.width,line.pixels.height/input.frame.height};
                 if (!r.valid() || !inside(row.title,{r.x+r.width/2,r.y+r.height/2})) continue;
-                if (!contains(row.bounds,r) || line.text.size()>160 || (line.confidence && (!std::isfinite(*line.confidence) || *line.confidence<0.65f || *line.confidence>1))) { complete=false; continue; }
+                if (!contains(text_bounds,r) || line.text.size()>160 || (line.confidence && (!std::isfinite(*line.confidence) || *line.confidence<0.65f || *line.confidence>1))) { complete=false; continue; }
                 words.push_back(line);
             }
             std::string name;
@@ -281,32 +284,5 @@ std::shared_ptr<const Detector> inventory_detector(std::shared_ptr<const Invento
 }
 std::shared_ptr<const InventorySource> inventory_source(std::shared_ptr<const DetectionSource> channel,std::shared_ptr<InventoryRequests> requests,std::shared_ptr<ItemStock> stock) {
     if (!channel) throw std::invalid_argument("Inventory detection channel is missing"); return std::make_shared<Source>(std::move(channel),std::move(requests),std::move(stock));
-}
-std::vector<InventoryRow> inventory_rows(const Frame& frame,Rect viewport) {
-    if (!frame.valid() || !region(viewport)) throw std::invalid_argument("Invalid inventory row scan");
-    const auto top=static_cast<int>(std::ceil(viewport.y*frame.height)),bottom=static_cast<int>(std::floor((viewport.y+viewport.height)*frame.height));
-    const auto left=static_cast<int>((viewport.x+viewport.width*0.985)*frame.width),right=static_cast<int>((viewport.x+viewport.width)*frame.width);
-    if (right<=left) return {};
-    std::vector<std::pair<int,int>> bands; int start=-1;
-    for (int y=top;y<=bottom;++y) {
-        int light=0;
-        if (y<bottom) for (int x=left;x<right;++x) {
-            const auto index=(static_cast<std::size_t>(y)*frame.width+x)*4;
-            const auto r=frame.rgba[index],g=frame.rgba[index+1],b=frame.rgba[index+2];
-            light+=std::min({r,g,b})>=200 && std::max({r,g,b})-std::min({r,g,b})<=25;
-        }
-        const bool card=y<bottom && light>=0.25*(right-left);
-        if (card && start<0) start=y;
-        if (!card && start>=0) { if (y-start>=10) bands.push_back({start,y}); start=-1; }
-    }
-    if (bands.size()<2 || bands.size()>32) return {};
-    std::vector<int> heights; for (const auto& [a,b] : bands) heights.push_back(b-a);
-    std::sort(heights.begin(),heights.end()); const auto height=heights[heights.size()/2];
-    std::vector<InventoryRow> result;
-    for (const auto& [a,b] : bands) if (a>top && b<bottom && b-a>=height*0.85 && b-a<=height*1.2) {
-        const Rect row{viewport.x,double(a)/frame.height,viewport.width,double(b-a)/frame.height};
-        result.push_back({row,{row.x+row.width*0.32,row.y,row.width*0.67,row.height*0.35},{row.x+row.width*0.14,row.y+row.height*0.5}});
-    }
-    return result;
 }
 }

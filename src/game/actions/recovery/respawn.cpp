@@ -41,6 +41,12 @@ public:
         const bool living=health && state->alive.value && state->alive.captured>last_dead_;
         const bool hud=state && state->game_hud.has_value(c,Time(2000),after_death) && state->game_hud.value;
         const bool game=observed && reading.captured>last_dead_ && reading.value.screen==game::RespawnScreen::game;
+        // The shared hive prompt may disappear and return during respawn even
+        // when capture misses the empty health bar. Menu-covered frames cannot
+        // establish departure, and the menu observation must be at least as new.
+        if (game && hud && living && state->at_hive.usable(c,Time(2000),minimum)
+            && state->at_hive.captured<=reading.captured && !state->at_hive.value)
+            away_from_hive_=true;
         // Closing the confirmation can also mean cancellation or a missed key.
         // Require death/revival or a new hive arrival, never elapsed time alone.
         return ((hud && living) || game) && (transitioned_
@@ -68,14 +74,14 @@ class Respawn final : public Program {
     enum class Stage { locate,select,confirm,transition,done };
     std::shared_ptr<const game::RespawnSource> source_;
     Stage stage_{Stage::locate};
-    Time started_{Time(-1)},minimum_{},transition_{};
+    Time started_{Time(-1)},minimum_{},transition_{Time(-1)};
     RespawnCompletion completion_;
     bool issued_{};
     bool retried_{};
     std::optional<game::RespawnScreen> requested_from_;
     Step retry(Time now,std::string reason) {
         if (retried_) throw ObservationUnavailable("Reset could not be verified after retrying; position is unconfirmed");
-        retried_=true; stage_=Stage::locate; started_=minimum_=now;
+        retried_=true; stage_=Stage::locate; started_=minimum_=now; transition_=Time(-1);
         requested_from_.reset(); completion_=RespawnCompletion{};
         return ReportActivity{{"Retrying reset",std::move(reason)}};
     }
@@ -110,7 +116,7 @@ public:
         // Escape menu must not consume the time allowed for R and Enter.
         if (menu && requested_from_!=reading.value.screen) started_=c.now;
         if (stage_!=Stage::transition && fresh && reading.value.screen==game::RespawnScreen::respawning) {
-            stage_=Stage::transition; transition_=reading.captured;
+            stage_=Stage::transition; if (transition_<Time{}) transition_=reading.captured;
         }
         if (stage_==Stage::transition && !menu) {
             if (completion_.ready(view,reading,minimum_,transition_)) {
@@ -148,7 +154,10 @@ public:
             return Wait{Time(50),"Waiting for respawn menu response"};
         requested_from_=screen;
         if (screen==game::RespawnScreen::confirmation) {
-            stage_=Stage::transition; transition_=c.now; issued_=true;
+            // Retrying Enter must not move the start of this reset attempt
+            // past a death frame that was captured while the menu was fading.
+            if (transition_<Time{}) transition_=c.now;
+            stage_=Stage::transition; issued_=true;
             return TapMenuKey{Key::confirm,"Confirm respawn"};
         }
         if (screen==game::RespawnScreen::menu) {

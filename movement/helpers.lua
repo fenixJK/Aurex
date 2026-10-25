@@ -37,34 +37,36 @@ function M.flight(slot)
     local launch=table.remove(path)
     launch.detector="transport.red-cannon"; launch.continuous=true; launch.completion="launch"
     launch.approach={}; launch.launch_prepare={}
-    local f={path=path,pending=0,current=launch}
+    local f={path=path,held={},current=launch}
     function f:flush()
         if #self.current.approach>0 then self.path[#self.path+1]=self.current end
         self.current={kind="checkpoint",continuous=true,attempts=0,completion="movement",timeout=2000,approach={}}
+        self.held={}
     end
     function f:aim(key,count)
         self.current.launch_prepare[#self.current.launch_prepare+1]=M.turn(key,count)
     end
     function f:launch_moving(key) self.current.launch_movement={key} end
     function f:hold(keys,ms)
-        assert(ms>=self.pending*100,"Flight segment is too short for its jump presses")
         self.current.timeout=self.current.timeout+ms
-        while self.pending>0 do
-            local pressed={table.unpack(keys)}; pressed[#pressed+1]="jump"
-            self.current.approach[#self.current.approach+1]={label="Press jump",keys=pressed,ms=50}
-            self.current.approach[#self.current.approach+1]={label="Release jump",keys=keys,ms=50}
-            self.pending=self.pending-1; ms=ms-100
-        end
         M.actions(self.current.approach,keys,ms,"Cannon flight")
+        self.held=keys
+    end
+    -- Jump presses are ordered inputs, separate from the following timed leg.
+    -- Preserve current steering unless the route explicitly releases it.
+    function f:jump(count,keys)
+        local held=keys or self.held
+        for i=1,count or 1 do
+            local pressed={table.unpack(held)}; pressed[#pressed+1]="jump"
+            self:hold(pressed,50); self:hold(held,50)
+        end
     end
     function f:steer(keys,ms,key,count)
-        assert(self.pending==0 and ms>0)
+        assert(ms>0)
         local first=#self.current.approach+1
         self:hold(keys,ms); self.current.approach[first].tap=key; self.current.approach[first].tap_count=count
     end
-    function f:jump(count) self.pending=self.pending+(count or 1) end
     function f:turn(key,count)
-        if self.pending>0 then self:hold({},self.pending*100) end
         self:flush(); self.path[#self.path+1]=M.turn(key,count)
     end
     function f:walk(legs) self:flush(); self.path[#self.path+1]=M.walk(legs) end
@@ -76,7 +78,7 @@ function M.upper_field()
 end
 function M.blue_hq(slot)
     local f=M.flight(slot)
-    f:hold({"left"},700); f:jump(2); f:hold({"left"},4450); f:jump(); f:hold({},1000); f:turn("rotate_left",2)
+    f:hold({"left"},700); f:jump(2); f:hold({"left"},4450); f:jump(1,{}); f:hold({},1000); f:turn("rotate_left",2)
     return f
 end
 function M.guild(slot,cannon)
@@ -84,7 +86,7 @@ function M.guild(slot,cannon)
     if cannon then
         local f=M.flight(slot)
         f:hold({"right","backward"},925); f:jump(2); f:hold({"right","backward"},2850)
-        f:hold({"right"},1450); f:jump(); f:hold({},600)
+        f:hold({"right"},1450); f:jump(1,{}); f:hold({},600)
         f:walk({{10,"forward","left"},{10,"left","forward"}}); path=f:finish()
     else
         path={M.ramp(slot),M.walk({{67.5,"backward","left"}}),M.turn("rotate_right",4),M.upper_field(),

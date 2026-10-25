@@ -29,14 +29,14 @@ return function(p)
     end
     if name=="honeystorm" then
         if not p.cannon then return {h.ramp(slot),walk({{44.75,"backward","left"},{52.5,"left"},{2.8,"backward","right"},{6.7,"backward"},{40.5,"left"},{5,"backward"}}),turn("rotate_right")} end
-        local f=h.flight(slot); f:hold({"forward","left"},1180); f:jump(2); f:hold({"forward","left"},5000); f:jump(); f:hold({},1500)
+        local f=h.flight(slot); f:hold({"forward","left"},1180); f:jump(2); f:hold({"forward","left"},5000); f:jump(1,{}); f:hold({},1500)
         f:walk({{10,"forward","left"},{10,"backward"},{7,"backward","right"},{9,"backward"}}); f:turn("rotate_right",2); return f:finish()
     end
     if name=="robo-pass" then
         local path
         if p.cannon then
             local f=h.flight(slot); f:hold({"left","backward"},1400); f:jump(2); f:hold({"left","backward"},1100); f:hold({"backward"},650)
-            f:jump(); f:hold({},1500); f:turn("rotate_right",4); f:walk({{4,"right","forward"},{23,"forward"},{9,"left"}}); path=f:finish()
+            f:jump(1,{}); f:hold({},1500); f:turn("rotate_right",4); f:walk({{4,"right","forward"},{23,"forward"},{9,"left"}}); path=f:finish()
         else
             path={h.ramp(slot),walk({{67.5,"backward","left"}}),turn("rotate_right",4),h.upper_field(),walk({{49.5,"forward"},{3.375,"left"},{36,"forward"},{54,"right"},{54,"backward"}}),walk({{58.5,"right"},{3,"left"},{57,"forward"},{16,"left"}})}
         end

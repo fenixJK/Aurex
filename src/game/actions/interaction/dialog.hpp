@@ -13,6 +13,7 @@ class Dialog {
     DialogStage stage_{DialogStage::idle};
     Time last_{},minimum_{},frame_{Time(-1)};
     bool owned_{},timed_out_{};
+    unsigned attempts_{};
     std::string pending_,reason_;
     void finish(DialogStage stage,std::string reason,TaskPort& tasks,ModuleScope scope);
 public:

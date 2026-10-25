@@ -52,5 +52,4 @@ std::shared_ptr<const Detector> inventory_detector(std::shared_ptr<const Invento
 std::shared_ptr<const InventorySource> inventory_source(std::shared_ptr<const DetectionSource> channel,std::shared_ptr<InventoryRequests> requests={},std::shared_ptr<ItemStock> stock={});
 Observation<InventoryLayout> locate_inventory(const DetectionInput& input);
 std::shared_ptr<const InventoryLayoutSource> inventory_layout();
-std::vector<InventoryRow> inventory_rows(const Frame& frame,Rect viewport);
 }

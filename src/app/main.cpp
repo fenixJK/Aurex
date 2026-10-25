@@ -451,11 +451,10 @@ public:
         const auto spawn_view=hive::game::landmark_source(channels.at("spawn-view"),"spawn.reference");
         const auto hive_slots=hive::game::hive_slots_source(channels.at("hive-slots"));
         const auto hive_proximity=hive::game::landmark_source(channels.at("navigation-landmarks"),"hive.proximity");
-        const auto hive_reference=hive::game::hive_reference_source(channels.at("hive-view"),hive_proximity);
+        const auto hive_reference=hive::game::hive_reference_source(channels.at("hive-view"));
         native_modules_.transport_prompt=hive::game::landmark_source(channels.at("interaction-prompt"),"interaction.prompt");
         localization_=std::make_shared<hive::automation::LandmarkNavigation>(channels.at("navigation-landmarks"),
             std::map<std::string,std::shared_ptr<const hive::game::LandmarkSource>>{
-                {"hive.backboard",hive_reference},
                 {"interaction.prompt",native_modules_.transport_prompt},
                 {"transport.red-cannon",native_modules_.transport_prompt}});
         native_modules_.blooms=channels.at("blooms");
