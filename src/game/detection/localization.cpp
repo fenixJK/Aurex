@@ -121,8 +121,7 @@ std::shared_ptr<const LandmarkSource> landmark_source(std::shared_ptr<const Dete
     return std::make_shared<DetectedLandmark>(std::move(source),std::move(id));
 }
 std::vector<PromptAnchor> interaction_anchors() {
-    std::vector<PromptAnchor> result{{"hive.proximity",hive_proximity_prompt()},
-        {"transport.red-cannon",PromptLandmark{{"Fire the Red Cannon","Fire Red Cannon","Red Cannon"},{.2,0,.6,.3},.5f,PromptMatch::exact,true}}};
+    std::vector<PromptAnchor> result{{"hive.proximity",hive_proximity_prompt()}};
     result.push_back({"challenge.ant",PromptLandmark{{"Spend 1 Ant Pass to enter the Ant Field."}}});
     result.push_back({"station.ant-pass-paid",PromptLandmark{{"Spend 10 Tickets to Buy 1 Ant Pass","Purchase 1 Ant Pass for 10 Tickets",
         "Buy an Ant Pass for 10 Tickets","Spend 10 Tickets for an Ant Pass"},{.2,0,.6,.3},.5f,PromptMatch::phrase,true}});

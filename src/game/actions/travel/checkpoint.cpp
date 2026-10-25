@@ -160,9 +160,13 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
             pending_.clear();
             if (result.outcome!=TaskOutcome::executed) { fail(CheckpointFailure::interrupted,"Checkpoint movement was interrupted"); return; }
             executed_+=result.execution_time;
+            if (aim_==AimStage::running) {
+                aim_=AimStage::finished; confirm(result.finished); continue;
+            }
             const auto& path=nudging_?plan_.nudge_path:plan_.path;
             if (!path.empty()) {
                 speed_->advance(*distance_,result.finished,result.execution_time);
+                if (plan_.completion==CheckpointCompletion::launch) minimum_=result.finished+Time(1);
                 if (distance_->complete()) { distance_.reset(); if (++index_==path.size()) confirm(result.finished); }
                 continue;
             }
@@ -175,6 +179,7 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
         }
         const bool motion=plan_.completion==CheckpointCompletion::movement;
         const bool launch=plan_.completion==CheckpointCompletion::launch;
+        if (aim_==AimStage::running) return;
         if ((motion || launched_) && stage_==CheckpointStage::confirming) {
             if (c.now>=minimum_) finish(CheckpointStage::completed,"Route movement completed",tasks);
             return;
@@ -182,17 +187,18 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
         const bool fresh=!motion && detected.usable(c,plan_.observation_age,minimum_) && detected.captured>seen_;
         const bool present=fresh && detected.knowledge==Knowledge::present && detected.value;
         if (fresh) seen_=detected.captured;
-        if (launch && !launched_ && present) {
+        if (launch && !launched_ && present && stage_!=CheckpointStage::confirming) {
             if (!pending_.empty()) cancel_tasks(tasks);
-            pending_.clear(); distance_.reset(); nudging_=false; index_=0;
-            plan_.path.clear(); plan_.nudge_path.clear();
-            stage_=CheckpointStage::moving;
+            pending_.clear();
+            // A prompt captured during walking may already be behind us.
+            // Release input and confirm from a new, stationary observation.
+            confirm(c.now); return;
         }
         if (stage_==CheckpointStage::waiting) {
             if (launch && !present && plan_.path.empty()) return;
             // Observe before starting a search so an already-visible target
-            // does not get left behind. Transport approaches follow their route.
-            if (!motion && !fresh && (!launch || (plan_.approach.empty() && plan_.path.empty()))) return;
+            // does not get left behind, including transport approaches.
+            if (!motion && !fresh) return;
             if (present && !launch) { finish(CheckpointStage::completed,"Checkpoint confirmed",tasks); return; }
             if (!motion && !launch && plan_.approach.empty() && plan_.path.empty()) {
                 if (!plan_.nudge.empty() || !plan_.nudge_path.empty()) confirm(c.now);
@@ -208,11 +214,19 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
         } else if (stage_==CheckpointStage::confirming) {
             if (!fresh) return;
             if (present) {
-                finish(CheckpointStage::completed,"Checkpoint confirmed",tasks);
-                return;
+                if (!launch) { finish(CheckpointStage::completed,"Checkpoint confirmed",tasks); return; }
+                if (aim_==AimStage::pending && !plan_.launch_prepare.empty()) {
+                    pending_=tasks.submit(scope_,TaskClass::travel,plan_.launch_prepare,
+                        std::min(plan_.timeout-(c.now-started_.now),input_lifetime(plan_.launch_prepare)));
+                    aim_=AimStage::running; return;
+                }
+                plan_.path.clear(); plan_.nudge_path.clear();
+                nudging_=false; index_=0; stage_=CheckpointStage::moving;
+            } else {
+                if (aim_==AimStage::finished) { fail(CheckpointFailure::missing,"Transport prompt was lost while aiming"); return; }
+                if (attempts_>=plan_.attempts || (plan_.nudge.empty() && plan_.nudge_path.empty())) { fail(CheckpointFailure::missing,"Checkpoint missing after movement"); return; }
+                ++attempts_; nudging_=true; index_=0; distance_.reset(); stage_=CheckpointStage::moving;
             }
-            if (attempts_>=plan_.attempts || (plan_.nudge.empty() && plan_.nudge_path.empty())) { fail(CheckpointFailure::missing,"Checkpoint missing after movement"); return; }
-            ++attempts_; nudging_=true; index_=0; distance_.reset(); stage_=CheckpointStage::moving;
         }
         if (stage_==CheckpointStage::moving && pending_.empty()) {
             if (awaiting_view_) {
@@ -222,6 +236,7 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
             const auto& actions=nudging_?plan_.nudge:plan_.approach;
             const auto& path=nudging_?plan_.nudge_path:plan_.path;
             if (!path.empty()) {
+                if (launch && !fresh) return;
                 const auto& leg=path.at(index_);
                 if (!distance_) distance_.emplace(leg.tiles);
                 pending_=tasks.submit(scope_,TaskClass::travel,
@@ -235,7 +250,6 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
                     auto keys=plan_.launch_movement; keys.push_back(Key::interact);
                     Action activate{"Activate transport",std::move(keys),Time(100),{}};
                     sequence.insert(sequence.begin(),std::move(activate));
-                    sequence.insert(sequence.begin(),plan_.launch_prepare.begin(),plan_.launch_prepare.end());
                 }
                 const auto remaining=plan_.timeout-(c.now-started_.now);
                 const auto lifetime=plan_.sequence.empty()?std::min(remaining,input_lifetime(sequence)):remaining;

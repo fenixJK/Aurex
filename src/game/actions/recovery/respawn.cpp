@@ -13,7 +13,6 @@ class RespawnCompletion {
 public:
     explicit RespawnCompletion(bool already_died=false):transitioned_(already_died) {}
     void begin(Time now) { origin_before_=now; }
-    bool origin_known() const { return origin_known_; }
     bool transitioned() const { return transitioned_; }
     void observe_origin(const View& view) {
         const auto* state=view.observations;
@@ -24,13 +23,12 @@ public:
             away_from_hive_=!state->at_hive.value; origin_known_=true;
         }
     }
-    bool ready(const View& view,const game::RespawnSource& source,Time minimum,Time transition) {
+    bool ready(const View& view,const Observation<game::RespawnView>& reading,Time minimum,Time transition) {
         const auto& c=view.context;
         const auto* state=view.observations;
         if (state && state->last_death.has_value(c,Time(25000),transition) && state->last_death.value)
             died(state->last_death.captured);
         const bool health=state && state->alive.has_value(c,Time(2000),minimum);
-        const auto reading=source.read(c);
         const bool observed=reading.has_value(c,Time(2000),minimum);
         if (observed && (reading.value.screen==game::RespawnScreen::menu || reading.value.screen==game::RespawnScreen::confirmation))
             return false;
@@ -61,7 +59,7 @@ public:
     bool expects_respawn() const noexcept override { return true; }
     Step next(const View& view) override {
         if (started_<Time{}) started_=view.context.now;
-        if (completion_.ready(view,*source_,started_,started_)) return Done{"Game view returned after respawn"};
+        if (completion_.ready(view,source_->read(view.context),started_,started_)) return Done{"Game view returned after respawn"};
         if (view.context.now-started_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return the game view; rejoining Bee Swarm");
         return Wait{Time(100),"Waiting for player respawn"};
     }
@@ -111,8 +109,11 @@ public:
         // Each observed menu transition gets its own response deadline. A slow
         // Escape menu must not consume the time allowed for R and Enter.
         if (menu && requested_from_!=reading.value.screen) started_=c.now;
+        if (stage_!=Stage::transition && fresh && reading.value.screen==game::RespawnScreen::respawning) {
+            stage_=Stage::transition; transition_=reading.captured;
+        }
         if (stage_==Stage::transition && !menu) {
-            if (completion_.ready(view,*source_,minimum_,transition_)) {
+            if (completion_.ready(view,reading,minimum_,transition_)) {
                 stage_=Stage::done; return next(view);
             }
             if (!completion_.transitioned() && live && fresh && reading.value.screen==game::RespawnScreen::game
@@ -121,18 +122,13 @@ public:
             if (c.now-transition_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return a readable live game view");
             return Wait{Time(100),"Waiting for player respawn"};
         }
-        if (fresh && reading.value.screen==game::RespawnScreen::respawning) {
-            stage_=Stage::transition; transition_=reading.captured;
-            return next(view);
-        }
         if (c.now-started_>=Time(8000)) {
             if ((stage_==Stage::select || stage_==Stage::confirm) && live && fresh && reading.value.screen==game::RespawnScreen::game)
                 return retry(c.now,"Respawn controls did not appear after the shortcut");
             throw ClientRejoinRequired("Respawn menu could not be confirmed");
         }
-        if (stage_==Stage::locate && !completion_.origin_known() && c.now-started_<Time(1000)
-            && (!reading.has_value(c,Time(2000),minimum_) || reading.value.screen==game::RespawnScreen::game))
-            return Wait{Time(50),"Recording location before reset"};
+        // Origin evidence is optional and can finish processing after Escape.
+        // Do not delay opening the menu just to obtain that extra evidence.
         if (!fresh) {
             if (stage_==Stage::locate && view.observations
                 && ((view.observations->game_hud.has_value(c,Time(2000),minimum_) && view.observations->game_hud.value)
