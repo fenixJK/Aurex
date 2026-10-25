@@ -58,6 +58,11 @@ class AcquireHive final : public Program {
     std::size_t child_steps_{};
     bool turned_{},issued_{};
     bool started_{},recovered_{};
+    unsigned resets_{};
+    void reserve_reset() {
+        if (resets_>=2) throw ClientRejoinRequired("Hive position could not be confirmed after retrying resets; rejoining Bee Swarm");
+        ++resets_;
+    }
     void observe(Time now) {
         stage_=Stage::observe; minimum_=now+Time(150); seen_=Time(-1);
     }
@@ -98,9 +103,9 @@ class AcquireHive final : public Program {
             // failure is not evidence that the server or hive was lost.
             return Defer{std::string(error.what())+"; departure skipped"};
         }
-        catch (const ObservationUnavailable& error) {
+        catch (const ObservationUnavailable&) {
             if (stage_!=Stage::claim || !recovered_) throw;
-            return Defer{std::string(error.what())+"; hive setup paused"};
+            return recover(view);
         }
         if (std::holds_alternative<Done>(step)) {
             child_->finished(State::completed); child_.reset(); child_guard_.reset();
@@ -117,7 +122,7 @@ class AcquireHive final : public Program {
 public:
     AcquireHive(std::shared_ptr<const game::HiveSlotsSource> slots,std::shared_ptr<const game::LandmarkSource> spawn,
         std::shared_ptr<const game::LandmarkSource> reference,std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options,HiveStart start)
-        :slots_(std::move(slots)),spawn_(std::move(spawn)),reference_(std::move(reference)),proximity_(std::move(proximity)),options_(options),start_(start) {
+        :slots_(std::move(slots)),spawn_(std::move(spawn)),reference_(std::move(reference)),proximity_(std::move(proximity)),options_(options),start_(start),resets_(options.after_respawn?1u:0u) {
         if (!slots_ || !spawn_ || !reference_ || !proximity_) throw std::invalid_argument("Hive setup requires slot, spawn and hive observations");
         if (!std::isfinite(options.speed) || options.speed<8 || options.speed>200 || options.preferred_slot>6 || options.existing_slot>6)
             throw std::invalid_argument("Invalid hive setup speed or preferred slot");
@@ -143,7 +148,7 @@ public:
     ProgramFactory recovery(Interruption reason,const View&) override {
         if (!options_.recovery || (reason!=Interruption::death && reason!=Interruption::lost_observations
             && reason!=Interruption::lost_route)) return {};
-        if (reason!=Interruption::death && recovered_) return {};
+        if (reason!=Interruption::death) reserve_reset();
         if (child_) child_->finished(State::stopped);
         child_.reset(); child_guard_.reset(); child_running_.reset();
         if (options_.result) options_.result->invalidate_camera();
@@ -155,9 +160,10 @@ public:
     }
     Step recover(const View& view) {
         if (!options_.recovery) throw ObservationUnavailable("Hive position could not be found");
-        if (recovered_) return Defer{"Hive position could not be confirmed after resetting; hive setup paused"};
+        reserve_reset();
         if (options_.result) options_.result->begin_preparation(view.context);
         begin(Stage::recover,view);
+        if (resets_>1) return ReportActivity{{"Retrying reset","Hive position was not confirmed after respawn"}};
         return child_step(view);
     }
     Step prepare_owned(const View& view,const Observation<bool>& owned) {

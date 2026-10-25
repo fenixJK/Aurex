@@ -28,15 +28,18 @@ public:
         const auto* state=view.observations;
         if (state && state->last_death.has_value(c,Time(25000),transition) && state->last_death.value)
             died(state->last_death.captured);
+        // Death can be captured while Enter is still being executed. Keep that
+        // evidence from this attempt; only revival must follow input completion.
+        if (state && state->alive.has_value(c,Time(2000),transition) && !state->alive.value)
+            died(state->alive.captured);
+        if (reading.has_value(c,Time(2000),transition) && reading.value.screen==game::RespawnScreen::respawning)
+            died(reading.captured);
         const bool health=state && state->alive.has_value(c,Time(2000),minimum);
         const bool observed=reading.has_value(c,Time(2000),minimum);
         if (observed && (reading.value.screen==game::RespawnScreen::menu || reading.value.screen==game::RespawnScreen::confirmation))
             return false;
         if (state && state->connection.has_value(c,Time(2000)) && state->connection.value==game::Connection::disconnected) return false;
-        if (health && !state->alive.value) {
-            died(state->alive.captured); return false;
-        }
-        if (observed && reading.value.screen==game::RespawnScreen::respawning) died(reading.captured);
+        if (health && !state->alive.value) return false;
         const auto after_death=std::max(minimum,last_dead_+Time(1));
         const bool living=health && state->alive.value && state->alive.captured>last_dead_;
         const bool hud=state && state->game_hud.has_value(c,Time(2000),after_death) && state->game_hud.value;
@@ -80,7 +83,7 @@ class Respawn final : public Program {
     bool retried_{};
     std::optional<game::RespawnScreen> requested_from_;
     Step retry(Time now,std::string reason) {
-        if (retried_) throw ObservationUnavailable("Reset could not be verified after retrying; position is unconfirmed");
+        if (retried_) throw ClientRejoinRequired("Reset could not be verified after retrying; rejoining Bee Swarm");
         retried_=true; stage_=Stage::locate; started_=minimum_=now; transition_=Time(-1);
         requested_from_.reset(); completion_=RespawnCompletion{};
         return ReportActivity{{"Retrying reset",std::move(reason)}};

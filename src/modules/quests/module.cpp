@@ -69,7 +69,9 @@ public:
         if (!started_) throw std::logic_error("Quest module is not started");
         if (view.now<Time::zero() || view.now>Time::max()-freshness_) throw std::invalid_argument("Invalid quest module time");
         if (view.status.state!=RunState::running || !view.generation) {
-            tracker_.reset(); context_.reset(); report_={}; generation_=revision_=0; last_=view.now; other_running_=false; scan_requested_=true; state_="Waiting for a session"; return;
+            // Keep the last cards for the GUI, but withdraw all work. The next
+            // running generation clears the tracker before accepting fresh reads.
+            context_.reset(); report_={}; generation_=revision_=0; last_=view.now; other_running_=false; scan_requested_=true; state_="Waiting for a session"; return;
         }
         if (generation_!=view.generation) {
             tracker_.reset(); context_.reset(); report_={}; generation_=view.generation; revision_=0; since_=last_=view.now;
@@ -161,7 +163,8 @@ public:
                         std::to_string(row.collected)+" / "+std::to_string(row.required);
                     add(label.substr(0,160),value);
                 }
-                if (!card.complete_view) add("Reading","Some objectives are not visible");
+                if (!generation_) add("Reading","Last seen progress");
+                else if (!card.complete_view) add("Reading","Some objectives are not visible");
                 else if (last_-found->second.captured>freshness_) add("Reading","Last seen progress");
             }
             for (const auto& reason:report_.blocked) if (reason.starts_with(giver+": ")) add("Needs attention",reason.substr(giver.size()+2));
