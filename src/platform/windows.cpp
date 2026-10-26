@@ -35,7 +35,7 @@ Window describe(HWND hwnd) {
 WORD code(Key key) {
     switch (key) {
     case Key::shift_lock: return VK_LSHIFT;
-    case Key::game_menu: return VK_ESCAPE; case Key::respawn: return 'R'; case Key::confirm: return VK_RETURN; case Key::chat: return VK_OEM_2;
+    case Key::game_menu: return VK_ESCAPE; case Key::respawn: return 'R'; case Key::confirm: case Key::chat_submit: return VK_RETURN; case Key::chat: return VK_OEM_2;
     case Key::digit_0: return '0'; case Key::digit_8: return '8'; case Key::digit_9: return '9';
     case Key::forward: return 'W'; case Key::backward: return 'S'; case Key::left: return 'A'; case Key::right: return 'D';
     case Key::jump: return VK_SPACE; case Key::interact: return 'E'; case Key::rotate_left: return VK_OEM_COMMA; case Key::rotate_right: return VK_OEM_PERIOD;

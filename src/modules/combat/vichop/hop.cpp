@@ -43,6 +43,7 @@ class Hop final : public automation::Program {
     std::shared_ptr<Controller> controller_;
     Time duration_,since_{},sample_{Time(-1)};
     std::optional<bool> night_;
+    std::optional<std::string> hop_reason_;
     Phase phase_{Phase::select};
     bool counted_night_{},running_{},needs_setup_{true},kill_counted_{};
     void record_kill() {
@@ -51,6 +52,7 @@ class Hop final : public automation::Program {
         }
     }
     void next_server(Controller::Result outcome,std::string reason) {
+        hop_reason_=reason;
         if (outcome!=Controller::Result::kill || !kill_counted_) controller_->result(outcome,std::move(reason));
         phase_=Phase::select; kill_counted_=false;
         night_.reset(); sample_=Time(-1); counted_night_=false; needs_setup_=true;
@@ -80,6 +82,10 @@ public:
         using namespace automation;
         if (!running_) { controller_->begin(); services_.servers->set_active(true); running_=true; }
         if (!controller_->read().active) return Done{"Vic Hop stopped"};
+        if (hop_reason_) {
+            auto reason=std::move(*hop_reason_); hop_reason_.reset();
+            return ReportActivity{{"Vic Hop",std::move(reason)}};
+        }
         if (phase_==Phase::select) {
             const auto choice=services_.servers->next(view.context.now); controller_->status(choice.status);
             if (!choice.target) return Wait{Time(250),choice.status};

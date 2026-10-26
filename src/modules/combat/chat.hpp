@@ -11,7 +11,7 @@ inline std::unique_ptr<automation::Program> show_chat() {
         automation::RunConfig config() const override { return {Time(3000),28,{},false,true}; }
         automation::Step next(const automation::View&) override {
             if (step_++==0) return automation::TapMenuKey{Key::chat,"Show combat notifications"};
-            if (step_==2) return automation::TapMenuKey{Key::confirm,"Leave chat entry"};
+            if (step_==2) return automation::TapMenuKey{Key::chat_submit,"Leave chat entry"};
             return automation::Done{"Combat notifications visible"};
         }
     };

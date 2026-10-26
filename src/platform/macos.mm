@@ -30,7 +30,7 @@ template<class T> struct Reply {
 CGKeyCode code(Key key) {
     switch(key) {
     case Key::shift_lock: return 56;
-    case Key::game_menu: return 53; case Key::respawn: return 15; case Key::confirm: return 36; case Key::chat: return 44;
+    case Key::game_menu: return 53; case Key::respawn: return 15; case Key::confirm: case Key::chat_submit: return 36; case Key::chat: return 44;
     case Key::digit_0: return 29; case Key::digit_8: return 28; case Key::digit_9: return 25; case Key::select_all: return 0;
     case Key::forward: return 13; case Key::backward: return 1; case Key::left: return 0;
     case Key::right: return 2; case Key::jump: return 49; case Key::interact: return 14;

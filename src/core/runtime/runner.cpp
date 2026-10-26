@@ -426,12 +426,15 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
             if (progress_.route_position && !progress_.route_position->usable(c)) progress_.route_position.reset();
             step_=program_->next({progress_.elapsed,progress_.steps,progress_.backpack_percent,c,&observations,progress_.estimated_heading,progress_.route_position});
             step_started_=c.now; confirmation_frame_=Time(-1); baseline_clear_=false;
+            const auto* shortcut=std::get_if<TapMenuKey>(&*step_);
+            // Showing chat and leaving its empty entry do not move the player or camera.
+            const bool chat=shortcut && (shortcut->key==Key::chat || shortcut->key==Key::chat_submit);
             if (!std::holds_alternative<Done>(*step_) && !std::holds_alternative<Wait>(*step_) && !std::holds_alternative<EndCycle>(*step_)
                 && !std::holds_alternative<AwaitText>(*step_) && !std::holds_alternative<Navigate>(*step_)
-                && !std::holds_alternative<RunProgram>(*step_)) progress_.route_position.reset();
+                && !std::holds_alternative<RunProgram>(*step_) && !chat) progress_.route_position.reset();
             if (!std::holds_alternative<MoveCamera>(*step_) && !std::holds_alternative<SetHeading>(*step_)
                 && !std::holds_alternative<Wait>(*step_) && !std::holds_alternative<Walk>(*step_) && !std::holds_alternative<EndCycle>(*step_)
-                && !std::holds_alternative<RunProgram>(*step_) && !std::holds_alternative<Done>(*step_)) progress_.estimated_heading.reset();
+                && !std::holds_alternative<RunProgram>(*step_) && !std::holds_alternative<Done>(*step_) && !chat) progress_.estimated_heading.reset();
             if (auto* done=std::get_if<Done>(&*step_)) { finish(State::completed,done->reason); return; }
             if (auto* deferred=std::get_if<Defer>(&*step_)) { finish(State::deferred,deferred->reason); return; }
             if (auto* walk=std::get_if<Walk>(&*step_)) { speed_->observe(c,observations.movement_speed); }
