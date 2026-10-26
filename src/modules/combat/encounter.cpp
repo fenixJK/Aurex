@@ -1,7 +1,10 @@
 #include "plan.hpp"
+#include "chat.hpp"
+#include "game/detection/vicious.hpp"
 #include <algorithm>
 #include <array>
 #include "game/detection/dialog.hpp"
+#include "game/data/fields.hpp"
 
 namespace hive::features::combat {
 namespace {
@@ -13,8 +16,24 @@ class Encounter final : public automation::Program {
     unsigned visible_peak_{},visible_{},leg_{},search_{};
     std::set<std::uint64_t> defeats_;
     double x_{},y_{};
-    bool started{},complete_{},amulet_kept_{},amulet_seen_{},session_finished_{},unavailable_{};
+    bool started{},complete_{},amulet_kept_{},amulet_seen_{},session_finished_{},unavailable_{},search_origin_{};
+    std::optional<Time> search_finished_;
     std::optional<game::WalkLeg> pending_;
+    std::shared_ptr<game::DistanceIntegrator> distance_;
+    Time observed_now_{},chat_at_{};
+    bool search_leg_{};
+    automation::Walk walk(automation::Walk step,bool searching=false) {
+        pending_=step.leg; search_leg_=searching;
+        if (!enemy_.search.empty()) {
+            distance_=std::make_shared<game::DistanceIntegrator>(step.leg.tiles);
+            step.distance=distance_;
+            step.until=[this,searching] {
+                return complete_ || session_finished_ || (searching && engaged_)
+                    || observed_now_-last_frame_>Time(2000);
+            };
+        }
+        return step;
+    }
 public:
     Encounter(Enemy enemy,double speed,Time entered):enemy_(std::move(enemy)),speed_(speed),entered_(entered) {
         if (!enemy_.observations || enemy_.count<1 || enemy_.count>8 || enemy_.fight.legs.empty())
@@ -27,22 +46,40 @@ public:
         return !enemy_.amulet.empty() && !amulet_kept_?std::vector<game::FixedLabelQuery>{{{.1,.1,.8,.85},{"Keep Old","Replace"}}}:std::vector<game::FixedLabelQuery>{};
     }
     WorkActivity activity() const noexcept override { return engaged_ && !complete_ && !session_finished_?WorkActivity::fighting:WorkActivity::other; }
-    ActivityStatus activity_status() const override { return {"Fighting",enemy_.id}; }
+    ActivityStatus activity_status() const override {
+        const auto field=game::field_at(enemy_.field+".entry");
+        return {engaged_?"Fighting":"Searching",field?enemy_.species+" · "+field->name:enemy_.id};
+    }
     std::optional<automation::SharedActivity> shared_activity() const override {
         if (!enemy_.shared || !visible_ || complete_ || session_finished_) return {};
         return automation::SharedActivity{"enemies",{{"enemy",enemy_.species},{"field",enemy_.field}}};
     }
     void observe(const automation::View& view) override {
+        observed_now_=view.context.now;
         if (view.context.now-last_frame_>Time(2000)) visible_=0;
         if (!started) { started=true; started_=view.context.now; }
         if (complete_ || session_finished_) return;
-        const auto packet=enemy_.observations->read();
-        if (!packet || !packet->error.empty()) return;
-        const Observation<bool> envelope{Knowledge::present,true,packet->context.now,packet->context.window,packet->context.generation};
-        if (!envelope.has_value(view.context,Time(2000))) return;
-        const auto observed=std::dynamic_pointer_cast<const game::EnemiesDetection>(packet->value);
-        if (!observed || !observed->visible.has_value(view.context,Time(2000),entered_)
-            || observed->visible.captured<=last_frame_) return;
+        if (enemy_.vicious) {
+            const auto observed=game::read_vicious(*enemy_.vicious,view.context);
+            if (!observed.has_value(view.context,Time(2000)) || observed.captured<=last_frame_) return;
+            last_frame_=observed.captured;
+            const auto current=[&](const auto& event) { return event && *event>=entered_ && *event<=view.context.now; };
+            // A kill which predates this encounter's engagement belongs to somebody else.
+            if (current(observed.value.engaged) && !engaged_) engaged_=*observed.value.engaged;
+            visible_=engaged_?1:0;
+            if (current(observed.value.defeated)) {
+                if (engaged_ && *observed.value.defeated>*engaged_) {
+                    complete_=true; completed_at_=view.context.now;
+                    if (enemy_.progress) enemy_.progress->finish(true);
+                } else {
+                    session_finished_=unavailable_=true;
+                    if (enemy_.progress) enemy_.progress->finish_unavailable(enemy_.cooldown);
+                }
+            }
+            return;
+        }
+        const auto observed=game::read_enemies(*enemy_.observations,view.context,entered_);
+        if (!observed || observed->visible.captured<=last_frame_) return;
         last_frame_=observed->visible.captured;
         const auto count=std::count_if(observed->visible.value.begin(),observed->visible.value.end(),[&](const auto& enemy) { return enemy.name==enemy_.species; });
         for (const auto& enemy:observed->visible.value)
@@ -51,9 +88,10 @@ public:
         const bool announced=std::any_of(observed->activity.begin(),observed->activity.end(),[&](const auto& activity) {
             return activity.name==enemy_.species && activity.field==enemy_.field;
         });
-        const auto defeat=observed->defeats.find(enemy_.species);
-        if (enemy_.shared && !count && defeat!=observed->defeats.end()
-            && defeat->second.has_value(view.context,Time(2000),entered_) && defeat->second.value) {
+        const bool defeated=std::any_of(observed->recent_defeats.begin(),observed->recent_defeats.end(),[&](const auto& event) {
+            return event.name==enemy_.species && event.seen>=entered_ && event.seen<=view.context.now;
+        });
+        if (enemy_.shared && !count && defeated) {
             if (engaged_) {
                 complete_=true; completed_at_=view.context.now;
                 if (enemy_.progress) enemy_.progress->finish(true);
@@ -63,7 +101,9 @@ public:
             }
             return;
         }
-        if (announced && !engaged_) engaged_=view.context.now;
+        // A field announcement can be another player's battle across the field.
+        // Keep sweeping until the local health bar is visible before fighting.
+        if (announced && enemy_.search.empty() && !engaged_) engaged_=view.context.now;
         visible_=unsigned(count);
         visible_peak_=std::max(visible_peak_,visible_);
         if (visible_ && !engaged_) engaged_=view.context.now;
@@ -83,6 +123,9 @@ public:
     }
     automation::Step next(const automation::View& view) override {
         using namespace automation;
+        // Search displacement is not combat displacement: fight around the discovery
+        // point, then return there instead of crossing the entire field after a kill.
+        if (!enemy_.search.empty() && engaged_ && !search_origin_) { x_=y_=0; search_origin_=true; }
         Observation<game::DialogButtons> buttons;
         if (!enemy_.amulet.empty() && !amulet_kept_ && view.observations) {
             const game::PromptLandmark title{{enemy_.amulet},{.1,.1,.8,.85},.7f,game::PromptMatch::phrase};
@@ -123,14 +166,32 @@ public:
             return Done{(complete_?"Defeated ":unavailable_?"Already defeated: ":"Finished visit to ")+enemy_.id};
         }
         if (enemy_.scheduled && !enemy_.scheduled(view.context)) throw ObservationUnavailable("Encounter is no longer available: "+enemy_.id);
-        if (view.context.now-started_>=enemy_.fight.duration)
+        if (view.context.now-engaged_.value_or(started_)>=enemy_.fight.duration)
             throw ObservationUnavailable("Fight timed out: "+enemy_.id);
+        if (!enemy_.search.empty() && (last_frame_<Time{} || view.context.now-last_frame_>Time(2000))) {
+            if (view.context.now-std::max(started_,last_frame_)>=Time(5000))
+                throw ObservationUnavailable("Vicious Bee observations are unavailable");
+            return Wait{Time(100),"Waiting for enemy observations"};
+        }
+        if (enemy_.vicious && view.context.now-chat_at_>=Time(30000)) {
+            chat_at_=view.context.now; return RunProgram{show_chat};
+        }
         if (!engaged_ && defeats_.empty() && !enemy_.search.empty()) {
+            if (enemy_.requested_field) {
+                const auto field=enemy_.requested_field(view.context);
+                if (!field.empty() && field!=enemy_.field) {
+                    if (enemy_.progress) enemy_.progress->finish(false);
+                    const auto definition=game::field_at(field+".entry");
+                    return Done{"Vicious Bee reported in "+(definition?definition->name:field)};
+                }
+            }
             if (search_==enemy_.search.size()) {
+                if (!search_finished_) search_finished_=view.context.now;
+                if (last_frame_<*search_finished_) return Wait{Time(100),"Checking the end of the search"};
                 if (enemy_.progress) enemy_.progress->finish(false,std::chrono::minutes(10));
                 return Done{"No Vicious Bee in this field"};
             }
-            auto step=enemy_.search[search_++]; pending_=step.leg; return step;
+            return walk(enemy_.search[search_++],true);
         }
         if (!engaged_ && defeats_.empty() && view.context.now-started_>=Time(10000))
             throw ObservationUnavailable("No enemy found: "+enemy_.id);
@@ -139,12 +200,17 @@ public:
         if ((enemy_.movement_radius>0 && std::hypot(x_,y_)>=enemy_.movement_radius)
             || view.context.now-moved_<enemy_.movement_interval) return Hold{{Key::primary},Time(250),Point{.85,.15}};
         moved_=view.context.now;
-        const auto& step=enemy_.fight.legs[leg_++%enemy_.fight.legs.size()]; pending_=step.leg;
-        return step;
+        return walk(enemy_.fight.legs[leg_++%enemy_.fight.legs.size()]);
     }
     void step_completed(const automation::View&) override {
         if (!pending_) return;
-        const auto distance=pending_->tiles*(pending_->second?1/std::sqrt(2.):1.);
+        const auto remaining=distance_?distance_->remaining_tiles():0.;
+        const auto distance=(pending_->tiles-remaining)*(pending_->second?1/std::sqrt(2.):1.);
+        // A stale capture pauses the leg. Resume its remainder once observations
+        // recover instead of silently skipping that part of the search route.
+        if (search_leg_ && !engaged_ && !complete_ && !session_finished_ && remaining>.001)
+            enemy_.search[--search_].leg.tiles=remaining;
+        distance_.reset(); search_leg_=false;
         const auto move=[&](Key key) {
             if (key==Key::left) x_-=distance; else if (key==Key::right) x_+=distance;
             else if (key==Key::forward) y_+=distance; else if (key==Key::backward) y_-=distance;

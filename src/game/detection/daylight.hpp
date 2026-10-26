@@ -4,5 +4,6 @@
 namespace hive::game {
 struct Daylight final : Detection { std::optional<bool> night; };
 std::shared_ptr<const Detector> daylight_detector();
+Observation<bool> read_night(const DetectionSource& source,const ObservationContext& context,Time since={});
 std::function<bool(const ObservationContext&)> during_night(std::shared_ptr<const DetectionSource> source);
 }

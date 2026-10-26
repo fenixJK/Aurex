@@ -27,6 +27,8 @@ public:
     HudFeatures inspect(const Frame& frame,std::uint64_t generation,bool menus=true,bool backpack=true);
 };
 bool game_hud_visible(const Frame& frame,std::uint64_t generation);
+// Use only after independently recognizing Roblox's dimming menu overlay.
+bool resource_hud_behind_menu(const Frame& frame);
 Reading<std::uint64_t> read_honey(const Frame& frame,const std::vector<TextLine>& lines,std::uint64_t generation);
 std::optional<std::array<Rect,2>> resource_hud_regions(const Frame& frame);
 std::optional<std::array<Rect,2>> resource_hud_regions(const DetectionInput& input);

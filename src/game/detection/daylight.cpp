@@ -52,21 +52,25 @@ public:
 };
 }
 std::shared_ptr<const Detector> daylight_detector() { return std::make_shared<DaylightDetector>(); }
+Observation<bool> read_night(const DetectionSource& source,const ObservationContext& context,Time since) {
+    const auto packet=source.read();
+    if (!packet || !packet->error.empty()) return {};
+    auto current=context;
+    if (!current.window.id) current.window=packet->context.window;
+    const Observation<bool> envelope{Knowledge::present,true,packet->context.now,packet->context.window,packet->context.generation};
+    if (!envelope.has_value(current,Time(5000),since)) return {};
+    const auto reading=std::dynamic_pointer_cast<const Daylight>(packet->value);
+    if (!reading || !reading->night) return {};
+    auto result=envelope; result.value=*reading->night; return result;
+}
 std::function<bool(const ObservationContext&)> during_night(std::shared_ptr<const DetectionSource> source) {
     if (!source) return [](const ObservationContext&) { return false; };
     struct State { std::mutex mutex; Observation<bool> night; };
     auto state=std::make_shared<State>();
     return [source=std::move(source),state=std::move(state)](const ObservationContext& context) {
-        const auto packet=source->read();
+        const auto reading=read_night(*source,context);
         std::lock_guard lock(state->mutex);
-        if (packet && packet->error.empty() && packet->context.generation==context.generation
-            && packet->context.now<=context.now && context.now-packet->context.now<=Time(5000)
-            && (!context.window.id || (packet->context.window.id==context.window.id
-                && packet->context.window.process==context.window.process && packet->context.window.bounds==context.window.bounds))) {
-            const auto reading=std::dynamic_pointer_cast<const Daylight>(packet->value);
-            if (reading && reading->night && packet->context.now>=state->night.captured)
-                state->night={Knowledge::present,*reading->night,packet->context.now,packet->context.window,packet->context.generation};
-        }
+        if (reading.knowledge==Knowledge::present && reading.captured>=state->night.captured) state->night=reading;
         auto current=context;
         if (!current.window.id) current.window=state->night.window;
         return state->night.has_value(current,Time(30000)) && state->night.value;

@@ -2,6 +2,7 @@ add_library(hive_game
   detection/state_observation.cpp
   detection/respawn.cpp
   detection/enemies.cpp
+  detection/vicious.cpp
   data/fields.cpp
   detection/nectar.cpp
   detection/dialog.cpp

@@ -1,56 +1,112 @@
 #include "plan.hpp"
+#include "chat.hpp"
+#include "game/detection/vicious.hpp"
 #include "modules/shared/movement.hpp"
+#include "game/data/fields.hpp"
 
 namespace hive::features::combat {
 namespace {
 class Hunt final : public automation::Program {
+    enum class Phase { travel,search,result,home,prepare,aligned };
     Enemy enemy_;
     double speed_;
     automation::ProgramFactory prepare_,home_;
     std::shared_ptr<const movement::Recipes> movement_;
-    unsigned field_{},phase_{};
+    Phase phase_{Phase::travel};
+    std::vector<std::string> remaining_;
+    std::string field_,reported_;
+    Time reported_at_{Time(-1)};
+    Time travelled_{};
     std::optional<Time> began_;
+    unsigned retries_{};
+    bool retrying_{},chat_ready_{},chat_opening_{};
+    void choose(const automation::View& view) {
+        auto preferred=enemy_.requested_field?enemy_.requested_field(view.context):std::string{};
+        if (reported_at_>=Time{} && view.context.now-reported_at_<=Time(30000)) preferred=reported_;
+        auto found=std::find(remaining_.begin(),remaining_.end(),preferred);
+        if (found==remaining_.end()) found=remaining_.begin();
+        field_=*found; remaining_.erase(found); retries_=0;
+    }
 public:
     Hunt(Enemy enemy,double speed,automation::ProgramFactory prepare,automation::ProgramFactory home,movement::Source source)
-        :enemy_(std::move(enemy)),speed_(speed),prepare_(std::move(prepare)),home_(std::move(home)),movement_(movement::snapshot(source)) {
-        if (!prepare_ || !home_ || enemy_.hunt_fields.empty() || !enemy_.progress) throw std::invalid_argument("Hunting needs fields and hive travel");
+        :enemy_(std::move(enemy)),speed_(speed),prepare_(std::move(prepare)),home_(std::move(home)),movement_(movement::snapshot(source)),remaining_(enemy_.hunt_fields) {
+        if (!prepare_ || !home_ || remaining_.empty() || !enemy_.observations || !enemy_.progress)
+            throw std::invalid_argument("Hunting needs fields, observations and hive travel");
+        std::set<std::string> fields(remaining_.begin(),remaining_.end());
+        if (fields.size()!=remaining_.size()) throw std::invalid_argument("Duplicate hunt field");
         enemy_.progress->begin(0);
     }
     automation::RunConfig config() const override { return {std::chrono::minutes(15),speed_,{},true,true}; }
-    ActivityStatus activity_status() const override { return {"Searching",enemy_.species}; }
+    ActivityStatus activity_status() const override {
+        if (phase_==Phase::result || phase_==Phase::home || phase_==Phase::prepare || phase_==Phase::aligned) return {};
+        const auto field=game::field_at(field_+".entry");
+        return {phase_==Phase::search?"Travelling":"Searching",enemy_.species+(field?" · "+field->name:"")};
+    }
+    void observe(const automation::View& view) override {
+        if (phase_==Phase::home || phase_==Phase::prepare || phase_==Phase::aligned) return;
+        if (enemy_.vicious) {
+            if (chat_ready_) game::read_vicious(*enemy_.vicious,view.context);
+            return;
+        }
+        if (const auto seen=game::read_enemies(*enemy_.observations,view.context))
+            for (const auto& activity:seen->activity) if (activity.name==enemy_.species) {
+                reported_=activity.field; reported_at_=seen->visible.captured;
+            }
+    }
+    void step_completed(const automation::View&) override {
+        if (chat_opening_) { chat_opening_=false; chat_ready_=true; }
+    }
+    automation::ProgramFactory recovery(automation::Interruption reason,const automation::View& view) override {
+        if (reason==automation::Interruption::disconnected || reason==automation::Interruption::client_rejoin
+            || field_.empty() || retries_>=2 || (began_ && view.context.now-*began_>=std::chrono::minutes(5))) return {};
+        if (enemy_.progress->read().defeated) { phase_=Phase::result; return home_; }
+        ++retries_; retrying_=true; phase_=Phase::prepare;
+        return home_;
+    }
     automation::Step next(const automation::View& view) override {
         using namespace automation;
-        if (!began_) {
-            began_=view.context.now;
-            const auto field=enemy_.requested_field?enemy_.requested_field(view.context):std::string{};
-            const auto found=std::find(enemy_.hunt_fields.begin(),enemy_.hunt_fields.end(),field);
-            if (found!=enemy_.hunt_fields.end()) std::rotate(enemy_.hunt_fields.begin(),found,found+1);
+        if (!began_) { began_=view.context.now; choose(view); }
+        if (enemy_.vicious && !chat_ready_) {
+            chat_opening_=true;
+            return RunProgram{show_chat};
         }
-        const bool search_ended=view.context.now-*began_>=std::chrono::minutes(5);
-        if (phase_==3) {
+        if (enemy_.vicious && phase_==Phase::travel
+            && !game::read_vicious(*enemy_.vicious,view.context).has_value(view.context,Time(2000))) {
+            if (view.context.now-*began_>=Time(5000)) throw ObservationUnavailable("Combat notifications could not be captured");
+            return Wait{Time(100),"Preparing combat notifications"};
+        }
+        const bool expired=view.context.now-*began_>=std::chrono::minutes(5);
+        if (phase_==Phase::result) {
             const auto progress=enemy_.progress->read();
             if (progress.defeated) return Done{"Defeated "+enemy_.species};
             if (progress.unavailable) return Done{enemy_.species+" was defeated by another player"};
-            if (field_+1>=enemy_.hunt_fields.size() || search_ended) {
-                enemy_.progress->finish(false,std::chrono::minutes(10)); return Done{"Vicious Bee search finished"};
+            if (remaining_.empty() || expired) {
+                enemy_.progress->finish(false,std::chrono::minutes(10));
+                return Done{expired?"Vicious Bee search time limit reached":"No Vicious Bee in the selected fields"};
             }
-            phase_=4; return RunProgram{home_};
+            phase_=Phase::home; return RunProgram{home_};
         }
-        if (phase_==4) { ++field_; phase_=0; return RunProgram{prepare_}; }
-        if (phase_==0) { phase_=1; return Navigate{enemy_.hunt_fields[field_]+".entry"}; }
-        if (phase_==1) {
-            auto encounter_enemy=enemy_;
-            encounter_enemy.scheduled={}; encounter_enemy.field=enemy_.hunt_fields[field_];
-            encounter_enemy.search=movement_walks(*movement_,"vicious-search",{{"field",enemy_.hunt_fields[field_]}},true);
-            std::vector<Walk> parts;
-            for (const auto& walk:encounter_enemy.search) {
-                auto remaining=walk.leg.tiles;
-                while (remaining>.001) { auto part=walk; part.leg.tiles=std::min(1.,remaining); parts.push_back(part); remaining-=part.leg.tiles; }
-            }
-            encounter_enemy.search=std::move(parts); phase_=3;
-            return RunProgram{[enemy=std::move(encounter_enemy),speed=speed_,entered=view.context.now] { return encounter(enemy,speed,entered); }};
+        if (phase_==Phase::home) phase_=Phase::prepare;
+        if (phase_==Phase::prepare) {
+            if (!retrying_) choose(view);
+            retrying_=false; phase_=Phase::aligned; return RunProgram{prepare_};
         }
-        return Wait{};
+        if (phase_==Phase::aligned) phase_=Phase::travel;
+        if (phase_==Phase::travel) {
+            if (expired) { enemy_.progress->finish(false,std::chrono::minutes(10)); return Done{"Vicious Bee search time limit reached"}; }
+            travelled_=view.context.now; phase_=Phase::search; return Navigate{field_+".entry"};
+        }
+        auto encounter_enemy=enemy_;
+        encounter_enemy.scheduled={}; encounter_enemy.field=field_;
+        if (!enemy_.vicious) encounter_enemy.requested_field=[source=enemy_.observations,remaining=remaining_,requested=enemy_.requested_field](const ObservationContext& context) {
+            auto field=requested?requested(context):std::string{};
+            if (const auto seen=game::read_enemies(*source,context))
+                for (const auto& activity:seen->activity) if (activity.name=="Vicious Bee") field=activity.field;
+            return std::find(remaining.begin(),remaining.end(),field)!=remaining.end()?field:std::string{};
+        };
+        encounter_enemy.search=movement_walks(*movement_,"vicious-search",{{"field",field_}},true);
+        phase_=Phase::result;
+        return RunProgram{[enemy=std::move(encounter_enemy),speed=speed_,entered=travelled_] { return encounter(enemy,speed,entered); }};
     }
 };
 }

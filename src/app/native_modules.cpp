@@ -1,5 +1,7 @@
 #include "native_modules.hpp"
 #include "modules/tools/module.hpp"
+#include "modules/combat/vichop/module.hpp"
+#include "game/actions/recovery/reconnect.hpp"
 #include "modules/quests/actions.hpp"
 #include "core/module_host/host.hpp"
 #include "modules/shared/policies.hpp"
@@ -54,6 +56,7 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
         modules.planters.plan={};
         modules.collection.plan={}; modules.collection.availability.reset();
         modules.combat.plan={}; modules.combat.availability.reset();
+        modules.combat.arrival={}; modules.combat.joined_setup={};
         if (modules.planters.inventory) modules.planters.actions.reset();
         auto routes=automation::live_hive_routes(28,modules.travel_access,modules.movement,true);
         modules.gathering=features::gathering::field_services(routes->network(),28,modules.patterns,modules.screen_reference);
@@ -74,6 +77,13 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
         };
     };
     service.plan.hive_setup=setup(automation::HiveStart::locate);
+    modules.combat.arrival=hive.recovery?automation::ProgramFactory([source=hive.recovery] { return automation::wait_for_reconnect(source); }):automation::ProgramFactory{};
+    modules.combat.joined_setup=[movement=modules.movement_setup,hive,speed=*speed] {
+        return automation::prepare_travel(movement,[hive,speed] {
+            auto options=hive.options(speed); options.existing_slot=0; options.confirmed_spawn=true;
+            return automation::acquire_hive(hive.slot_source,hive.spawn,hive.reference,hive.proximity,options);
+        },speed);
+    };
     modules.startup=setup(hive.recovery?automation::HiveStart::reset:automation::HiveStart::locate);
     if (hive.recovery) service.plan.recovery=[hive,speed=*speed] {
         return automation::recover_to_hive(hive.slot_source,hive.spawn,hive.reference,hive.proximity,
@@ -122,6 +132,11 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
     modules.combat.plan={}; modules.combat.availability.reset();
     if (enemies) {
         modules.combat.plan=features::combat::walking_plan(*routes,*speed,enemies,return_to_hive,returns,modules.collection.daylight);
+        for (auto& enemy:modules.combat.plan.enemies) if (enemy.species=="Vicious Bee" && modules.combat.vicious) {
+            enemy.vicious=modules.combat.vicious;
+            // The fast search follows the established field order without waking OCR.
+            enemy.requested_field={};
+        }
         modules.combat.plan.setup=service.plan.hive_setup;
         modules.combat.plan.recovery=return_to_hive;
         modules.combat.plan.buffs=modules.buffs;
@@ -276,6 +291,23 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
         },requirements,[plan=service.configuration?*service.configuration:service.plan](int version,const Settings& values) {
             return features::combat::migrate_settings(version,values,plan);
         });
+    }
+    {
+        const auto& plan=modules.combat.plan;
+        const auto enemy=std::find_if(plan.enemies.begin(),plan.enemies.end(),[](const auto& candidate) { return candidate.species=="Vicious Bee"; });
+        Requirements requirements; requirements.navigation(navigation);
+        requirements.need(enemy!=plan.enemies.end(),"Vicious Bee search routes");
+        requirements.need(bool(plan.setup) && bool(plan.recovery),"hive setup and recovery");
+        requirements.need(bool(modules.collection.daylight),"night detection");
+        requirements.need(bool(modules.combat.arrival) && bool(modules.combat.joined_setup),"server arrival and hive setup");
+        features::vichop::Services services;
+        if (enemy!=plan.enemies.end()) services.enemy=*enemy;
+        services.speed=plan.config.speed; services.prepare=plan.setup; services.home=plan.recovery;
+        services.movement=plan.movement; services.daylight=modules.collection.daylight;
+        services.servers=features::vichop::public_servers();
+        services.arrival=modules.combat.arrival; services.joined_setup=modules.combat.joined_setup;
+        add(host,features::vichop::module_manifest(plan.enemies.empty() && modules.combat.configuration?*modules.combat.configuration:plan),
+            features::vichop::module_factory(std::move(services)),requirements);
     }
 }
 }

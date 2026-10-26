@@ -3,7 +3,8 @@
 namespace hive {
 ClientRejoin::ClientRejoin(game::JoinTarget target,Window old,const std::vector<std::int64_t>& existing,Time now,RejoinLimits limits,RejoinMode mode)
     :target_(std::move(target)),limits_(limits),old_(std::move(old)),deadline_(now+limits.close),next_(now),last_(now) {
-    if ((old_.id && old_.process<=0) || (!old_.id && old_.process) || limits.close<=Time{} || limits.window<=Time{} || limits.focus<=Time{} || limits.poll<=Time{})
+    if ((old_.id && old_.process<=0) || (!old_.id && old_.process) || limits.close<=Time{} || limits.window<=Time{} || limits.focus<=Time{} || limits.poll<=Time{}
+        || limits.retry<=Time{} || !limits.attempts || limits.attempts>3)
         throw std::invalid_argument("Invalid client recovery configuration");
     if(old_.id) {
         for (const auto process:existing) if (process!=old_.process) excluded_.insert(process);
@@ -14,18 +15,32 @@ ClientRejoin::ClientRejoin(game::JoinTarget target,Window old,const std::vector<
 std::string ClientRejoin::status() const {
     switch (stage_) {
     case Stage::closing: return "Closing the interrupted Roblox client";
-    case Stage::launching: return "Launching Roblox";
+    case Stage::launching: return attempts_>1 || (attempts_ && !launch_.valid())?"Retrying Roblox launch":"Launching Roblox";
     case Stage::window: return "Waiting for Roblox to open";
     case Stage::focused: return "Waiting for the new Roblox window";
     case Stage::complete: return "Confirming game readiness";
     }
     return {};
 }
+bool ClientRejoin::retry_launch(Time now) {
+    if (attempts_>=limits_.attempts) return false;
+    stage_=Stage::launching; candidate_={};
+    next_=now+limits_.retry; deadline_=next_+limits_.window;
+    return true;
+}
 std::optional<Window> ClientRejoin::update(Desktop& desktop,Time now) {
     if (now<last_) throw std::runtime_error("Clock moved backwards during client recovery");
     last_=now;
     if (stage_==Stage::complete) return candidate_;
-    if (now>=deadline_) throw std::runtime_error(status()+" timed out");
+    if (now>=deadline_) {
+        // Only resend a completed launch that produced no client. A pending
+        // launch or a process still opening its window must not be duplicated.
+        bool opening=false;
+        if (stage_==Stage::window) for (const auto process:desktop.client_processes())
+            if (!excluded_.contains(process)) { opening=true; break; }
+        if (stage_==Stage::window && !opening && retry_launch(now)) return {};
+        throw std::runtime_error(status()+" timed out");
+    }
     if (now<next_) return {};
     next_=now+limits_.poll;
     if (stage_==Stage::closing) {
@@ -39,10 +54,13 @@ std::optional<Window> ClientRejoin::update(Desktop& desktop,Time now) {
         stage_=Stage::launching; deadline_=now+limits_.window;
     }
     if (stage_==Stage::launching) {
-        if (!launch_.valid()) launch_=desktop.open_client(target_.uri());
+        if (!launch_.valid()) { ++attempts_; launch_=desktop.open_client(target_.uri()); }
         if (!launch_.valid()) throw std::runtime_error("Roblox launch could not be started");
         if (launch_.wait_for(Time{})!=std::future_status::ready) return {};
-        if (!launch_.get()) throw std::runtime_error("Roblox could not be launched; check its installation");
+        if (!launch_.get()) {
+            if (retry_launch(now)) return {};
+            throw std::runtime_error("Roblox could not be launched after retrying; check its installation");
+        }
         stage_=Stage::window;
         return {};
     }

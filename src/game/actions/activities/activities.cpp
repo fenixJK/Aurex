@@ -10,6 +10,7 @@ game::ObservationNeeds Runner::observation_needs() const {
     using K=game::ObservationKind;
     if (progress_.state!=State::running) return {};
     if (recovery_) return recovery_->observation_needs();
+    if (startup_pending_) return {K::health,K::connection};
     game::ObservationNeeds needs;
     if (config_.observe || config_.backpack_limit || connection_reconnect_) needs={K::health,K::connection};
     if (awaiting_window_) return needs;
@@ -43,7 +44,7 @@ bool Runner::needs_movement_speed() const {
 }
 std::vector<game::FixedLabelQuery> Runner::fixed_labels() const {
     if (recovery_) return recovery_->fixed_labels();
-    if (progress_.state!=State::running || awaiting_window_) return {};
+    if (progress_.state!=State::running || awaiting_window_ || startup_pending_) return {};
     auto queries=program_->fixed_labels();
     for (const auto* child:{child_.get(),pattern_.get()}) if (child) {
         const auto requested=child->fixed_labels(); queries.insert(queries.end(),requested.begin(),requested.end());
@@ -52,7 +53,7 @@ std::vector<game::FixedLabelQuery> Runner::fixed_labels() const {
 }
 std::vector<Rect> Runner::text_regions() const {
     if (recovery_) return recovery_->text_regions();
-    if (progress_.state!=State::running || awaiting_window_) return {};
+    if (progress_.state!=State::running || awaiting_window_ || startup_pending_) return {};
     auto regions=program_->text_regions();
     if (guard_) {
         const auto requested=guard_->text_regions(); regions.insert(regions.end(),requested.begin(),requested.end());

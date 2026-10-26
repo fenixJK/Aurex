@@ -25,6 +25,7 @@ using Value = SettingValue;
 using Settings = hive::Settings;
 enum class Permission { movement, tool, interact };
 using Permissions = std::set<Permission>;
+inline constexpr Time game_loading_timeout{180000};
 class ClientRejoinRequired : public std::runtime_error { public: using std::runtime_error::runtime_error; };
 enum class State { ready, running, paused, completed, stopped, failed, deferred };
 inline bool can_handoff(State state) { return state==State::completed || state==State::deferred; }
@@ -58,7 +59,14 @@ public:
     virtual std::vector<Rect> text_regions() const { return {}; }
     virtual GuardDecision evaluate(const View& view,Time started)=0;
 };
-struct Walk { game::WalkLeg leg; bool tool{}; };
+struct Walk {
+    game::WalkLeg leg;
+    bool tool{};
+    // Optional early finish for observation-driven movement. The shared integrator
+    // reports the distance actually travelled, including cancellation mid-leg.
+    std::function<bool()> until;
+    std::shared_ptr<game::DistanceIntegrator> distance;
+};
 struct MoveCamera { game::CameraMove movement; };
 struct SetHeading { unsigned heading{}; };
 struct AdoptHeading { unsigned heading{}; Observation<bool> reference; };
@@ -132,6 +140,9 @@ public:
     virtual bool expects_reconnect() const noexcept { return false; }
     virtual ProgramFactory recovery(Interruption,const View&) { return {}; }
     virtual bool resume_after_reconnect(const View&) { return false; }
+    // An explicit server tool may switch only at an input-free boundary.
+    virtual bool server_change_ready() const noexcept { return false; }
+    virtual ProgramFactory server_arrival() const { return {}; }
     virtual bool request_yield() { return false; }
     virtual void observe(const View&) {}
     virtual void step_completed(const View&) {}

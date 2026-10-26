@@ -16,6 +16,7 @@
 #include "game/detection/blooms.hpp"
 #include "game/detection/conversation.hpp"
 #include "game/detection/enemies.hpp"
+#include "game/detection/vicious.hpp"
 #include <QDir>
 #include <algorithm>
 
@@ -57,6 +58,7 @@ std::vector<game::DetectorConfig> game_detectors(std::shared_ptr<game::Inventory
     std::vector<hive::game::DetectorConfig> detectors{
         {"honey",hive::game::honey_detector(),hive::Time(hive::reporting::sample_interval_ms)},
         {"enemies",hive::game::enemy_detector()},
+        {"vicious",hive::game::vicious_detector(),hive::Time(100),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::responsive},
         {"memory-board",hive::game::memory_match_detector(),hive::Time(250),hive::game::DetectionMode::pixels},
         {"daylight",hive::game::daylight_detector(),hive::Time(2000),hive::game::DetectionMode::pixels,true},
         {"item-menu",hive::game::item_menu_detector(),hive::Time(750),hive::game::DetectionMode::text,true},

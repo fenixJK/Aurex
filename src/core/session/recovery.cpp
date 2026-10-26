@@ -58,7 +58,7 @@ bool Session::begin_client_rejoin(Time now,bool requested) {
     const ObservationContext context{active_window_,tasks_.generation(),now};
     const bool home=observed.client_home.has_value(context,Time(2000)) && observed.client_home.value
         && !(observed.game_hud.has_value(context,Time(2000)) && observed.game_hud.value);
-    if (!feature_->prepare_client_rejoin(now)) return false;
+    if (!feature_->prepare_client_rejoin(now,requested)) return false;
     observer_.stop(); runtime_.stop("Preparing Roblox rejoin");
     if (runtime_.status().state==RunState::faulted) throw std::runtime_error("Could not release input before relaunching Roblox");
     joining_server_=requested_server_ && requested_server_->expires>now?requested_server_->key:std::string{};
@@ -67,7 +67,7 @@ bool Session::begin_client_rejoin(Time now,bool requested) {
     client_rejoin_.emplace(*target,active_window_,desktop_.client_processes(),now,limits,
         home?RejoinMode::join_existing:RejoinMode::restart);
     runtime_.start(active_window_,now,CompletionMode::managed);
-    window_recovery_=WindowRecovery{now+limits.close+limits.window+limits.focus,now};
+    window_recovery_=WindowRecovery{now+limits.total(),now};
     return true;
 }
 void Session::recover_window(Time now) {

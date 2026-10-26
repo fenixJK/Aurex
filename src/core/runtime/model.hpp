@@ -88,8 +88,8 @@ struct Frame {
     }
 };
 struct TextLine { std::string text; Rect pixels; std::optional<float> confidence; };
-enum class Key { forward, backward, left, right, jump, interact, rotate_left, rotate_right, primary, hotbar_1, hotbar_2, hotbar_3, hotbar_4, hotbar_5, hotbar_6, hotbar_7, pitch_up, pitch_down, zoom_in, zoom_out, shift_lock, digit_0, digit_8, digit_9, select_all, game_menu, respawn, confirm };
-inline bool menu_key(Key key) { return key>=Key::game_menu && key<=Key::confirm; }
+enum class Key { forward, backward, left, right, jump, interact, rotate_left, rotate_right, primary, hotbar_1, hotbar_2, hotbar_3, hotbar_4, hotbar_5, hotbar_6, hotbar_7, pitch_up, pitch_down, zoom_in, zoom_out, shift_lock, digit_0, digit_8, digit_9, select_all, game_menu, respawn, confirm, chat };
+inline bool menu_key(Key key) { return key>=Key::game_menu && key<=Key::chat; }
 inline bool hotbar_key(Key key) { return key>=Key::hotbar_1 && key<=Key::hotbar_7; }
 inline bool camera_key(Key key) {
     return key==Key::rotate_left || key==Key::rotate_right || key==Key::pitch_up

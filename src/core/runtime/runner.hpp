@@ -33,7 +33,8 @@ public:
     bool can_replace_window() const noexcept;
     void allow_client_rejoin(bool allowed) { allow_rejoin_=allowed; }
     bool needs_client_rejoin() const { return progress_.state==State::running && awaiting_window_ && rejoin_requested_; }
-    bool prepare_client_rejoin(Time now);
+    bool server_change_ready() const noexcept;
+    bool prepare_client_rejoin(Time now,bool requested=false);
     bool suspend_window(Time now);
     bool wait_window(Time now,const std::string& status={});
     void replace_window(const ObservationContext& context,ModuleScope scope);
@@ -56,6 +57,7 @@ private:
     ActivitySink activity_sink_;
     std::optional<Step> step_;
     Time last_{}, hold_left_{};
+    Time prerequisites_started_{};
     Time death_seen_{Time(-1)};
     bool clock_started_{};
     std::unique_ptr<Runner> pattern_;

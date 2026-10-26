@@ -1,5 +1,7 @@
 #include "connection.hpp"
 #include "visual_labels.hpp"
+#include "perception.hpp"
+#include "respawn.hpp"
 #include <array>
 #include <algorithm>
 #include <cmath>
@@ -51,6 +53,14 @@ ConnectionView read_connection_view(const Frame& frame,std::uint64_t generation,
             result.reconnect={Knowledge::present,{(r.x+r.width/2)/frame.width,(r.y+r.height/2)/frame.height},frame.captured,frame.window,generation};
         }
         return result;
+    }
+    if (!game_visible && resource_hud_behind_menu(frame)) {
+        const auto menu=read_respawn_menu(frame,generation);
+        if (menu.knowledge==Knowledge::present && menu.value.screen==RespawnScreen::menu) {
+            result.connection={Knowledge::present,Connection::connected,frame.captured,frame.window,generation};
+            result.home={Knowledge::present,false,frame.captured,frame.window,generation};
+            return result;
+        }
     }
     if (!game_visible) {
         static constexpr std::array<std::string_view,4> navigation{"Home","Charts","Avatar","Search"};

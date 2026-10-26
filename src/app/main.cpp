@@ -479,6 +479,7 @@ public:
         native_modules_.collection.daylight=channels.at("daylight");
         native_modules_.collection.inventory=native_modules_.planters.inventory;
         native_modules_.collection.item_menus=channels.at("item-menu");
+        native_modules_.combat.vicious=channels.at("vicious");
         const auto enemy_observations=channels.at("enemies");
         hive::app::configure_travel_modules(native_modules_,player_speed->base_speed(),hive_sources,enemy_observations);
         const auto movement_buffs=channels.at("movement-buffs");

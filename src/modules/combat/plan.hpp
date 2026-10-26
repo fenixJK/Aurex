@@ -42,6 +42,7 @@ struct Enemy {
     bool shared{};
     std::string field;
     std::function<std::string(const ObservationContext&)> requested_field;
+    std::shared_ptr<const game::DetectionSource> vicious;
 };
 enum class MondoMode { kill,buff };
 enum class LootDirection { random,left,right };

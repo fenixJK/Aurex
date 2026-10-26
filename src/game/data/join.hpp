@@ -8,6 +8,7 @@ public:
     explicit JoinTarget(const std::string& private_server_link={});
     static JoinTarget from_uri(const std::string& uri);
     static JoinTarget follow_user(const std::string& user_id);
+    static JoinTarget public_server(const std::string& instance_id);
     const std::string& uri() const { return uri_; }
 };
 }

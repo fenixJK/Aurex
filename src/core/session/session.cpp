@@ -82,7 +82,9 @@ Session::Session(Desktop& desktop): desktop_(desktop), observer_(desktop), runti
                     else if (feature_ && feature_->needs_client_rejoin() && snapshot.window.id && !snapshot.focused) runtime_.stop("Game focus lost before rejoin");
                     else if (feature_ && feature_->needs_client_rejoin() && begin_client_rejoin(now)) recovering=true;
                     else if (!snapshot.window.id && (begin_window_recovery(now) || begin_client_rejoin(now))) recovering=true;
-                    else if (state==RunState::running && snapshot.focused && requested_rejoin(now) && starting && begin_client_rejoin(now,true)) recovering=true;
+                    else if (state==RunState::running && snapshot.focused && requested_rejoin(now)
+                        && (starting || (feature_ && feature_->server_change_ready() && !runtime_.has_work()))
+                        && begin_client_rejoin(now,true)) recovering=true;
                     else {
                         if (feature_) feature_->observe_movement({snapshot.window,tasks_.generation(),now},observations);
                         runtime_.tick(now,snapshot);

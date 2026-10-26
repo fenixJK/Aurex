@@ -6,23 +6,23 @@
 namespace hive::game {
 namespace {
 struct BackpackBar { Rect pixels; std::optional<double> percent; };
-std::optional<BackpackBar> backpack_bar(const Frame& frame,bool region_only=false) {
+std::optional<BackpackBar> backpack_bar(const Frame& frame,bool region_only=false,double brightness=1.) {
     if (!frame.valid()) return {};
     const auto pixel=[&](int x,int y) {
         const auto i=(std::size_t(y)*frame.width+x)*4;
         return std::array<int,4>{frame.rgba[i],frame.rgba[i+1],frame.rgba[i+2],frame.rgba[i+3]};
     };
-    const auto filled=[](const auto& c) {
-        return c[3]>=240 && ((c[1]-c[0]>25 && c[1]-c[2]>30) || (c[0]-c[1]>25 && c[0]-c[2]>40)
-            || (c[0]-c[2]>35 && c[1]-c[2]>25));
+    const auto filled=[brightness](const auto& c) {
+        return c[3]>=240 && ((c[1]-c[0]>25*brightness && c[1]-c[2]>30*brightness) || (c[0]-c[1]>25*brightness && c[0]-c[2]>40*brightness)
+            || (c[0]-c[2]>35*brightness && c[1]-c[2]>25*brightness));
     };
-    const auto empty=[](const auto& c) {
+    const auto empty=[brightness](const auto& c) {
         const auto [lo,hi]=std::minmax({c[0],c[1],c[2]});
-        return c[3]>=240 && lo>=55 && hi<=165 && hi-lo<=30;
+        return c[3]>=240 && lo>=55*brightness && hi<=165*brightness && hi-lo<=30*brightness;
     };
-    const auto border=[](const auto& c) {
+    const auto border=[brightness](const auto& c) {
         const auto [lo,hi]=std::minmax({c[0],c[1],c[2]});
-        return c[3]>=240 && lo>=165 && c[0]+c[1]+c[2]>=585 && hi-lo<=100;
+        return c[3]>=240 && lo>=165*brightness && c[0]+c[1]+c[2]>=585*brightness && hi-lo<=100*brightness;
     };
     const auto interior=[&](int x,int y) { const auto c=pixel(x,y); return !border(c) && (filled(c) || empty(c)); };
     // Roblox's UI scale is independent of window DPI. Find the bar from its
@@ -111,6 +111,11 @@ std::optional<std::array<Rect,2>> resource_regions(const Frame& frame,const Rect
 std::optional<std::array<Rect,2>> resource_hud_regions(const Frame& frame) {
     const auto bar=backpack_bar(frame,true);
     return bar?resource_regions(frame,bar->pixels):std::nullopt;
+}
+bool resource_hud_behind_menu(const Frame& frame) {
+    // Roblox halves the brightness behind its menu. Keep the same paired-bar
+    // geometry checks; this does not make dim game pixels valid during movement.
+    return backpack_bar(frame,true,.5).has_value();
 }
 std::optional<std::array<Rect,2>> resource_hud_regions(const DetectionInput& input) {
     return input.hud?input.hud->resources:resource_hud_regions(input.frame);

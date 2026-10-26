@@ -7,6 +7,14 @@
 #include <regex>
 
 namespace hive::game {
+std::shared_ptr<const EnemiesDetection> read_enemies(const DetectionSource& source,const ObservationContext& context,Time since) {
+    const auto packet=source.read();
+    if (!packet || !packet->error.empty()) return {};
+    const Observation<bool> envelope{Knowledge::present,true,packet->context.now,packet->context.window,packet->context.generation};
+    if (!envelope.has_value(context,Time(2000),since)) return {};
+    auto result=std::dynamic_pointer_cast<const EnemiesDetection>(packet->value);
+    return result && result->visible.has_value(context,Time(2000),since)?result:nullptr;
+}
 namespace {
 constexpr std::array<const char*,13> names{"Ladybug","Rhino Beetle","Mantis","Spider","Scorpion","Werewolf",
     "Vicious Bee","Mondo Chick","King Beetle","Tunnel Bear","Coconut Crab","Stump Snail","Commando Chick"};

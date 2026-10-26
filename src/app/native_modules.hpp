@@ -47,6 +47,8 @@ struct CollectionServices {
 };
 struct CombatServices {
     features::combat::Plan plan;
+    std::shared_ptr<const game::DetectionSource> vicious;
+    automation::ProgramFactory arrival,joined_setup;
     std::shared_ptr<const automation::AvailabilitySource> availability;
     std::shared_ptr<features::visits::Cooldowns> cooldowns;
     std::optional<features::combat::Plan> configuration;

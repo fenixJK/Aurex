@@ -104,7 +104,7 @@ void Runner::configure_connection_recovery(ProgramFactory reconnect,ProgramFacto
 void Runner::start(const ObservationContext& c) {
     if (progress_.state!=State::ready || !c.window.id || !c.window.bounds.valid() || c.generation!=scope_.generation)
         throw std::logic_error("Feature needs a new program and valid session");
-    context_=c; speed_->start(c); last_=c.now; clock_started_=!guard_; progress_.state=State::running; progress_.message="Running feature";
+    context_=c; speed_->start(c); last_=prerequisites_started_=c.now; clock_started_=!guard_; progress_.state=State::running; progress_.message="Running feature";
 }
 void Runner::clear_operations() {
     if (pattern_) { pattern_->stop(); pattern_.reset(); }
@@ -194,8 +194,25 @@ bool Runner::can_replace_window() const noexcept {
     return progress_.state==State::running && !awaiting_window_ && !window_replaced_ && replacement_
         && recovery_ && recovery_->expects_reconnect();
 }
-bool Runner::prepare_client_rejoin(Time now) {
+bool Runner::server_change_ready() const noexcept {
+    return progress_.state==State::running && program_->server_change_ready()
+        && !recovery_ && !child_ && !pattern_ && pending_.empty()
+        && (!step_ || std::holds_alternative<Wait>(*step_));
+}
+bool Runner::prepare_client_rejoin(Time now,bool requested) {
     if (!allow_rejoin_ || progress_.state!=State::running) return false;
+    if (requested && connection_replacement_ && permissions_.contains(Permission::interact)
+        && (waiting_for_game_view() || server_change_ready())) {
+        // Planned hops are not connection failures and do not consume their retry budget.
+        resume_connected_=startup_pending_; startup_pending_=false;
+        clear_operations(); replacement_=program_->server_arrival();
+        if (!replacement_) replacement_=connection_replacement_;
+        connection_recovering_=true; window_replaced_=false;
+        awaiting_window_=rejoin_requested_=true;
+        progress_.route_position.reset(); progress_.route_execution.reset(); progress_.estimated_heading.reset();
+        progress_.backpack_percent.reset();
+        return wait_window(now,"Joining the requested server");
+    }
     if (needs_client_rejoin()) return true;
     if (awaiting_window_ && replacement_) { rejoin_requested_=true; return wait_window(now); }
     if (!can_replace_window()) {
@@ -216,7 +233,8 @@ bool Runner::suspend_window(Time now) {
 bool Runner::wait_window(Time now,const std::string& status) {
     if (!awaiting_window_ || progress_.state!=State::running) return false;
     if (now<last_) { finish(State::failed,"Clock moved backwards during reconnect"); return false; }
-    progress_.elapsed+=now-last_; last_=now;
+    // Client launch has its own bounded deadline; it is not workflow execution.
+    last_=now;
     if (!status.empty()) progress_.message=status;
     if (progress_.elapsed>=config_.duration) { finish(State::failed,"Workflow deadline reached during reconnect"); return false; }
     return true;
@@ -225,7 +243,7 @@ void Runner::replace_window(const ObservationContext& c,ModuleScope scope) {
     if (!awaiting_window_ || progress_.state!=State::running || !replacement_ || !c.window.id || !c.window.bounds.valid()
         || !scope.id || scope.generation<=scope_.generation || c.generation!=scope.generation || c.now<last_)
         throw std::logic_error("Replacement window requires a suspended recovery and fresh scope");
-    scope_=scope; context_=c; progress_.elapsed+=c.now-last_; last_=c.now; speed_->start(c);
+    scope_=scope; context_=c; last_=prerequisites_started_=c.now; speed_->start(c);
     if (progress_.elapsed>=config_.duration) { finish(State::failed,"Workflow deadline reached during reconnect"); return; }
     guard_=program_->guard(); if (!guard_) guard_=observation_guard(config_);
     clock_started_=true;
@@ -270,7 +288,7 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
     if (progress_.state!=State::running) return;
     if (awaiting_window_) { wait_window(c.now); return; }
     if (!same_context(c) || c.now<last_) { finish(State::failed,"Session or window changed"); return; }
-    if (clock_started_) progress_.elapsed+=c.now-last_;
+    if (clock_started_ && !waiting_for_game_view()) progress_.elapsed+=c.now-last_;
     last_=c.now;
     progress_.backpack_percent=backpack_reading(c,observations,context_.now);
     try {
@@ -301,6 +319,8 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
                 replacement_={};
                 if (connection_recovering_) {
                     connection_recovering_=false;
+                    connection_attempts_=0;
+                    prerequisites_started_=c.now; clock_started_=!guard_;
                     if (recovery_counts_ && recovery_counts_->disconnected) {
                         ++recovery_counts_->rejoins; recovery_counts_->disconnected=false;
                     }
@@ -309,11 +329,16 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
                     }
                 }
             } else if (result.state==State::failed && (result.interruption==Interruption::disconnected || result.interruption==Interruption::client_rejoin)
-                && allow_rejoin_ && replacement_ && !window_replaced_) {
+                && allow_rejoin_ && replacement_ && (!window_replaced_ || connection_attempts_<3)) {
+                // A failed replacement still belongs to this recovery. Preserve
+                // its arrival program and use the remaining consecutive attempts.
+                if (window_replaced_) ++connection_attempts_;
                 auto replacement=replacement_;
                 clear_operations(); replacement_=std::move(replacement); awaiting_window_=rejoin_requested_=true;
+                window_replaced_=false;
                 progress_.route_position.reset(); progress_.backpack_percent.reset();
                 progress_.message="Roblox needs to rejoin";
+                if (activity_sink_) activity_sink_({{"Retrying Bee Swarm join",result.message}});
             } else if (result.state==State::failed && (result.interruption==Interruption::disconnected || result.interruption==Interruption::client_rejoin) && !connection_recovering_) {
                 recovery_.reset();
                 interrupt(*result.interruption,c,observations,result.message);
@@ -329,18 +354,23 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
                     && observations.client_home.value) {
                     interrupt(Interruption::client_rejoin,c,observations,"Roblox is on its home screen"); return;
                 }
-                if (c.now-context_.now>=Time(30000)) interrupt(Interruption::client_rejoin,c,observations,"Bee Swarm did not finish loading");
+                if (c.now-context_.now>=game_loading_timeout) {
+                    const bool observed=observations.game_hud.usable(c,Time(2000),context_.now);
+                    interrupt(Interruption::client_rejoin,c,observations,observed?
+                        "Bee Swarm game view was not recognized within 3 minutes":"No fresh game view was available within 3 minutes");
+                }
                 else progress_.message="Waiting for Bee Swarm to load";
                 return;
             }
-            startup_pending_=false;
+            startup_pending_=false; prerequisites_started_=c.now;
         }
         if (guard_ && !expects_respawn()) {
-            const auto decision=guard_->evaluate({progress_.elapsed,progress_.steps,progress_.backpack_percent,c,&observations,progress_.estimated_heading},context_.now);
+            const auto ready_since=std::max(context_.now,prerequisites_started_);
+            const auto decision=guard_->evaluate({progress_.elapsed,progress_.steps,progress_.backpack_percent,c,&observations,progress_.estimated_heading},ready_since);
             switch (decision.state) {
             case GuardState::waiting:
                 if (clock_started_) interrupt(Interruption::lost_observations,c,observations,decision.message.empty()?"Required observations were lost during execution":decision.message);
-                else if (c.now-context_.now>=Time(10000)) finish(State::failed,"Feature prerequisites were not ready before the startup deadline");
+                else if (c.now-ready_since>=Time(10000)) finish(State::failed,"Feature prerequisites were not ready before the startup deadline");
                 else progress_.message=decision.message.empty()?"Waiting for feature prerequisites":decision.message;
                 return;
             case GuardState::failed:
@@ -360,6 +390,20 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
         program_->observe({progress_.elapsed,progress_.steps,progress_.backpack_percent,c,&observations,
             progress_.estimated_heading,progress_.route_position,progress_.route_execution});
         if (step_ && std::holds_alternative<Walk>(*step_)) speed_->observe(c,observations.movement_speed);
+        if (step_) if (const auto* walk=std::get_if<Walk>(&*step_); walk && menu_pending_.empty() && walk->until && walk->until()) {
+            // Runtime cancellation releases input and integrates its final movement
+            // sample before notifying the program that this leg has ended.
+            if (!pending_.empty()) {
+                tasks_.cancel(scope_);
+                for (const auto& result:tasks_.results(scope_)) if (result.id==pending_
+                    && result.outcome!=TaskOutcome::cancelled && result.outcome!=TaskOutcome::executed) {
+                    finish(State::failed,"Could not stop observed movement: "+result.reason); return;
+                }
+                pending_.clear();
+            }
+            complete_step(c,observations);
+            return;
+        }
         if (!pending_.empty()) for (const auto& result : tasks_.results(scope_)) if (result.id==pending_) {
             pending_.clear();
             if (result.outcome!=TaskOutcome::executed) {
@@ -403,7 +447,7 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
         const auto remaining=config_.duration-progress_.elapsed;
         Action action;
         if (auto* walk=std::get_if<Walk>(&*step_)) {
-            action=game::paced_walk(walk->leg,speed_,c,walk->tool);
+            action=game::paced_walk(walk->leg,speed_,c,walk->tool,walk->distance);
             progress_.message="Following pattern";
         } else { const auto& hold=std::get<Hold>(*step_); action={"Pattern action",hold.keys,std::min(hold_left_,remaining),hold.pointer}; }
         for (auto key : action.held) {

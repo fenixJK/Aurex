@@ -23,6 +23,7 @@ public:
     virtual Observation<std::vector<VisibleEnemy>> read(const ObservationContext& context) const=0;
 };
 std::shared_ptr<const Detector> enemy_detector();
+std::shared_ptr<const EnemiesDetection> read_enemies(const DetectionSource& source,const ObservationContext& context,Time since={});
 std::shared_ptr<const EnemySource> enemy_source(std::shared_ptr<const DetectionSource> source);
 std::shared_ptr<const LandmarkSource> enemy_defeat_source(std::shared_ptr<const DetectionSource> source,const std::string& name);
 }
