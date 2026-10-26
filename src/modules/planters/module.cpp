@@ -49,7 +49,7 @@ class PlanterModule final : public extensions::Module {
     mutable bool check_requested_{true};
     mutable std::uint64_t timer_revision_{};
     mutable Time material_checked_{};
-    std::uint64_t generation_{};
+    std::uint64_t session_{};
     std::string id_;
     game::Requests requests_;
     unsigned simulation_days_{7};
@@ -127,8 +127,10 @@ public:
     void update(const extensions::SessionView& view) override {
         account_->connection(view.reconnecting,clock_());
         if (account_->resume_placements(clock_())) check_requested_=true;
-        if (generation_!=view.generation || view.status.state!=RunState::running) {
-            generation_=view.generation; check_requested_=true; other_running_=false;
+        // Plants and their growth timers belong to the account. A planned server
+        // hop invalidates visual observations, but does not make every plant due.
+        if (session_!=view.session_id || view.status.state==RunState::stopped) {
+            session_=view.session_id; check_requested_=true; other_running_=false;
         }
         if (view.feature && view.feature->module_id!=id_) {
             if (view.feature->state==automation::State::running) other_running_=true;

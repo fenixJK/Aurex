@@ -51,7 +51,8 @@ std::shared_ptr<const workflows::RouteCatalog> accessible_routes(const workflows
         if (std::max(minimum(route.from),minimum(route.to))>access.bees) continue;
         const auto& path=catalog.checkpoints(route.id);
         const bool cannon=std::any_of(path.begin(),path.end(),[](const auto& p) { return p.detector=="transport.red-cannon"; });
-        if (cannon && (!access.cannon || access.bees<25)) continue;
+        // The checkbox declares cannon access; bee count gates destinations.
+        if (cannon && !access.cannon) continue;
         routes.push_back({route,path});
         for (const auto& station:game::stations()) if (station.location==route.to) {
             auto& scoped=routes.back();
@@ -124,7 +125,7 @@ std::shared_ptr<const workflows::RouteCatalog> hive_routes(double speed,TravelAc
         routes.push_back({{"hive-"+std::to_string(slot)+"-royal-jelly","hive.proximity","station.royal-jelly",estimate,
             {"hive.slot."+std::to_string(slot)},game::RouteArrival::observed,{"hive.camera.prepared"},timeout},std::move(path)});
     }
-    if (access.cannon && access.bees>=25) {
+    if (access.cannon) {
         const auto memory=memory_routes(speed,true,recipes);
         for (const auto& route:memory->network().routes()) routes.push_back({route,memory->checkpoints(route.id)});
         const auto items=item_routes(speed,true,recipes);

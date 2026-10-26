@@ -9,6 +9,7 @@ void Controller::begin() {
     target_.clear(); key_.clear(); epoch_.clear();
 }
 void Controller::stop() { std::lock_guard lock(mutex_); state_.active=false; state_.joined=false; state_.status="Stopped"; target_.clear(); key_.clear(); }
+void Controller::release_server() { std::lock_guard lock(mutex_); target_.clear(); key_.clear(); }
 void Controller::request(const game::JoinTarget& target) {
     std::lock_guard lock(mutex_);
     target_=target.uri(); epoch_=std::to_string(run_)+"/"+std::to_string(++hop_);
@@ -37,55 +38,64 @@ game::RequestBatch Controller::requests() const {
     return batch;
 }
 namespace {
-class Hop final : public automation::Program {
-    enum class Phase { select,joining,night,setup,prepared,hunt,result };
+class ServerVisit final : public automation::Program {
+    enum class Phase { select,joining,night,setup,prepared,hunt,result,complete };
     Services services_;
     std::shared_ptr<Controller> controller_;
     Time duration_,since_{},sample_{Time(-1)};
     std::optional<bool> night_;
     std::optional<std::string> hop_reason_;
     Phase phase_{Phase::select};
-    bool counted_night_{},running_{},needs_setup_{true},kill_counted_{};
+    bool counted_night_{},running_{},needs_setup_{true},kill_counted_{},yield_requested_{};
+    ObservationContext context_;
     void record_kill() {
         if (phase_==Phase::result && !kill_counted_ && services_.enemy.progress->read().defeated) {
             controller_->result(Controller::Result::kill,"Vicious Bee defeated"); kill_counted_=true;
+            if(services_.confirmed)services_.confirmed(context_);
         }
     }
-    void next_server(Controller::Result outcome,std::string reason) {
+    void finish_visit(Controller::Result outcome,std::string reason) {
         hop_reason_=reason;
         if (outcome!=Controller::Result::kill || !kill_counted_) controller_->result(outcome,std::move(reason));
-        phase_=Phase::select; kill_counted_=false;
-        night_.reset(); sample_=Time(-1); counted_night_=false; needs_setup_=true;
+        phase_=Phase::complete;
     }
 public:
-    Hop(Services services,std::shared_ptr<Controller> controller,Time duration)
+    ServerVisit(Services services,std::shared_ptr<Controller> controller,Time duration)
         :services_(std::move(services)),controller_(std::move(controller)),duration_(duration) {
         if (!services_.servers || !services_.daylight || !services_.prepare || !services_.home
             || !services_.arrival || !services_.joined_setup
             || !services_.enemy.observations || services_.enemy.hunt_fields.empty() || !controller_
-            || duration<Time(60000) || duration>std::chrono::hours(8)) throw std::invalid_argument("Vic Hop needs search fields, travel, daylight and public servers");
+            || duration<=Time{} || duration>std::chrono::hours(8)) throw std::invalid_argument("Vicious hunting needs search fields, travel, daylight and public servers");
         services_.enemy.progress=std::make_shared<combat::FightProgress>();
     }
-    ~Hop() override { finished(automation::State::stopped); }
+    ~ServerVisit() override { finished(automation::State::stopped); }
     automation::RunConfig config() const override { return {duration_,services_.speed,{},false,false}; }
     bool server_change_ready() const noexcept override { return phase_==Phase::joining; }
+    bool request_yield() override {
+        if(phase_!=Phase::select)return false;
+        yield_requested_=true;return true;
+    }
     automation::ProgramFactory server_arrival() const override { return services_.arrival; }
-    void observe(const automation::View&) override { record_kill(); }
+    void observe(const automation::View& view) override { context_=view.context; record_kill(); }
     bool resume_after_reconnect(const automation::View& view) override {
+        context_=view.context;
         record_kill();
-        if (kill_counted_) { next_server(Controller::Result::kill,"Vicious Bee defeated"); return true; }
+        if (kill_counted_) { finish_visit(Controller::Result::kill,"Vicious Bee defeated"); return true; }
         needs_setup_=phase_==Phase::joining;
         phase_=Phase::night; since_=view.context.now; sample_=Time(-1); night_.reset(); return true;
     }
     ActivityStatus activity_status() const override { return (phase_==Phase::result || phase_==Phase::prepared)?ActivityStatus{}:ActivityStatus{"Vic Hop",controller_->read().status}; }
     automation::Step next(const automation::View& view) override {
         using namespace automation;
-        if (!running_) { controller_->begin(); services_.servers->set_active(true); running_=true; }
+        context_=view.context;
+        if (!running_) { if (!controller_->read().active) controller_->begin(); services_.servers->set_active(true); running_=true; }
         if (!controller_->read().active) return Done{"Vic Hop stopped"};
+        if(yield_requested_)return Defer{"Vicious hunt yielded for scheduled upkeep"};
         if (hop_reason_) {
             auto reason=std::move(*hop_reason_); hop_reason_.reset();
             return ReportActivity{{"Vic Hop",std::move(reason)}};
         }
+        if (phase_==Phase::complete) return Done{controller_->read().last_result};
         if (phase_==Phase::select) {
             const auto choice=services_.servers->next(view.context.now); controller_->status(choice.status);
             if (!choice.target) return Wait{Time(250),choice.status};
@@ -104,14 +114,14 @@ public:
             const auto reading=game::read_night(*services_.daylight,view.context,since_);
             if (reading.has_value(view.context,Time(5000),since_) && reading.captured>sample_) {
                 if (night_ && *night_==reading.value) {
-                    if (!reading.value) { next_server(Controller::Result::skipped,"Daytime server skipped"); return Wait{Time(100),"Finding a night server"}; }
+                    if (!reading.value) { finish_visit(Controller::Result::skipped,"Daytime server skipped"); return Wait{Time(100),"Finding a night server"}; }
                     if (!counted_night_) { controller_->night(); counted_night_=true; }
                     phase_=needs_setup_?Phase::setup:Phase::hunt;
                 }
                 night_=reading.value; sample_=reading.captured;
             }
             if (phase_==Phase::night) {
-                if (view.context.now-since_>=Time(15000)) { next_server(Controller::Result::skipped,"Night could not be confirmed"); return Wait{Time(100),"Trying another server"}; }
+                if (view.context.now-since_>=Time(15000)) { finish_visit(Controller::Result::skipped,"Night could not be confirmed"); return Wait{Time(100),"Trying another server"}; }
                 return Wait{Time(100),"Checking for night"};
             }
         }
@@ -128,6 +138,7 @@ public:
         return Wait{Time(100),"Finishing the search"};
     }
     void step_completed(const automation::View& view) override {
+        context_=view.context;
         if ((phase_!=Phase::result && phase_!=Phase::prepared) || !view.completed) return;
         record_kill();
         if (view.completed->state==automation::State::stopped || view.completed->state==automation::State::paused) {
@@ -135,22 +146,26 @@ public:
         }
         if (phase_==Phase::prepared) {
             if (view.completed->state==automation::State::completed) { needs_setup_=false; phase_=Phase::hunt; }
-            else next_server(Controller::Result::failed,"Hive setup interrupted: "+view.completed->message);
+            else finish_visit(Controller::Result::failed,"Hive setup interrupted: "+view.completed->message);
             return;
         }
         const auto result=services_.enemy.progress->read();
-        if (result.defeated) next_server(Controller::Result::kill,"Vicious Bee defeated");
+        if (result.defeated) finish_visit(Controller::Result::kill,"Vicious Bee defeated");
         else if (view.completed->state!=automation::State::completed)
-            next_server(Controller::Result::failed,"Search interrupted: "+view.completed->message);
-        else next_server(Controller::Result::miss,view.completed->message);
+            finish_visit(Controller::Result::failed,"Search interrupted: "+view.completed->message);
+        else finish_visit(Controller::Result::miss,view.completed->message);
     }
-    void finished(automation::State) override {
+    void finished(automation::State state) override {
         if (!running_) return;
-        record_kill(); running_=false; controller_->stop(); services_.servers->set_active(false);
+        record_kill(); running_=false;
+        if(phase_!=Phase::complete && state==automation::State::failed)
+            controller_->result(Controller::Result::failed,"Server visit interrupted");
+        controller_->release_server();
+        services_.servers->set_active(false);
     }
 };
 }
-std::unique_ptr<automation::Program> program(Services services,std::shared_ptr<Controller> controller,Time duration) {
-    return std::make_unique<Hop>(std::move(services),std::move(controller),duration);
+std::unique_ptr<automation::Program> visit(Services services,std::shared_ptr<Controller> controller,Time duration) {
+    return std::make_unique<ServerVisit>(std::move(services),std::move(controller),duration);
 }
 }

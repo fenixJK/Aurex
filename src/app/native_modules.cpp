@@ -1,6 +1,6 @@
 #include "native_modules.hpp"
 #include "modules/tools/module.hpp"
-#include "modules/combat/vichop/module.hpp"
+#include "modules/combat/vichop/hop.hpp"
 #include "game/actions/recovery/reconnect.hpp"
 #include "modules/quests/actions.hpp"
 #include "core/module_host/host.hpp"
@@ -282,32 +282,24 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
         if (service.plan.finish_at) destinations.push_back(*service.plan.finish_at);
         requirements.destinations(navigation,destinations);
         requirements.need(bool(service.availability),"enemy availability detection");
-        auto manifest=features::combat::module_manifest(service.configuration?*service.configuration:service.plan,"hive.native-combat","native-combat",true);
-        manifest.name="Combat";
-        manifest.settings_version=6;
-        manifest.description="Fight selected enemies and collect their loot when due. Enemies in the same field share a trip. Quest requests can add needed fights; Gather interrupt allows them during gathering.";
-        add(host,std::move(manifest),[service,navigation,goals=host.enemy_goal_source()](const auto& manifest) {
-            return features::combat::module_factory(service.plan,navigation,service.availability,goals,service.cooldowns,service.configuration)(manifest);
-        },requirements,[plan=service.configuration?*service.configuration:service.plan](int version,const Settings& values) {
-            return features::combat::migrate_settings(version,values,plan);
-        });
-    }
-    {
-        const auto& plan=modules.combat.plan;
-        const auto enemy=std::find_if(plan.enemies.begin(),plan.enemies.end(),[](const auto& candidate) { return candidate.species=="Vicious Bee"; });
-        Requirements requirements; requirements.navigation(navigation);
-        requirements.need(enemy!=plan.enemies.end(),"Vicious Bee search routes");
-        requirements.need(bool(plan.setup) && bool(plan.recovery),"hive setup and recovery");
-        requirements.need(bool(modules.collection.daylight),"night detection");
-        requirements.need(bool(modules.combat.arrival) && bool(modules.combat.joined_setup),"server arrival and hive setup");
+        const auto& plan=service.plan;
+        const auto enemy=std::find_if(plan.enemies.begin(),plan.enemies.end(),[](const auto& item) { return item.species=="Vicious Bee"; });
         features::vichop::Services services;
         if (enemy!=plan.enemies.end()) services.enemy=*enemy;
         services.speed=plan.config.speed; services.prepare=plan.setup; services.home=plan.recovery;
         services.movement=plan.movement; services.daylight=modules.collection.daylight;
         services.servers=features::vichop::public_servers();
         services.arrival=modules.combat.arrival; services.joined_setup=modules.combat.joined_setup;
-        add(host,features::vichop::module_manifest(plan.enemies.empty() && modules.combat.configuration?*modules.combat.configuration:plan),
-            features::vichop::module_factory(std::move(services)),requirements);
+        auto manifest=features::combat::module_manifest(service.configuration?*service.configuration:service.plan,"hive.native-combat","native-combat",true);
+        manifest.name="Combat";
+        manifest.settings_version=7;
+        manifest.description="Fight selected enemies and collect their loot when due. Enemies in the same field share a trip. Quest requests can add needed fights; Gather interrupt allows them during gathering.";
+        add(host,std::move(manifest),[service,navigation,services,goals=host.enemy_goal_source()](const auto& manifest) {
+            return features::combat::module_factory(service.plan,navigation,service.availability,goals,service.cooldowns,service.configuration,services)(manifest);
+        },requirements,[plan=service.configuration?*service.configuration:service.plan](int version,const Settings& values) {
+            return features::combat::migrate_settings(version,values,plan);
+        });
     }
+
 }
 }

@@ -45,7 +45,7 @@ public:
     void observe(const automation::View& view) override {
         if (enemy_.vicious) {
             // The notification belongs to the whole hunt, including travel and
-            // returns between fields. Keep this small pixel channel requested
+            // returns between fields. Keep this pixel channel requested
             // so a reset/alignment does not leave a new defeat unobserved.
             if (chat_ready_) {
                 const auto seen=game::read_vicious(*enemy_.vicious,view.context);

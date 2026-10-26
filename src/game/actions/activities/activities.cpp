@@ -302,11 +302,15 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
     if (const auto* key=std::get_if<TapMenuKey>(&*step_)) {
         if (!permissions_.contains(Permission::interact) || !menu_key(key->key) || key->label.empty() || key->label.size()>120)
             throw std::runtime_error("Menu shortcut requires interaction permission");
+        if (key->press<Time{} || key->press>Time(100)
+            || (key->press>Time{} && key->key!=Key::respawn && key->key!=Key::confirm))
+            throw std::invalid_argument("Only reset shortcuts support a bounded retry press");
         if (!tasks_.acquire(scope_)) return true;
         owned_=true; progress_.message=key->label;
-        // Keep a brief pause after the tap; the program observes menu readiness.
-        Action action{key->label,{},Time(50),{}};
-        action.tap=key->key;
+        // A retry can hold R/Enter within the existing pause. The first attempt
+        // stays instantaneous, and Escape is never held (it is also Stop).
+        Action action{key->label,{},std::max(Time(50),key->press),{}};
+        action.tap=key->key; action.tap_duration=key->press;
         pending_=tasks_.submit(scope_,TaskClass::interaction,{action},Time(1000));
         return true;
     }

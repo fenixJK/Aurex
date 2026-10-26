@@ -26,6 +26,7 @@ struct Setting {
     std::map<std::string,std::string> icons;
     std::vector<std::string> enabled_values;
     std::map<std::string,std::string> dependent_labels;
+    std::string minimum_label;
 };
 void validate_setting(const Setting& setting,const Value& value);
 void validate_settings(std::span<const Setting> schema,const Settings& settings);

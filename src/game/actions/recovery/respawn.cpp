@@ -134,6 +134,11 @@ public:
         if (c.now-started_>=Time(8000)) {
             if ((stage_==Stage::select || stage_==Stage::confirm) && live && fresh && reading.value.screen==game::RespawnScreen::game)
                 return retry(c.now,"Respawn controls did not appear after the shortcut");
+            if (!fresh) throw ClientRejoinRequired("No fresh reset-menu view was available");
+            if (reading.value.screen==game::RespawnScreen::menu)
+                throw ClientRejoinRequired("Respawn shortcut did not open the confirmation");
+            if (reading.value.screen==game::RespawnScreen::confirmation)
+                throw ClientRejoinRequired("Respawn confirmation did not respond");
             throw ClientRejoinRequired("Respawn menu could not be confirmed");
         }
         // Origin evidence is optional and can finish processing after Escape.
@@ -155,18 +160,18 @@ public:
         // R and Enter may be retried while their own controls remain visible.
         if (requested_from_==screen && c.now-minimum_<Time(750))
             return Wait{Time(50),"Waiting for respawn menu response"};
+        const auto press=requested_from_==screen?Time(50):Time{};
         requested_from_=screen;
         if (screen==game::RespawnScreen::confirmation) {
             // Retrying Enter must not move the start of this reset attempt
             // past a death frame that was captured while the menu was fading.
             if (transition_<Time{}) transition_=c.now;
             stage_=Stage::transition; issued_=true;
-            return TapMenuKey{Key::confirm,"Confirm respawn"};
+            return TapMenuKey{Key::confirm,"Confirm respawn",press};
         }
         if (screen==game::RespawnScreen::menu) {
             stage_=Stage::confirm; issued_=true;
-            if (!reading.value.target) return TapMenuKey{Key::respawn,"Select respawn"};
-            return UseControl{{Knowledge::present,*reading.value.target,reading.captured,reading.window,reading.generation},0,"Select respawn"};
+            return TapMenuKey{Key::respawn,"Select respawn",press};
         }
         stage_=Stage::select; issued_=true;
         return TapMenuKey{Key::game_menu,"Open game menu"};

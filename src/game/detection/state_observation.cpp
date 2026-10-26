@@ -67,7 +67,9 @@ std::vector<StateSensor> state_sensors() {
     add(K::interaction,"state.interaction",Time(50),P::responsive);
     add(K::health,"state.health",Time(100),P::responsive);
     add(K::connection,"state.connection",Time(750));
-    add(K::menus,"state.menus",Time(100));
+    // Camera input waits for this evidence. Do not queue it behind inventory,
+    // bloom or other background detection while the game is ready for input.
+    add(K::menus,"state.menus",Time(100),P::responsive);
     add(K::backpack,"state.backpack",Time(750));
     add(K::confirmation,"state.confirmation",Time(100));
     add(K::shift_lock,"state.shift-lock",Time(100));

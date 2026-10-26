@@ -1,11 +1,92 @@
 #include "vicious.hpp"
 #include "vicious_glyphs.hpp"
+#include "vicious_masks.hpp"
+#include "bar_regions.hpp"
 #include <algorithm>
 #include <opencv2/imgproc.hpp>
 
 namespace hive::game {
 namespace {
-constexpr Rect chat_region{.55,0,.45,.45};
+enum class Ink { light,red,dark };
+cv::Mat ink(const cv::Mat& rgba,Ink mode) {
+    cv::Mat mask(rgba.rows,rgba.cols,CV_8UC1);
+    for (int y=0;y<rgba.rows;++y) for (int x=0;x<rgba.cols;++x) {
+        const auto p=rgba.at<cv::Vec4b>(y,x); const int r=p[0],g=p[1],b=p[2];
+        const auto lo=std::min({r,g,b}),hi=std::max({r,g,b});
+        mask.at<unsigned char>(y,x)=(mode==Ink::light?lo>=140 && hi-lo<=70:
+            mode==Ink::red?r>80 && r>g*1.5 && r>b*1.4:hi<135)?255:0;
+    }
+    return mask;
+}
+// Compare complete fixed words across font scales. Color thresholds tolerate
+// antialiasing/compression; the word shapes, rather than single pixels, identify the event.
+std::vector<int> label_rows(const cv::Mat& mask,const cv::Mat& label,double low,double high,double threshold=.72) {
+    std::vector<int> rows;
+    if (mask.empty() || cv::countNonZero(mask)<20) return rows;
+    cv::Mat softened;cv::GaussianBlur(mask,softened,{3,3},.6);
+    for (double scale=low;scale<=high+.001;scale+=.1) {
+        cv::Mat pattern,score;
+        cv::resize(label,pattern,{},scale,scale,cv::INTER_AREA);
+        if (pattern.rows>mask.rows || pattern.cols>mask.cols || pattern.rows<6) continue;
+        cv::GaussianBlur(pattern,pattern,{3,3},.6);
+        cv::matchTemplate(softened,pattern,score,cv::TM_CCOEFF_NORMED);
+        for (int y=0;y<score.rows;++y) {
+            double best{};cv::minMaxLoc(score.row(y),nullptr,&best);
+            if (best>=threshold) rows.push_back(y);
+        }
+    }
+    std::sort(rows.begin(),rows.end());
+    std::vector<int> distinct;
+    for (int y:rows) if (distinct.empty() || y-distinct.back()>6) distinct.push_back(y);
+    return distinct;
+}
+struct LocalEvidence { bool visible{},toast{}; };
+LocalEvidence local_evidence(const Frame& frame) {
+    // Only inspect the play area and notification stack. No OCR or other HUD decoding.
+    const cv::Mat full(frame.height,frame.width,CV_8UC4,const_cast<std::uint8_t*>(frame.rgba.data()));
+    Frame small=frame;
+    if (frame.width>1280) {
+        cv::Mat scaled;cv::resize(full,scaled,{1280,int(std::lround(frame.height*1280./frame.width))},0,0,cv::INTER_AREA);
+        small.width=scaled.cols;small.height=scaled.rows;small.rgba.assign(scaled.data,scaled.data+scaled.total()*4);
+    }
+    const cv::Mat pixels(small.height,small.width,CV_8UC4,small.rgba.data());
+    const auto world=small.crop({.05,.15,.9,.7});
+    const cv::Mat area(world.height,world.width,CV_8UC4,const_cast<std::uint8_t*>(world.rgba.data()));
+    auto bars=detail::bar_regions(world,[](const std::uint8_t* p) {
+        return p[0]>65 && p[0]<200 && p[1]<85 && p[2]<100
+            && p[1]<p[0]*.65 && p[2]<p[0]*.7;
+    },true);
+    const auto healthy=detail::bar_regions(world,[](const std::uint8_t* p) {
+        return p[1]>220 && p[0]<90 && p[2]<90;
+    },true);
+    bars.insert(bars.end(),healthy.begin(),healthy.end());
+    LocalEvidence result;
+    for (const auto& bar:bars) {
+        const int x=std::max(0,int(bar.x-bar.width*.4)),y=std::max(0,int(bar.y-bar.height*1.5));
+        const int right=std::min(world.width,int(bar.x+bar.width*1.2)),bottom=int(bar.y);
+        if (bottom<=y || right<=x || bar.width<35 || bar.height<6) continue;
+        const auto text=ink(area(cv::Rect(x,y,right-x,bottom-y)),Ink::light);
+        const auto scale=bar.height/20.;
+        if (!label_rows(text,detail::vicious_name(),std::max(.6,scale*.7),std::min(2.,scale*1.3),.70).empty()) {
+            result.visible=true; break;
+        }
+    }
+    const cv::Rect stack(int(small.width*.65),int(small.height*.65),small.width-int(small.width*.65),small.height-int(small.height*.65));
+    const auto toast=pixels(stack);
+    // A defeat notice has a gold background; blue rewards and death notices do not qualify.
+    cv::Mat gold(toast.rows,toast.cols,CV_8UC1);
+    for(int y=0;y<toast.rows;++y)for(int x=0;x<toast.cols;++x) {
+        const auto p=toast.at<cv::Vec4b>(y,x);gold.at<unsigned char>(y,x)=p[0]>120 && p[1]>100 && p[2]<p[1]*.65?255:0;
+    }
+    cv::morphologyEx(gold,gold,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_RECT,{7,3}));
+    std::vector<std::vector<cv::Point>> contours;cv::findContours(gold,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
+    for(const auto& contour:contours) {
+        const auto box=cv::boundingRect(contour);
+        if(box.width<100 || box.height<9 || box.height>45 || box.width<box.height*6)continue;
+        if(!label_rows(ink(toast(box),Ink::dark),detail::vicious_toast(),.6,1.8).empty()) {result.toast=true;break;}
+    }
+    return result;
+}
 std::array<unsigned,2> notifications(const DetectionInput& input) {
     const auto& f=input.frame;
     const double scale=f.width/(f.region.width*f.window.bounds.width);
@@ -45,20 +126,33 @@ std::array<unsigned,2> notifications(const DetectionInput& input) {
         int previous=-100;
         for (const auto y:hits) if (y-previous>12) { ++counts[k]; previous=y; }
     }
+    const auto red=ink(chat,Ink::red);
+    cv::Mat lines;cv::morphologyEx(red,lines,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_RECT,{6,2}));
+    std::vector<std::vector<cv::Point>> contours;cv::findContours(lines,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
+    unsigned announcements=0;
+    for(const auto& contour:contours) {
+        auto box=cv::boundingRect(contour);
+        if(box.width<60 || box.height<5 || box.height>30 || box.width<box.height*6)continue;
+        box=(box+cv::Size(4,4)-cv::Point(2,2))&cv::Rect(0,0,chat.cols,chat.rows);
+        if(!label_rows(red(box),detail::vicious_attack(),.6,1.8).empty())++announcements;
+    }
+    counts[0]=std::max(counts[0],announcements);
     return counts;
 }
 class ViciousDetector final : public Detector {
     mutable Observation<ViciousSignals> previous_;
     mutable std::array<unsigned,2> counts_{},candidate_{};
     mutable Time candidate_at_{};
+    mutable LocalEvidence local_{};
+    mutable bool toast_seen_{};
 public:
-    Rect capture_region() const override { return chat_region; }
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         auto result=std::make_shared<ViciousDetection>();
         const auto& f=input.frame;
         if (!f.valid() || f.width>16000 || f.height>16000) return result;
         const ObservationContext context{f.window,input.generation,f.captured};
         const auto counts=notifications(input);
+        const auto local=local_evidence(f);
         if (input.cancelled && input.cancelled()) return result;
         // A capture pause may require a new row baseline, but must not erase
         // a confirmed result before the hunt consumes it. Window/generation
@@ -67,6 +161,7 @@ public:
         if (!previous_.has_value(context,Time(5000))) {
             // Joining a server or opening this detector must not replay old chat.
             counts_=candidate_=counts; candidate_at_=f.captured;
+            local_={}; toast_seen_=local.toast;
         } else {
             if (candidate_!=counts) { candidate_=counts; candidate_at_=f.captured; }
             else if (f.captured>candidate_at_) {
@@ -76,6 +171,15 @@ public:
                 counts_=counts;
             }
         }
+        // A nameplate is current local evidence even if activation happened before
+        // entering the field. A toast must arrive after baseline, on distinct frames.
+        events.visible=local.visible && local_.visible && f.captured>previous_.captured;
+        if(local.toast && local_.toast && !toast_seen_ && f.captured>previous_.captured) {
+            if(!events.defeated) events.defeated=f.captured;
+            toast_seen_=true;
+        }
+        if(!local.toast && !local_.toast) toast_seen_=false;
+        local_=local;
         for (auto* event:{&events.engaged,&events.defeated})
             if (*event && f.captured-**event>std::chrono::minutes(3)) event->reset();
         result->events={Knowledge::present,events,f.captured,f.window,input.generation};

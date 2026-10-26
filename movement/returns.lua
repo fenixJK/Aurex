@@ -118,7 +118,7 @@ return function(p)
             else
                 path = {walk({{40.5,"right"}}),turn("rotate_right",2),walk({{22.5,"right"},{22.5,"backward"},{13,"right"},{40.5,"forward"},{5.5,"backward"},{10,"right"}})}
             end
-            if access.cannon and access.bees >= 12 then
+            if access.cannon then
                 local mount=h.motion()
                 mount:hold({"jump"},50)
                 mount:walk(4,{"right"})

@@ -2,7 +2,7 @@ local h=require("helpers")
 local ground=require("returns")
 return function(p)
     local field,slot=p.field,p.slot
-    local blue=field=="pinetree" and p.cannon and p.bees>=25
+    local blue=field=="pinetree" and p.cannon
     local teleporter=p.teleporter and (field=="blueflower" or field=="bamboo")
     p.teleporter=teleporter
     local path={}

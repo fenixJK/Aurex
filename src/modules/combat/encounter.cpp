@@ -66,6 +66,7 @@ public:
             const auto current=[&](const auto& event) { return event && *event>=entered_ && *event<=view.context.now; };
             // A kill which predates this encounter's engagement belongs to somebody else.
             if (current(observed.value.engaged) && !engaged_) engaged_=*observed.value.engaged;
+            if (observed.value.visible && !engaged_) engaged_=observed.captured;
             visible_=engaged_?1:0;
             if (current(observed.value.defeated)) {
                 if (engaged_ && *observed.value.defeated>*engaged_) {

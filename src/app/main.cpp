@@ -311,7 +311,7 @@ public:
         bee_count->setKeyboardTracking(false); bee_count->setValue(std::clamp(settings_.value("game/beeCount",50).toInt(),0,50));
         hive_row->addWidget(bee_count); hive_row->addSpacing(12);
         auto use_cannon=new QCheckBox("Cannon + glider"); use_cannon->setObjectName("use-cannon");
-        use_cannon->setToolTip("Use cannon routes and an equipped glider for travel and returns.");
+        use_cannon->setToolTip("Use unlocked cannons and an equipped glider for travel and returns. Bee count still limits which zones you can visit.");
         use_cannon->setChecked(settings_.value("game/useCannon",true).toBool()); hive_row->addWidget(use_cannon); hive_row->addStretch();
         hive_settings->addLayout(hive_row);
         native_modules_.travel_access={unsigned(bee_count->value()),use_cannon->isChecked()};

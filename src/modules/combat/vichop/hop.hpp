@@ -13,6 +13,7 @@ struct Services {
     std::shared_ptr<const game::DetectionSource> daylight;
     std::shared_ptr<ServerDirectory> servers;
     automation::ProgramFactory arrival,joined_setup;
+    std::function<void(const ObservationContext&)> confirmed;
 };
 struct Snapshot {
     bool active{},joined{};
@@ -31,6 +32,7 @@ public:
     explicit Controller(std::string owner):owner_(std::move(owner)) {}
     void begin();
     void stop();
+    void release_server();
     void request(const game::JoinTarget& target);
     void update(const extensions::SessionView& view);
     void status(std::string text);
@@ -40,5 +42,6 @@ public:
     Snapshot read() const;
     game::RequestBatch requests() const;
 };
-std::unique_ptr<automation::Program> program(Services services,std::shared_ptr<Controller> controller,Time duration);
+// One complete server visit; the module owns the session and counters between visits.
+std::unique_ptr<automation::Program> visit(Services services,std::shared_ptr<Controller> controller,Time duration);
 }

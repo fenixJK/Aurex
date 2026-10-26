@@ -310,7 +310,11 @@ void write_setting_value(QWidget* control,const extensions::Setting& field,const
     else if (const auto* v=std::get_if<int>(&value)) {
         if (auto* number=qobject_cast<QDoubleSpinBox*>(control)) {
             const auto divisor=std::pow(10.,field.decimals); number->setRange(field.minimum/divisor,field.maximum/divisor);
-        } else static_cast<QSpinBox*>(control)->setRange(field.minimum,field.maximum);
+            number->setSpecialValueText(q(field.minimum_label));
+        } else {
+            auto* integer=static_cast<QSpinBox*>(control); integer->setRange(field.minimum,field.maximum);
+            integer->setSpecialValueText(q(field.minimum_label));
+        }
         set_number(control,*v,field);
     } else if (const auto* v=std::get_if<std::string>(&value)) static_cast<ChoiceControl*>(control)->setValue(*v);
     else dynamic_cast<SelectionValue*>(control)->setValue(std::get<SettingSelection>(value));

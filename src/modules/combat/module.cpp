@@ -1,6 +1,8 @@
 #include "module.hpp"
 #include "server_visit.hpp"
 #include <algorithm>
+#include <iomanip>
+#include <sstream>
 #include <cmath>
 #include "game/data/fields.hpp"
 
@@ -45,6 +47,13 @@ std::vector<extensions::Setting> option_settings(const Plan& plan) {
             result.push_back({"vicious-fields","Search fields",selected,0,0,fields,true});
             result.push_back({"vicious-daily","Daily bonus only",saved && saved->daily_only});
             result.back().help="After a confirmed kill, wait 22 hours. Missed searches can still retry.";
+            result.push_back({"vicious-servers","Servers",std::string("Current server"),0,0,{"Current server","Hop for night"}});
+            result.back().help="Uses the same Vicious search and combat. Hopping visits public night servers; enabled modules can run between server visits. Enable only Combat to hunt alone.";
+            result.push_back({"vicious-hop-minutes","Hop time limit",0,0,480});
+            result.back().suffix=" min";
+            result.back().minimum_label="Forever";
+            result.back().help="Forever keeps hopping until you stop. A timed limit counts from macro start, including gathering and upkeep; it limits hopping only. Set 0 for Forever. Daily bonus only still waits after a confirmed kill.";
+            result.back().enabled_by="vicious-servers"; result.back().enabled_values={"Hop for night"};
         }
         if (enemy.species=="Mondo Chick") {
             const auto* saved=std::get_if<MondoOptions>(&options.boss);
@@ -90,9 +99,17 @@ class CombatModule final : public extensions::Module {
     std::function<Time()> clock_;
     bool public_mondo_{},interrupt_{},connected_{};
     int lead_{};
+    std::optional<vichop::Services> hopping_;
+    std::shared_ptr<vichop::Controller> hunt_;
+    std::shared_ptr<visits::Cooldowns> saved_;
+    bool hop_enabled_{},daily_only_{};
+    mutable bool hop_next_{};
+    Time hop_limit_{};
+    std::uint64_t hunt_session_{};
+    std::string hunt_id_;
 public:
-    CombatModule(const extensions::Manifest& manifest,const Plan& plan,const Plan& available,Builder build,std::shared_ptr<MondoTrip> trip)
-        :visits_(manifest),available_(visit_plan(plan),visit_plan(available)),options_(option_settings(plan)),build_(std::move(build)),trip_(std::move(trip)),clock_(plan.wall_clock) {
+    CombatModule(const extensions::Manifest& manifest,const Plan& plan,const Plan& available,Builder build,std::shared_ptr<MondoTrip> trip,std::optional<vichop::Services> hopping,std::shared_ptr<visits::Cooldowns> saved)
+        :visits_(manifest),available_(visit_plan(plan),visit_plan(available)),options_(option_settings(plan)),build_(std::move(build)),trip_(std::move(trip)),clock_(plan.wall_clock),hopping_(std::move(hopping)),hunt_(std::make_shared<vichop::Controller>(manifest.id)),saved_(std::move(saved)) {
         if (manifest.settings.size()>maximum_settings) throw std::invalid_argument("Too many Combat settings");
         for (const auto& enemy:plan.enemies) targets_.push_back({enemy.id,enemy.species,enemy.boss,enemy.maximum_health,enemy.progress,!enemy.hunt_fields.empty()});
         for (const auto& expected:options_) {
@@ -135,6 +152,20 @@ public:
                 for (const auto& name:std::get<SettingSelection>(values.at("vicious-fields")))
                     for (const auto& field:game::fields()) if (field.name==name) hunt.fields.push_back(field.id);
                 if (hunt.fields.empty()) throw std::invalid_argument("Choose at least one Vicious Bee search field");
+                hunt_id_=target.id;
+                daily_only_=hunt.daily_only;
+                hop_enabled_=std::get<std::string>(values.at("vicious-servers"))=="Hop for night"
+                    && std::find(options.boss_order.begin(),options.boss_order.end(),target.id)!=options.boss_order.end();
+                hop_limit_=std::chrono::minutes(std::get<int>(values.at("vicious-hop-minutes")));
+                if(hop_enabled_) {
+                    if(!hopping_ || !hopping_->servers || !hopping_->daylight || !hopping_->arrival || !hopping_->joined_setup)
+                        throw std::invalid_argument("Vicious server hopping needs server arrival and night detection");
+                    hopping_->enemy.hunt_fields=hunt.fields;
+                    hopping_->enemy.fight.duration=choice.fight_limit;
+                    if(saved_)hopping_->confirmed=[saved=saved_,id=target.id](const ObservationContext& context) {
+                        saved->remember(id,context.now,context.now+std::chrono::hours(22),true,context);
+                    };
+                }
                 choice.boss=std::move(hunt);
             }
             if (target.species=="Mondo Chick") {
@@ -153,10 +184,17 @@ public:
             && std::find(bosses.begin(),bosses.end(),"Mondo Chick")!=bosses.end();
         lead_=values.contains("mondo-lead")?std::get<int>(values.at("mondo-lead")):0;
         interrupt_=std::get<bool>(values.at("interrupt-gather"));
+        if(hop_enabled_)settings[features::visits::selection_key(hunt_id_)]=false;
         next->start(available_.values(std::move(settings)));
         delegate_=std::move(next); connected_=false;
     }
     void update(const extensions::SessionView& view) override {
+        hunt_->update(view);
+        if(hopping_ && hopping_->servers) hopping_->servers->update(view.now);
+        if(hop_enabled_ && view.status.state==RunState::running && hunt_session_!=view.session_id) {
+            hunt_session_=view.session_id; hunt_->begin();
+        }
+        if(view.status.state==RunState::stopped) hunt_->stop();
         if (!connected_) { trip_->configure(public_mondo_,lead_,interrupt_); connected_=true; }
         delegate_->update(view);
         bool due=false;
@@ -180,27 +218,78 @@ public:
                 result.push_back({"Estimated time",minutes>=60?std::to_string(minutes/60)+"h "+std::to_string(minutes%60)+"m":std::to_string(minutes)+" min",{},target.id});
             }
         }
+        const auto hunting=hunt_->read();
+        if(hop_enabled_ || hunting.servers) {
+            std::ostringstream rate;
+            if(hunting.elapsed>=Time(1000)) rate<<std::fixed<<std::setprecision(1)<<hunting.kills*3600000./hunting.elapsed.count()<<" / hour";
+            result.push_back({"Confirmed kills",std::to_string(hunting.kills)+(rate.str().empty()?"":" · "+rate.str()),{},"Vicious Bee"});
+            result.push_back({"Servers",std::to_string(hunting.servers)+" joined · "+std::to_string(hunting.nights)+" night · "+std::to_string(hunting.skipped)+" skipped",{},"Vicious Bee"});
+            result.push_back({"Last hunt",hop_limit_>Time{} && hunting.elapsed>=hop_limit_?"Hop session complete":hunting.last_result,{},"Vicious Bee"});
+        }
         return result;
     }
-    std::vector<extensions::ModuleTimer> timers() const override { return delegate_->timers(); }
+    std::vector<extensions::ModuleTimer> timers() const override {
+        auto result=delegate_->timers();
+        if(hop_enabled_ && daily_only_ && saved_) {
+            const auto remaining=saved_->remaining(hunt_id_,std::chrono::hours(22));
+            if(remaining>Time{})result.push_back({hunt_id_,"Vicious Bee","Daily bonus cooldown",remaining});
+        }
+        return result;
+    }
     std::optional<std::vector<extensions::Metric>> report_metrics() const override { return delegate_->report_metrics(); }
-    std::vector<Counter> report_counters() const override { return delegate_->report_counters(); }
-    void stop() noexcept override { if (connected_) trip_->configure(false,0,false); connected_=false; if (delegate_) delegate_->stop(); }
+    std::vector<Counter> report_counters() const override {
+        auto result=delegate_->report_counters();
+        if(hop_enabled_) {
+            std::erase_if(result,[&](const auto& counter){return counter.id==hunt_id_;});
+            const auto hunting=hunt_->read();
+            result.push_back({"vicious-hunt-kills","Vicious Bee kills",hunting.kills,hunting.epoch});
+        }
+        return result;
+    }
+    void stop() noexcept override { hunt_->stop();if(hopping_ && hopping_->servers)hopping_->servers->set_active(false);if (connected_) trip_->configure(false,0,false); connected_=false; if (delegate_) delegate_->stop(); }
     game::Requests requests() const override { return delegate_->requests(); }
-    game::RequestBatch request_channels() const override { return trip_->requests(); }
+    game::RequestBatch request_channels() const override {
+        auto result=trip_->requests();
+        for(auto& [channel,requests]:hunt_->requests().channels) {
+            auto& into=result.channels[channel];into.insert(into.end(),requests.begin(),requests.end());
+        }
+        return result;
+    }
     std::optional<extensions::RoutineParticipation> routine() const override { return delegate_->routine(); }
     std::unique_ptr<automation::Program> routine_program() const override { return program(); }
     bool executable() const noexcept override { return delegate_->executable(); }
-    bool pending_work(const extensions::SessionView& view) const override { return trip_->active() || delegate_->pending_work(view); }
+    bool pending_work(const extensions::SessionView& view) const override { const auto work=next_work(view);return work && work->ready<=view.now; }
     std::optional<extensions::WorkEstimate> next_work(const extensions::SessionView& view) const override {
+        hop_next_=false;
         if (trip_->active()) return extensions::WorkEstimate{"Finish server visit",{},Time{},view.now,view.now};
-        return delegate_->next_work(view);
+        auto work=delegate_->next_work(view);
+        if(!hop_enabled_)return work;
+        // The selected Vicious visit is supplied by the hopper, never both implementations.
+        if(work && work->label==hunt_id_)work.reset();
+        if(work && work->ready<=view.now)return work;
+        const auto hunting=hunt_->read();
+        if(hop_limit_>Time{} && hunting.elapsed>=hop_limit_)return work;
+        const auto daily=daily_only_?(saved_?saved_->remaining(hunt_id_,std::chrono::hours(22)):
+            hunting.kills?Time(std::chrono::hours(22)):Time{}):Time{};
+        if(daily>Time{})return work;
+        hop_next_=true;
+        return extensions::WorkEstimate{"Vicious Bee · next server",{},std::chrono::minutes(5),view.now,{}};
     }
-    std::unique_ptr<automation::Program> program() const override { return trip_->active()?trip_->program([delegate=delegate_] { return delegate->program(); }):delegate_->program(); }
+    std::unique_ptr<automation::Program> program() const override {
+        if(trip_->active())return trip_->program([delegate=delegate_] { return delegate->program(); });
+        if(hop_enabled_ && hop_next_) {
+            // Each server visit remains bounded; Forever removes the session cap,
+            // without bypassing normal recovery or scheduler handoffs.
+            const auto remaining=hop_limit_>Time{}?std::max(Time(1000),hop_limit_-hunt_->read().elapsed):Time(std::chrono::hours(8));
+            return vichop::visit(*hopping_,hunt_,remaining);
+        }
+        return delegate_->program();
+    }
 };
 }
 Settings migrate_settings(int version,const Settings& values,const Plan& plan) {
-    if (version<1 || version>5) throw std::invalid_argument("Unknown previous Combat settings version");
+    if (version<1 || version>6) throw std::invalid_argument("Unknown previous Combat settings version");
+    if(version==6)return values;
     auto result=version==1?features::visits::migrate_selections(values,{"Ladybug (Mushroom)","Spider"}):values;
     result.erase("follow-requests");
     SettingSelection bosses;
@@ -221,6 +310,8 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     manifest.setup_profiles={{"Honey farming",50,{{"interrupt-gather",false}}},
         {"Quest progress",20,{{"interrupt-gather",true}}},{"Materials",10,{{"interrupt-gather",true}}}};
     manifest.enabled_by_default=true;
+    for(auto& setting:manifest.settings) if(setting.id=="interrupt-gather")
+        setting.help="Allow ready Combat work to interrupt gathering. With Hop for night, more servers are almost always ready, so this can leave little gathering time. Turn off to finish active gathering first; due upkeep can run between server visits.";
     manifest.requests.insert(extensions::RequestService::servers);
     if (requests) manifest.consumes.insert(extensions::RequestService::enemies);
     for (const auto& enemy : plan.enemies) for (auto& setting : manifest.settings)
@@ -254,7 +345,7 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
             if (enemy.species=="Commando Chick") boss.settings.insert(boss.settings.end(),{"commando-level","commando-health","commando-session"});
             if (enemy.species=="King Beetle") boss.settings.push_back("beetle-amulet");
             if (enemy.species=="King Beetle" || enemy.species=="Tunnel Bear") boss.settings.push_back(option_key("baby-love",enemy.id));
-            if (!enemy.hunt_fields.empty()) boss.settings.insert(boss.settings.end(),{"vicious-daily","vicious-fields"});
+            if (!enemy.hunt_fields.empty()) boss.settings.insert(boss.settings.end(),{"vicious-servers","vicious-hop-minutes","vicious-daily","vicious-fields"});
         }
         sections.push_back(std::move(boss));
     }
@@ -267,8 +358,9 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     if (manifest.settings.size()>maximum_settings) throw std::invalid_argument("Too many Combat settings");
     return manifest;
 }
-extensions::Factory module_factory(Plan plan,automation::NavigationServices navigation,std::shared_ptr<const automation::AvailabilitySource> availability,std::shared_ptr<const game::EnemyGoalSource> goals,std::shared_ptr<visits::Cooldowns> saved,std::optional<Plan> configuration) {
+extensions::Factory module_factory(Plan plan,automation::NavigationServices navigation,std::shared_ptr<const automation::AvailabilitySource> availability,std::shared_ptr<const game::EnemyGoalSource> goals,std::shared_ptr<visits::Cooldowns> saved,std::optional<Plan> configuration,std::optional<vichop::Services> hopping) {
     features::visits::Demand demand;
+    if(hopping)demand=[](const ObservationContext&) { return features::visits::RequestedVisits{}; };
     if (goals) {
         for (auto& enemy:plan.enemies) if (!enemy.hunt_fields.empty())
             enemy.requested_field=[goals,species=enemy.species](const ObservationContext& c) {
@@ -297,7 +389,7 @@ extensions::Factory module_factory(Plan plan,automation::NavigationServices navi
     }
     const auto display=std::make_shared<const Plan>(configuration?std::move(*configuration):plan);
     const auto defaults=std::make_shared<const Plan>(std::move(plan));
-    return [display,defaults,navigation=std::move(navigation),availability=std::move(availability),demand=std::move(demand),saved=std::move(saved)](const extensions::Manifest& manifest) {
+    return [display,defaults,navigation=std::move(navigation),availability=std::move(availability),demand=std::move(demand),saved=std::move(saved),hopping=std::move(hopping)](const extensions::Manifest& manifest) {
       auto trip=std::make_shared<MondoTrip>(manifest.id);
       Builder build=[defaults,navigation,availability=server_availability(availability,trip),demand,saved](Options options,const extensions::Manifest& manifest) {
         auto configured=*defaults;
@@ -307,7 +399,7 @@ extensions::Factory module_factory(Plan plan,automation::NavigationServices navi
         configured.options=std::move(options);
         return features::visits::factory(visit_plan(std::move(configured)),navigation,availability,permissions,demand,saved)(manifest);
       };
-      return std::make_unique<CombatModule>(manifest,*display,*defaults,std::move(build),std::move(trip));
+      return std::make_unique<CombatModule>(manifest,*display,*defaults,std::move(build),std::move(trip),hopping,saved);
     };
 }
 }
