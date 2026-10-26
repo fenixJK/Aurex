@@ -19,7 +19,7 @@ class Hunt final : public automation::Program {
     Time travelled_{};
     std::optional<Time> began_;
     unsigned retries_{};
-    bool retrying_{},chat_ready_{},chat_opening_{};
+    bool retrying_{},chat_ready_{},chat_opening_{},defeat_seen_{};
     void choose(const automation::View& view) {
         auto preferred=enemy_.requested_field?enemy_.requested_field(view.context):std::string{};
         if (reported_at_>=Time{} && view.context.now-reported_at_<=Time(30000)) preferred=reported_;
@@ -43,11 +43,19 @@ public:
         return {phase_==Phase::search?"Travelling":"Searching",enemy_.species+(field?" · "+field->name:"")};
     }
     void observe(const automation::View& view) override {
-        if (phase_==Phase::home || phase_==Phase::prepare || phase_==Phase::aligned) return;
         if (enemy_.vicious) {
-            if (chat_ready_) game::read_vicious(*enemy_.vicious,view.context);
+            // The notification belongs to the whole hunt, including travel and
+            // returns between fields. Keep this small pixel channel requested
+            // so a reset/alignment does not leave a new defeat unobserved.
+            if (chat_ready_) {
+                const auto seen=game::read_vicious(*enemy_.vicious,view.context);
+                if (seen.has_value(view.context,Time(2000)) && began_ && seen.value.defeated
+                    && *seen.value.defeated>=*began_ && *seen.value.defeated<=view.context.now)
+                    defeat_seen_=true;
+            }
             return;
         }
+        if (phase_==Phase::home || phase_==Phase::prepare || phase_==Phase::aligned) return;
         if (const auto seen=game::read_enemies(*enemy_.observations,view.context))
             for (const auto& activity:seen->activity) if (activity.name==enemy_.species) {
                 reported_=activity.field; reported_at_=seen->visible.captured;
@@ -59,13 +67,22 @@ public:
     automation::ProgramFactory recovery(automation::Interruption reason,const automation::View& view) override {
         if (reason==automation::Interruption::disconnected || reason==automation::Interruption::client_rejoin
             || field_.empty() || retries_>=2 || (began_ && view.context.now-*began_>=std::chrono::minutes(5))) return {};
-        if (enemy_.progress->read().defeated) { phase_=Phase::result; return home_; }
+        const auto progress=enemy_.progress->read();
+        if (progress.defeated || progress.unavailable || defeat_seen_) { phase_=Phase::result; return home_; }
         ++retries_; retrying_=true; phase_=Phase::prepare;
         return home_;
     }
     automation::Step next(const automation::View& view) override {
         using namespace automation;
         if (!began_) { began_=view.context.now; choose(view); }
+        const auto progress=enemy_.progress->read();
+        if (progress.defeated) return Done{"Defeated "+enemy_.species};
+        if (progress.unavailable || defeat_seen_) {
+            // Only the encounter may credit a kill. A notification elsewhere
+            // still ends the search, without counting another player's kill.
+            enemy_.progress->finish_unavailable(enemy_.cooldown);
+            return Done{enemy_.species+" was defeated; ending the search"};
+        }
         if (enemy_.vicious && !chat_ready_) {
             chat_opening_=true;
             return RunProgram{show_chat};
@@ -77,9 +94,6 @@ public:
         }
         const bool expired=view.context.now-*began_>=std::chrono::minutes(5);
         if (phase_==Phase::result) {
-            const auto progress=enemy_.progress->read();
-            if (progress.defeated) return Done{"Defeated "+enemy_.species};
-            if (progress.unavailable) return Done{enemy_.species+" was defeated by another player"};
             if (remaining_.empty() || expired) {
                 enemy_.progress->finish(false,std::chrono::minutes(10));
                 return Done{expired?"Vicious Bee search time limit reached":"No Vicious Bee in the selected fields"};

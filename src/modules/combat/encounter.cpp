@@ -125,7 +125,11 @@ public:
         using namespace automation;
         // Search displacement is not combat displacement: fight around the discovery
         // point, then return there instead of crossing the entire field after a kill.
-        if (!enemy_.search.empty() && engaged_ && !search_origin_) { x_=y_=0; search_origin_=true; }
+        if (!enemy_.search.empty() && !search_origin_ && (engaged_ || complete_ || session_finished_)) {
+            // A defeat can arrive while still sweeping a bee activated by
+            // somebody else. There is no fight displacement to undo then.
+            x_=y_=0; search_origin_=true;
+        }
         Observation<game::DialogButtons> buttons;
         if (!enemy_.amulet.empty() && !amulet_kept_ && view.observations) {
             const game::PromptLandmark title{{enemy_.amulet},{.1,.1,.8,.85},.7f,game::PromptMatch::phrase};

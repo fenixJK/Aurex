@@ -60,12 +60,14 @@ public:
         const ObservationContext context{f.window,input.generation,f.captured};
         const auto counts=notifications(input);
         if (input.cancelled && input.cancelled()) return result;
-        ViciousSignals events;
+        // A capture pause may require a new row baseline, but must not erase
+        // a confirmed result before the hunt consumes it. Window/generation
+        // changes still discard all events from the previous server.
+        ViciousSignals events=previous_.has_value(context,Time::max())?previous_.value:ViciousSignals{};
         if (!previous_.has_value(context,Time(5000))) {
             // Joining a server or opening this detector must not replay old chat.
             counts_=candidate_=counts; candidate_at_=f.captured;
         } else {
-            events=previous_.value;
             if (candidate_!=counts) { candidate_=counts; candidate_at_=f.captured; }
             else if (f.captured>candidate_at_) {
                 // Require distinct frames, and count a notification once as it arrives.

@@ -103,45 +103,50 @@ public:
         cv::Mat rgba(f.height,f.width,CV_8UC4,const_cast<std::uint8_t*>(f.rgba.data())),small;
         const double scale=640./std::max(f.width,f.height);
         cv::resize(rgba,small,{},scale,scale,cv::INTER_AREA);
-        cv::Mat white(small.rows,small.cols,CV_8U,cv::Scalar(0));
-        for (int y=small.rows*.2;y<small.rows*.6;++y) for (int x=0;x<small.cols;++x) {
-            const auto p=small.at<cv::Vec4b>(y,x);
-            if (p[3]>=251 && std::min({p[0],p[1],p[2]})>=185
-                && std::max({p[0],p[1],p[2]})-std::min({p[0],p[1],p[2]})<40) white.at<std::uint8_t>(y,x)=255;
-        }
-        cv::morphologyEx(white,white,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_RECT,{9,3}));
-        std::vector<std::vector<cv::Point>> contours;
-        cv::findContours(white,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
-        std::vector<std::pair<cv::Rect,bool>> platforms;
-        for (const auto& contour:contours) {
-            const auto box=cv::boundingRect(contour);
-            if (box.width<small.cols*.04 || box.width>small.cols*.3 || box.height<3
-                || box.y+box.height>small.rows*.45
-                || box.width<box.height*2.5 || box.width>box.height*16 || cv::contourArea(contour)<box.area()*.4) continue;
-            // Red claim arrows end on the white pads of unowned hives. They
-            // distinguish unclaimed spawn from a close view of an owned hive.
-            unsigned red=0;
-            for (int y=box.y;y<box.y+box.height;++y) for (int x=box.x;x<box.x+box.width;++x) {
+        // Night lighting darkens the same pads and backboards. Keep the
+        // geometric checks at each exposure instead of requiring day-white
+        // pixels or trusting the darkness alone as a spawn heading.
+        for (const double exposure:{1.,.7,.5}) {
+            cv::Mat white(small.rows,small.cols,CV_8U,cv::Scalar(0));
+            for (int y=small.rows*.2;y<small.rows*.6;++y) for (int x=0;x<small.cols;++x) {
                 const auto p=small.at<cv::Vec4b>(y,x);
-                red+=p[0]>150 && p[0]>p[1]*1.6 && p[0]>p[2]*1.6;
+                if (p[3]>=251 && std::min({p[0],p[1],p[2]})>=185*exposure
+                    && std::max({p[0],p[1],p[2]})-std::min({p[0],p[1],p[2]})<40*exposure) white.at<std::uint8_t>(y,x)=255;
             }
-            unsigned gold=0,total=0;
-            for (int y=std::max(0,box.y-int(small.rows*.18));y<box.y;++y) for (int x=box.x;x<box.x+box.width;++x) {
-                const auto p=small.at<cv::Vec4b>(y,x); ++total;
-                gold+=p[0]>=80 && p[1]>=p[0]*.6 && p[1]<=p[0]*1.05 && p[2]<=p[0]*.7;
+            cv::morphologyEx(white,white,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_RECT,{9,3}));
+            std::vector<std::vector<cv::Point>> contours;
+            cv::findContours(white,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
+            std::vector<std::pair<cv::Rect,bool>> platforms;
+            for (const auto& contour:contours) {
+                const auto box=cv::boundingRect(contour);
+                if (box.width<small.cols*.04 || box.width>small.cols*.3 || box.height<3
+                    || box.y+box.height>small.rows*.45
+                    || box.width<box.height*2.5 || box.width>box.height*16 || cv::contourArea(contour)<box.area()*.4) continue;
+                // Red claim arrows end on the white pads of unowned hives. They
+                // distinguish unclaimed spawn from a close view of an owned hive.
+                unsigned red=0;
+                for (int y=box.y;y<box.y+box.height;++y) for (int x=box.x;x<box.x+box.width;++x) {
+                    const auto p=small.at<cv::Vec4b>(y,x);
+                    red+=p[0]>150*exposure && p[0]>p[1]*1.6 && p[0]>p[2]*1.6;
+                }
+                unsigned gold=0,total=0;
+                for (int y=std::max(0,box.y-int(small.rows*.18));y<box.y;++y) for (int x=box.x;x<box.x+box.width;++x) {
+                    const auto p=small.at<cv::Vec4b>(y,x); ++total;
+                    gold+=p[0]>=80*exposure && p[1]>=p[0]*.6 && p[1]<=p[0]*1.05 && p[2]<=p[0]*.7;
+                }
+                if (gold*4<total) continue;
+                // The red arrow must terminate below an empty golden backboard;
+                // a red tool in front of a leaderboard is not a claim arrow.
+                const bool available=red && gold>=total*.65;
+                for (const auto& [other,other_red]:platforms) {
+                    const double a=box.x+box.width*.5,b=other.x+other.width*.5;
+                    if ((!available && !other_red) || std::min(a,b)>small.cols*.45 || std::max(a,b)<small.cols*.55
+                        || std::abs(box.y-other.y)>small.rows*.06) continue;
+                    reading.knowledge=Knowledge::present; reading.value=true;
+                    return result;
+                }
+                platforms.emplace_back(box,available);
             }
-            if (gold*4<total) continue;
-            // The red arrow must terminate below an empty golden backboard;
-            // a red tool in front of a leaderboard is not a claim arrow.
-            const bool available=red && gold>=total*.65;
-            for (const auto& [other,other_red]:platforms) {
-                const double a=box.x+box.width*.5,b=other.x+other.width*.5;
-                if ((!available && !other_red) || std::min(a,b)>small.cols*.45 || std::max(a,b)<small.cols*.55
-                    || std::abs(box.y-other.y)>small.rows*.06) continue;
-                reading.knowledge=Knowledge::present; reading.value=true;
-                return result;
-            }
-            platforms.emplace_back(box,available);
         }
         return result;
     }

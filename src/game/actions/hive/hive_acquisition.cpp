@@ -269,8 +269,10 @@ public:
             if (reading.knowledge==Knowledge::present && reading.value) {
                 begin(Stage::claim,view); return child_step(view);
             }
-            if (turned_) return recover(view);
-            stage_=Stage::turn; return next(view);
+            if (!turned_) { stage_=Stage::turn; return next(view); }
+            // A single negative frame after the turn may still show the
+            // moving camera or loading hive row. Use the existing bounded
+            // observation window before spending another reset attempt.
         }
         return Wait{Time(50),"Checking the settled spawn view"};
     }
