@@ -138,7 +138,8 @@ public:
             if (child_guard_) { const auto requested=child_guard_->text_regions(); regions.insert(regions.end(),requested.begin(),requested.end()); }
             return regions;
         }
-        return stage_==Stage::locate || stage_==Stage::observe?std::vector<Rect>{game::hive_proximity_prompt().region}:std::vector<Rect>{};
+        return !options_.confirmed_spawn && (stage_==Stage::locate || stage_==Stage::observe)
+            ?std::vector<Rect>{game::hive_proximity_prompt().region}:std::vector<Rect>{};
     }
     game::ObservationNeeds observation_needs() const override {
         auto needs=child_?child_->observation_needs():game::ObservationNeeds{};
@@ -224,7 +225,6 @@ public:
                 if (c.now-minimum_>=Time(120000)) throw ClientRejoinRequired("Bee Swarm did not finish loading");
                 return Wait{Time(100),"Waiting for Bee Swarm to load"};
             }
-            spawn_->read(c);
             const auto wait_for_prompt=[&]() -> Step {
                 if (c.now-minimum_>=Time(10000)) return locate_unknown(view);
                 return Wait{Time(50),recovered_?"Waiting for the hive prompt after respawn":"Reading hive interaction prompt"};
@@ -253,7 +253,7 @@ public:
         }
         case Stage::observe: break;
         }
-        if (view.observations) {
+        if (view.observations && !options_.confirmed_spawn) {
             const auto& text=view.observations->text;
             const auto owned=game::read_prompt_landmark(c,text,game::hive_proximity_prompt());
             const auto claim=game::read_prompt_landmark(c,text,game::hive_claim_prompt());
@@ -279,8 +279,9 @@ public:
         case Stage::zoom: stage_=Stage::pitch_limit; break;
         case Stage::pitch_limit: stage_=Stage::pitch; break;
         case Stage::pitch:
-            if (options_.confirmed_spawn) begin(Stage::claim,view);
-            else observe(view.context.now);
+            // A fresh join confirms the platform position, not the camera yaw.
+            // Use the same observed heading check as a post-reset spawn.
+            observe(view.context.now);
             break;
         case Stage::turn: turned_=true; observe(view.context.now); break;
         case Stage::claim:
