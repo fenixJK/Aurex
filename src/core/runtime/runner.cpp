@@ -349,7 +349,12 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
             const bool hud=observations.game_hud.has_value(c,Time(2000),context_.now) && observations.game_hud.value;
             const bool connected=observations.connection.has_value(c,Time(2000),context_.now)
                 && observations.connection.value==game::Connection::connected;
-            if (!hud && !connected) {
+            // A reconnect workflow must be allowed to handle a disconnect dialog
+            // encountered during loading, before the game HUD can return.
+            const bool reconnect_dialog=expects_reconnect()
+                && observations.connection.has_value(c,Time(2000),context_.now)
+                && observations.connection.value==game::Connection::disconnected;
+            if (!hud && !connected && !reconnect_dialog) {
                 if (observations.client_home.has_value(c,Time(2000),context_.now)
                     && observations.client_home.value) {
                     interrupt(Interruption::client_rejoin,c,observations,"Roblox is on its home screen"); return;

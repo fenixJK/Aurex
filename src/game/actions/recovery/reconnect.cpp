@@ -7,9 +7,9 @@ class Reconnect final : public Program {
     std::shared_ptr<const game::RespawnSource> source_;
     Time minimum_{Time(-1)},started_{Time(-1)},last_{Time(-1)},retry_at_{};
     unsigned attempts_{};
-    bool clicked_{},issued_{},joining_{},resuming_{};
+    bool clicked_{},issued_{},resuming_{};
 public:
-    explicit Reconnect(std::shared_ptr<const game::RespawnSource> source,bool joining=false):source_(std::move(source)),clicked_(joining),joining_(joining) {
+    explicit Reconnect(std::shared_ptr<const game::RespawnSource> source,bool joining=false):source_(std::move(source)),clicked_(joining) {
         if (!source_) throw std::invalid_argument("Reconnect needs game-view observations");
     }
     RunConfig config() const override { return {game_loading_timeout+Time(15000),28,{},true,true}; }
@@ -23,7 +23,9 @@ public:
         if (!view.observations) return Wait{Time(100),"Reading reconnect state"};
         const auto& state=*view.observations;
         const auto target=state.reconnect;
-        if (!joining_ && c.now>=retry_at_ && target.has_value(c,Time(2000),std::max(minimum_,retry_at_))) {
+        // Joining can itself fail onto this dialog; handle it just like a
+        // disconnect during play instead of waiting out the loading deadline.
+        if (c.now>=retry_at_ && target.has_value(c,Time(2000),std::max(minimum_,retry_at_))) {
             if (target.captured<=last_) return Wait{Time(100),"Confirming reconnect button"};
             last_=target.captured;
             if (attempts_>=3) throw ClientRejoinRequired("Reconnect dialog remained open after three attempts");
