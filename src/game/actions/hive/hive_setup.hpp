@@ -40,6 +40,7 @@ struct HiveClaimOptions {
     unsigned existing_slot{};
     movement::Source movement;
     bool after_respawn{};
+    std::shared_ptr<const game::LandmarkSource> spawn_direction;
 };
 enum class HiveStart { locate, reset };
 ApproachPrompt hive_row_approach(double speed,movement::Source movement={});

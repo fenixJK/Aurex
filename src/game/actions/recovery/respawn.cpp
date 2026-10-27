@@ -76,12 +76,19 @@ public:
 class Respawn final : public Program {
     enum class Stage { locate,select,confirm,transition,done };
     std::shared_ptr<const game::RespawnSource> source_;
+    std::shared_ptr<RespawnResult> result_;
     Stage stage_{Stage::locate};
     Time started_{Time(-1)},minimum_{},transition_{Time(-1)};
     RespawnCompletion completion_;
     bool issued_{};
     bool retried_{};
     std::optional<game::RespawnScreen> requested_from_;
+    Step complete(const View& view,bool confirmed) {
+        if (result_) result_->transition={Knowledge::present,confirmed,view.context.now,
+            view.context.window,view.context.generation};
+        stage_=Stage::done;
+        return Done{confirmed?"Respawn finished; confirming the hive":"Reset transition unseen; checking the spawn location"};
+    }
     Step retry(Time now,std::string reason) {
         if (retried_) throw ClientRejoinRequired("Reset could not be verified after retrying; rejoining Bee Swarm");
         retried_=true; stage_=Stage::locate; started_=minimum_=now; transition_=Time(-1);
@@ -89,8 +96,10 @@ class Respawn final : public Program {
         return ReportActivity{{"Retrying reset",std::move(reason)}};
     }
 public:
-    explicit Respawn(std::shared_ptr<const game::RespawnSource> source):source_(std::move(source)) {
+    Respawn(std::shared_ptr<const game::RespawnSource> source,std::shared_ptr<RespawnResult> result)
+        :source_(std::move(source)),result_(std::move(result)) {
         if (!source_) throw std::invalid_argument("Respawn needs game observations");
+        if (result_) *result_={};
     }
     RunConfig config() const override { return {Time(50000),28,{},true,true}; }
     std::vector<Rect> text_regions() const override { return {game::hive_proximity_prompt().region}; }
@@ -123,11 +132,16 @@ public:
         }
         if (stage_==Stage::transition && !menu) {
             if (completion_.ready(view,reading,minimum_,transition_)) {
-                stage_=Stage::done; return next(view);
+                return complete(view,true);
             }
             if (!completion_.transitioned() && live && fresh && reading.value.screen==game::RespawnScreen::game
-                && c.now-transition_>=Time(8000))
+                && c.now-transition_>=Time(8000)) {
+                // A reset at the unclaimed spawn platform has no hive prompt
+                // to return. Let the hive workflow survey the location before
+                // spending another reset, without claiming death was observed.
+                if (result_) return complete(view,false);
                 return retry(c.now,"Game returned without a confirmed respawn");
+            }
             if (c.now-transition_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return a readable live game view");
             return Wait{Time(100),"Waiting for player respawn"};
         }
@@ -182,6 +196,8 @@ public:
     }
 };
 }
-std::unique_ptr<Program> request_respawn(std::shared_ptr<const game::RespawnSource> source) { return std::make_unique<Respawn>(std::move(source)); }
+std::unique_ptr<Program> request_respawn(std::shared_ptr<const game::RespawnSource> source,std::shared_ptr<RespawnResult> result) {
+    return std::make_unique<Respawn>(std::move(source),std::move(result));
+}
 std::unique_ptr<Program> wait_for_respawn(std::shared_ptr<const game::RespawnSource> source) { return std::make_unique<AwaitRespawn>(std::move(source)); }
 }

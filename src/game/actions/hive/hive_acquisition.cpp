@@ -9,21 +9,23 @@ class RespawnToHive final : public Program {
     ProgramFactory reset_,acquire_;
     std::shared_ptr<const game::RespawnSource> respawn_;
     std::shared_ptr<HiveSetupResult> result_;
+    std::shared_ptr<RespawnResult> reset_result_;
     double speed_;
     unsigned phase_{};
     Reentry reentry_;
 public:
     RespawnToHive(ProgramFactory reset,ProgramFactory acquire,std::shared_ptr<const game::RespawnSource> respawn,
-        std::shared_ptr<HiveSetupResult> result,double speed,Reentry reentry=Reentry::reset)
-        :reset_(std::move(reset)),acquire_(std::move(acquire)),respawn_(std::move(respawn)),result_(std::move(result)),speed_(speed),reentry_(reentry) {
+        std::shared_ptr<HiveSetupResult> result,double speed,Reentry reentry=Reentry::reset,std::shared_ptr<RespawnResult> reset_result={})
+        :reset_(std::move(reset)),acquire_(std::move(acquire)),respawn_(std::move(respawn)),result_(std::move(result)),reset_result_(std::move(reset_result)),speed_(speed),reentry_(reentry) {
         if (!result_) throw std::invalid_argument("Returning by respawn requires confirmed hive setup");
     }
     RunConfig config() const override { return {Time(reentry_==Reentry::reconnect?360000:300000),speed_,{},true,true}; }
     std::string activity_label() const override { return reentry_==Reentry::reconnect?"Rejoining Bee Swarm":"Returning to hive"; }
     bool expects_respawn() const noexcept override { return phase_==0; }
     bool expects_reconnect() const noexcept override { return reentry_==Reentry::reconnect && !phase_; }
-    ProgramFactory recovery(Interruption reason,const View&) override {
+    ProgramFactory recovery(Interruption reason,const View& view) override {
         if (reason!=Interruption::death) return {};
+        if (reset_result_) reset_result_->transition={Knowledge::present,true,view.context.now,view.context.window,view.context.generation};
         result_->invalidate_camera();
         phase_=1;
         return [source=respawn_] { return wait_for_respawn(source); };
@@ -53,11 +55,13 @@ class AcquireHive final : public Program {
     HiveStart start_;
     std::unique_ptr<Program> child_;
     std::unique_ptr<RunGuard> child_guard_;
-    Time minimum_{},seen_{Time(-1)},child_started_{};
+    Time minimum_{},seen_{Time(-1)},child_started_{},away_since_{Time(-1)};
     std::optional<Time> child_running_;
     std::size_t child_steps_{};
     bool turned_{},issued_{};
     bool started_{},recovered_{};
+    std::shared_ptr<RespawnResult> reset_result_;
+    bool verify_spawn_{};
     unsigned resets_{};
     void reserve_reset() {
         if (resets_>=2) throw ClientRejoinRequired("Hive position could not be confirmed after retrying resets; rejoining Bee Swarm");
@@ -69,7 +73,8 @@ class AcquireHive final : public Program {
     void begin(Stage stage,const View& view) {
         stage_=stage;
         auto claim=options_; claim.search_opposite_view=false; claim.confirmed_spawn=true;
-        child_=stage==Stage::recover?request_respawn(options_.recovery):stage==Stage::claim?claim_hive_from_spawn(slots_,std::move(claim))
+        if (stage==Stage::recover) reset_result_=std::make_shared<RespawnResult>();
+        child_=stage==Stage::recover?request_respawn(options_.recovery,reset_result_):stage==Stage::claim?claim_hive_from_spawn(slots_,std::move(claim))
             :prepare_hive_view(reference_,proximity_,options_.result);
         child_guard_=child_->guard(); child_started_=view.context.now;
         child_running_.reset(); child_steps_=0; issued_=false;
@@ -109,8 +114,9 @@ class AcquireHive final : public Program {
         if (std::holds_alternative<Done>(step)) {
             child_->finished(State::completed); child_.reset(); child_guard_.reset();
             if (stage_==Stage::recover) {
+                verify_spawn_=unconfirmed_reset(view.context);
                 recovered_=true; turned_=false; options_.confirmed_spawn=false; stage_=Stage::locate; minimum_=view.context.now+Time(1);
-                seen_=Time(-1); return Wait{};
+                seen_=away_since_=Time(-1); return Wait{};
             }
             if (stage_==Stage::claim) {
                 const auto result=options_.result?options_.result->read(view.context,view.observations):std::nullopt;
@@ -123,8 +129,10 @@ class AcquireHive final : public Program {
     }
 public:
     AcquireHive(std::shared_ptr<const game::HiveSlotsSource> slots,std::shared_ptr<const game::LandmarkSource> spawn,
-        std::shared_ptr<const game::LandmarkSource> reference,std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options,HiveStart start)
-        :slots_(std::move(slots)),spawn_(std::move(spawn)),reference_(std::move(reference)),proximity_(std::move(proximity)),options_(options),start_(start),resets_(options.after_respawn?1u:0u) {
+        std::shared_ptr<const game::LandmarkSource> reference,std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options,HiveStart start,
+        std::shared_ptr<RespawnResult> reset_result={})
+        :slots_(std::move(slots)),spawn_(std::move(spawn)),reference_(std::move(reference)),proximity_(std::move(proximity)),options_(options),start_(start),
+        reset_result_(std::move(reset_result)),resets_(options.after_respawn?1u:0u) {
         if (!slots_ || !spawn_ || !reference_ || !proximity_) throw std::invalid_argument("Hive setup requires slot, spawn and hive observations");
         if (!std::isfinite(options.speed) || options.speed<8 || options.speed>200 || options.preferred_slot>6 || options.existing_slot>6)
             throw std::invalid_argument("Invalid hive setup speed or preferred slot");
@@ -148,17 +156,24 @@ public:
     }
     std::vector<game::FixedLabelQuery> fixed_labels() const override { return child_?child_->fixed_labels():std::vector<game::FixedLabelQuery>{}; }
     bool expects_respawn() const noexcept override { return child_ && child_->expects_respawn(); }
+    bool unconfirmed_reset(const ObservationContext& context) const {
+        if (!reset_result_) return false;
+        if (!reset_result_->transition.has_value(context,Time::max()))
+            throw ObservationUnavailable("Reset result belongs to an unavailable game view");
+        return !reset_result_->transition.value;
+    }
     ProgramFactory recovery(Interruption reason,const View&) override {
         if (!options_.recovery || (reason!=Interruption::death && reason!=Interruption::lost_observations
             && reason!=Interruption::lost_route)) return {};
         if (reason!=Interruption::death) reserve_reset();
         if (child_) child_->finished(State::stopped);
         child_.reset(); child_guard_.reset(); child_running_.reset();
+        reset_result_=reason==Interruption::death?nullptr:std::make_shared<RespawnResult>(); verify_spawn_=false;
         if (options_.result) options_.result->invalidate_camera();
         stage_=Stage::locate; started_=turned_=issued_=false; recovered_=true; options_.confirmed_spawn=false;
-        seen_=Time(-1);
-        return [source=options_.recovery,reason] {
-            return reason==Interruption::death?wait_for_respawn(source):request_respawn(source);
+        seen_=away_since_=Time(-1);
+        return [source=options_.recovery,reason,result=reset_result_] {
+            return reason==Interruption::death?wait_for_respawn(source):request_respawn(source,result);
         };
     }
     Step recover(const View& view) {
@@ -188,6 +203,7 @@ public:
     }
     Step next(const View& view) override {
         if (!started_) {
+            verify_spawn_=unconfirmed_reset(view.context);
             recovered_=recovered_ || options_.after_respawn;
             if (options_.result) {
                 options_.confirmed_spawn=options_.result->consume_join(view.context) || options_.confirmed_spawn;
@@ -218,6 +234,10 @@ public:
         case Stage::pitch: return MoveCamera{{Key::pitch_up,5}};
         case Stage::turn: return MoveCamera{{Key::rotate_right,4}};
         case Stage::locate: {
+            // An unseen death is not a confirmed hive arrival. Survey from the
+            // stationary game view, and require the spawn reference before
+            // walking. A hive prompt alone cannot authorize this fallback.
+            if (verify_spawn_) { stage_=Stage::zoom; return next(view); }
             if (options_.confirmed_spawn) {
                 if (view.observations && view.observations->game_hud.has_value(c,Time(2000)) && view.observations->game_hud.value) {
                     stage_=Stage::zoom; return next(view);
@@ -247,13 +267,24 @@ public:
             if (candidate==1) {
                 return prepare_owned(view,owned);
             }
-            if (recovered_ && !candidate)
+            if (recovered_ && !candidate) {
+                // Once death/revival was actually observed, fresh live frames
+                // without a hive prompt can proceed to the spawn survey. Do
+                // not spend the entire slow-respawn allowance at an empty pad.
+                const auto& state=*view.observations;
+                const bool revived=reset_result_ && reset_result_->transition.has_value(c,Time::max())
+                    && reset_result_->transition.value && state.alive.has_value(c,Time(2000),minimum_) && state.alive.value
+                    && state.game_hud.has_value(c,Time(2000),minimum_) && state.game_hud.value;
+                if (!revived) away_since_=Time(-1);
+                else if (away_since_<Time{}) away_since_=text.captured;
+                else if (text.captured-away_since_>=Time(300)) return locate_unknown(view);
                 return wait_for_prompt();
+            }
             return locate_unknown(view);
         }
         case Stage::observe: break;
         }
-        if (view.observations && !options_.confirmed_spawn) {
+        if (view.observations && !options_.confirmed_spawn && !verify_spawn_) {
             const auto& text=view.observations->text;
             const auto owned=game::read_prompt_landmark(c,text,game::hive_proximity_prompt());
             const auto claim=game::read_prompt_landmark(c,text,game::hive_claim_prompt());
@@ -263,7 +294,8 @@ public:
             }
         }
         if (c.now-minimum_>=Time(5000)) return recover(view);
-        const auto reading=spawn_->read(c);
+        const auto source=options_.confirmed_spawn && options_.spawn_direction?options_.spawn_direction:spawn_;
+        const auto reading=source->read(c);
         if (reading.usable(c,Time(2000),minimum_) && reading.captured>seen_) {
             seen_=reading.captured;
             if (reading.knowledge==Knowledge::present && reading.value) {
@@ -274,7 +306,7 @@ public:
             // moving camera or loading hive row. Use the existing bounded
             // observation window before spending another reset attempt.
         }
-        return Wait{Time(50),"Checking the settled spawn view"};
+        return Wait{Time(50),options_.confirmed_spawn?"Checking spawn direction":"Checking the settled spawn view"};
     }
     void step_completed(const View& view) override {
         switch (stage_) {
@@ -313,9 +345,12 @@ std::unique_ptr<Program> respawn_to_hive(std::shared_ptr<const game::HiveSlotsSo
     std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options) {
     if (!options.recovery) throw std::invalid_argument("Returning by respawn needs menu observations");
     auto recovery=options.recovery; options.confirmed_spawn=false; options.after_respawn=true;
+    auto reset_result=std::make_shared<RespawnResult>();
     acquire_hive(slots,spawn,reference,proximity,options);
-    return std::make_unique<RespawnToHive>([recovery] { return request_respawn(recovery); },
-        [slots,spawn,reference,proximity,options] { return acquire_hive(slots,spawn,reference,proximity,options); },recovery,options.result,options.speed);
+    return std::make_unique<RespawnToHive>([recovery,reset_result] { return request_respawn(recovery,reset_result); },
+        [slots,spawn,reference,proximity,options,reset_result] {
+            return std::make_unique<AcquireHive>(slots,spawn,reference,proximity,options,HiveStart::locate,reset_result);
+        },recovery,options.result,options.speed,Reentry::reset,reset_result);
 }
 std::unique_ptr<Program> recover_to_hive(std::shared_ptr<const game::HiveSlotsSource> slots,
     std::shared_ptr<const game::LandmarkSource> spawn,std::shared_ptr<const game::LandmarkSource> reference,

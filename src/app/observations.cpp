@@ -75,6 +75,7 @@ std::vector<game::DetectorConfig> game_detectors(std::shared_ptr<game::Inventory
         {"interaction-prompt",hive::game::interaction_prompt_detector(),hive::Time(100),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::responsive},
         {"planter-presence",hive::game::planter_presence_detector(),hive::Time(100),hive::game::DetectionMode::pixels},
         {"sprinkler-reference",hive::game::sprinkler_reference_detector(),hive::Time(500),hive::game::DetectionMode::pixels},
+        {"spawn-direction",hive::game::spawn_direction_detector(),hive::Time(100),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::responsive},
         {"spawn-view",hive::game::spawn_view_detector(),hive::Time(250),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::responsive},
         {"hive-view",hive::game::hive_view_detector(),hive::Time(125),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::responsive},
         {"hive-slots",hive::game::hive_slots_detector(),hive::Time(250),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::responsive}};

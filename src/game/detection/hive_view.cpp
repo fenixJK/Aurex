@@ -85,6 +85,47 @@ public:
         return result;
     }
 };
+class SpawnDirection final : public Detector {
+public:
+    Rect capture_region() const override { return {.08,.16,.84,.26}; }
+    std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
+        const auto& f=input.frame;
+        if (!f.valid() || !input.generation || (input.cancelled && input.cancelled())) return {};
+        auto result=std::make_shared<Landmarks>();
+        auto& direction=result->readings["spawn.direction"];
+        direction={Knowledge::unknown,false,f.captured,f.window,input.generation};
+        const auto region=capture_region();
+        if (f.region.x>region.x || f.region.y>region.y || f.region.x+f.region.width<region.x+region.width
+            || f.region.y+f.region.height<region.y+region.height) return result;
+        // A new join supplies position, so only compare the hive backboards
+        // with the outdoor scene. Sample two small side panels to avoid the
+        // player's equipment, independently of resolution, DPI and lighting.
+        std::array<double,2> gold_fraction{};
+        unsigned outdoors=0,total=0;
+        for (unsigned side=0;side<2;++side) {
+            unsigned gold=0,samples=0;
+            const double left=side?.64:.08;
+            for (int row=0;row<24;++row) for (int col=0;col<64;++col) {
+                const double x=left+(col+.5)*.28/64,y=.16+(row+.5)*.26/24;
+                const int px=(x-f.region.x)*f.width/f.region.width,py=(y-f.region.y)*f.height/f.region.height;
+                const auto* p=f.rgba.data()+(std::size_t(py)*f.width+px)*4;
+                if (p[3]<251) continue;
+                ++samples;
+                gold+=p[0]>=35 && p[1]>=p[0]*.6 && p[1]<=p[0]*1.05 && p[2]<=p[0]*.7;
+                const auto lo=std::min({p[0],p[1],p[2]}),hi=std::max({p[0],p[1],p[2]});
+                outdoors+=(p[1]>=35 && p[1]>p[0]*1.2 && p[1]>p[2]*1.15)
+                    || (lo>=75 && hi-lo<hi*.2);
+            }
+            total+=samples;
+            gold_fraction[side]=samples?double(gold)/samples:0;
+        }
+        if (gold_fraction[0]>.4 && gold_fraction[1]>.4)
+            direction={Knowledge::present,true,f.captured,f.window,input.generation};
+        else if (total && gold_fraction[0]+gold_fraction[1]<.4 && outdoors>total*.35)
+            direction={Knowledge::present,false,f.captured,f.window,input.generation};
+        return result;
+    }
+};
 class SpawnView final : public Detector {
 public:
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
@@ -184,6 +225,7 @@ public:
 };
 }
 std::shared_ptr<const Detector> hive_view_detector() { return std::make_shared<HiveView>(); }
+std::shared_ptr<const Detector> spawn_direction_detector() { return std::make_shared<SpawnDirection>(); }
 std::shared_ptr<const Detector> spawn_view_detector() { return std::make_shared<SpawnView>(); }
 std::shared_ptr<const LandmarkSource> hive_reference_source(std::shared_ptr<const DetectionSource> pixels) {
     if (!pixels) throw std::invalid_argument("Hive reference requires pixel observations");

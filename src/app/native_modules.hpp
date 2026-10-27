@@ -82,9 +82,10 @@ struct HiveSources {
     std::shared_ptr<const game::RespawnSource> recovery;
     std::function<unsigned()> existing_slot;
     movement::Source movement;
+    std::shared_ptr<const game::LandmarkSource> spawn_direction;
     automation::HiveClaimOptions options(double speed) const {
         const auto slot=existing_slot?existing_slot():0;
-        return {speed,slot,true,result,false,recovery,slot,movement};
+        return {speed,slot,true,result,false,recovery,slot,movement,false,spawn_direction};
     }
 };
 void configure_travel_modules(NativeModules& modules,std::optional<double> speed,const HiveSources& hive,

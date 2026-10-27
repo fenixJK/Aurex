@@ -461,7 +461,8 @@ public:
         native_modules_.quests.observations=hive::features::quests::detection_source(channels.at("quest-cards"));
         native_modules_.quests.browser=hive::features::quests::browser_source(channels.at("quest-cards"));
         native_modules_.navigation.perception=hive::automation::hive_navigation(localization_,hive_setup_);
-        const hive::app::HiveSources hive_sources{hive_slots,spawn_view,hive_reference,hive_proximity,hive_setup_,hive::game::respawn_source(channels.at("respawn-menu")),[existing_hive] { return existing_hive->currentData().toUInt(); },native_modules_.movement};
+        const hive::app::HiveSources hive_sources{hive_slots,spawn_view,hive_reference,hive_proximity,hive_setup_,hive::game::respawn_source(channels.at("respawn-menu")),[existing_hive] { return existing_hive->currentData().toUInt(); },native_modules_.movement,
+            hive::game::landmark_source(channels.at("spawn-direction"),"spawn.direction")};
         const auto configure_connection=[this,hive_sources](std::optional<double> speed) {
             const auto reconnect=[hive_sources,speed](hive::automation::ReconnectStart start) {
                 auto options=hive_sources.options(speed.value_or(28)); options.existing_slot=0;
