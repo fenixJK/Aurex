@@ -40,6 +40,7 @@ struct State {
     Reading<std::vector<MenuControl>> menus;
     Reading<DialogButtons> confirmation;
     Reading<bool> last_death;
+    std::string observation_error;
 };
 Reading<HivePrompt> read_hive_prompt(const Frame& frame,const std::vector<TextLine>& lines,Rect region,std::uint64_t generation);
 }

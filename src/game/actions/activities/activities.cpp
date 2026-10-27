@@ -195,7 +195,13 @@ bool Runner::prepare_menu(const ObservationContext& c,const game::State& s) {
     // will reach the game. Wait for the same shared menu evidence used above.
     if (camera && !fresh && !closed) {
         if (!menu_wait_started_) menu_wait_started_=c.now;
-        if (c.now-*menu_wait_started_>=Time(5000)) throw ObservationUnavailable("Could not confirm the sidebar is closed before adjusting the camera");
+        if (c.now-*menu_wait_started_>=Time(5000)) {
+            const auto detail=!s.observation_error.empty()?s.observation_error:
+                !s.open_menu.window.id?"no sidebar frame received":
+                s.open_menu.knowledge==Knowledge::unknown?"sidebar unreadable in the captured frame":
+                "sidebar frame is stale or belongs to an earlier window";
+            throw ObservationUnavailable("Could not confirm the sidebar is closed before adjusting the camera: "+std::string(detail));
+        }
         progress_.message="Checking sidebar before adjusting camera";
         return true;
     }

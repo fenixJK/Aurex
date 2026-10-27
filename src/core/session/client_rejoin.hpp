@@ -19,7 +19,8 @@ class ClientRejoin {
     Window old_,candidate_;
     std::set<std::int64_t> excluded_;
     Time deadline_,next_{},last_;
-    bool close_sent_{};
+    bool close_sent_{},force_close_sent_{};
+    Time force_close_after_{};
     unsigned attempts_{};
     std::future<bool> launch_;
     bool retry_launch(Time now);

@@ -89,6 +89,13 @@ public:
             return roblox_app(app) && [app terminate];
         }
     }
+    bool force_close_client(const Window& window) override {
+        @autoreleasepool {
+            NSRunningApplication* app=[NSRunningApplication runningApplicationWithProcessIdentifier:window.process];
+            if (!app || app.terminated) return true;
+            return roblox_app(app) && [app forceTerminate];
+        }
+    }
     std::future<bool> open_client(const std::string& uri) override {
         std::promise<bool> result;
         @autoreleasepool {

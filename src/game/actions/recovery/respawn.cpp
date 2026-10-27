@@ -148,7 +148,8 @@ public:
         if (c.now-started_>=Time(8000)) {
             if ((stage_==Stage::select || stage_==Stage::confirm) && live && fresh && reading.value.screen==game::RespawnScreen::game)
                 return retry(c.now,"Respawn controls did not appear after the shortcut");
-            if (!fresh) throw ClientRejoinRequired("No fresh reset-menu view was available");
+            if (!fresh) throw ClientRejoinRequired("No fresh reset-menu view was available"+
+                (state && !state->observation_error.empty()?": "+state->observation_error:std::string{}));
             if (reading.value.screen==game::RespawnScreen::menu)
                 throw ClientRejoinRequired("Respawn shortcut did not open the confirmation");
             if (reading.value.screen==game::RespawnScreen::confirmation)

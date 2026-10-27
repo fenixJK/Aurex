@@ -133,6 +133,7 @@ ObservedState Observer::latest(bool request_speed) {
         if (const auto reading=entry.channel->peek(); reading && !reading->error.empty()) result.error=reading->error;
     if (!labels_error_.empty()) result.error=labels_error_;
     if (!capture_error_.empty()) result.error=capture_error_;
+    result.state.observation_error=result.error;
     return result;
 }
 void Observer::capture() {

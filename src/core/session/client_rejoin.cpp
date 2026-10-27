@@ -1,4 +1,5 @@
 #include "client_rejoin.hpp"
+#include <algorithm>
 
 namespace hive {
 ClientRejoin::ClientRejoin(game::JoinTarget target,Window old,const std::vector<std::int64_t>& existing,Time now,RejoinLimits limits,RejoinMode mode)
@@ -47,7 +48,15 @@ std::optional<Window> ClientRejoin::update(Desktop& desktop,Time now) {
         if (desktop.client_running(old_.process)) {
             if (!close_sent_) {
                 close_sent_=true;
-                if (!desktop.close_client(old_)) throw std::runtime_error("Could not close the selected Roblox client");
+                // A cooperative quit may be accepted without actually ending
+                // the process. Escalate only this selected client, once, while
+                // retaining the original bounded close deadline.
+                force_close_after_=now+std::min(Time(3000),(deadline_-now)/2);
+                if (!desktop.close_client(old_)) force_close_after_=now;
+            }
+            if (!force_close_sent_ && now>=force_close_after_ && desktop.client_running(old_.process)) {
+                force_close_sent_=true;
+                if (!desktop.force_close_client(old_)) throw std::runtime_error("Could not close the selected Roblox client");
             }
             return {};
         }

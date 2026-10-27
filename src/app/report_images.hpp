@@ -2,6 +2,7 @@
 #include "game/detection/perception.hpp"
 #include <QImage>
 #include <QPainter>
+#include <QSaveFile>
 #include <memory>
 
 namespace hive::app {
@@ -28,5 +29,15 @@ inline QImage resource_image(std::shared_ptr<const Frame> frame) {
         painter.drawImage(QRect(0,i*(height+2),width,height),source,QRectF(region.x,region.y,region.width,region.height));
     }
     return result;
+}
+inline bool save_failure_frame(const QString& path,std::shared_ptr<const Frame> frame,const QString& message) {
+    auto image=game_image(frame);
+    if (image.isNull()) return false;
+    image.setText("Failure",message);
+    const auto& bounds=frame->window.bounds;
+    image.setText("Window bounds",QString("%1,%2 %3x%4").arg(bounds.x).arg(bounds.y).arg(bounds.width).arg(bounds.height));
+    image.setText("Frame age ms",QString::number((monotonic_now()-frame->captured).count()));
+    QSaveFile file(path);
+    return file.open(QIODevice::WriteOnly) && image.save(&file,"PNG") && file.commit();
 }
 }

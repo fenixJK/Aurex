@@ -641,7 +641,7 @@ public:
             } catch (const std::exception& e) { start_timer_.stop(); initial_join_.reset(); routine_.reset(); pending_feature_.reset(); launch_error_=q(e.what()); log(launch_error_,true); }
         });
         auto timer=new QTimer(this); timer->setInterval(150);
-        connect(timer,&QTimer::timeout,this,[this,stop,run_routine,start_macro,player_speed,equipment,existing_hive,reconnect_hours,reconnect_minute] {
+        connect(timer,&QTimer::timeout,this,[this,data,stop,run_routine,start_macro,player_speed,equipment,existing_hive,reconnect_hours,reconnect_minute] {
             const auto snapshot=session_.snapshot();
             follow_window(snapshot);
             if (snapshot.feature && hive::automation::can_handoff(*snapshot.feature)) {
@@ -706,6 +706,10 @@ public:
                 if (status.state!=hive::RunState::running) { status_page_->clear_activity(); seen_observation_errors_.clear(); }
             }
             for (const auto& event:session_.take_activity_events()) {
+                // Keep one original game frame for diagnosing failures that a
+                // resized Discord JPEG cannot reproduce. No desktop recapture.
+                if (event.status.kind==hive::ActivityKind::failure && event.frame)
+                    hive::app::save_failure_frame(QDir(data).filePath("last-action-failure.png"),event.frame,q(event.status.text()));
                 const auto& reporting=discord_->settings();
                 const bool photo=event.image_region.has_value() || (event.status.kind==hive::ActivityKind::failure && reporting.errors && reporting.error_screenshots);
                 status_page_->event(event.status,reporting.enabled && photo?hive::app::game_image(event.frame,event.image_region):QImage{});
