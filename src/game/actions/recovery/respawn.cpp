@@ -88,6 +88,7 @@ class Respawn final : public Program {
     RespawnCompletion completion_;
     bool issued_{};
     bool retried_{};
+    unsigned shortcut_{};
     unsigned key_retries_{};
     std::optional<game::RespawnScreen> requested_from_;
     Step complete(const View& view,bool confirmed) {
@@ -99,7 +100,7 @@ class Respawn final : public Program {
     Step retry(Time now,std::string reason) {
         if (retried_) throw ClientRejoinRequired("Reset could not be verified after retrying; rejoining Bee Swarm");
         retried_=true; stage_=Stage::locate; started_=minimum_=now; transition_=Time(-1);
-        requested_from_.reset(); key_retries_=0; completion_=RespawnCompletion{};
+        requested_from_.reset(); key_retries_=0; shortcut_=0; completion_=RespawnCompletion{};
         return ReportActivity{{"Retrying reset",std::move(reason)}};
     }
 public:
@@ -109,7 +110,9 @@ public:
         if (result_) *result_={};
     }
     RunConfig config() const override { return {Time(50000),28,{},true,true}; }
-    std::vector<Rect> text_regions() const override { return {game::hive_proximity_prompt().region}; }
+    std::vector<Rect> text_regions() const override {
+        return shortcut_<3?std::vector<Rect>{}:std::vector<Rect>{game::hive_proximity_prompt().region};
+    }
     bool expects_respawn() const noexcept override { return stage_!=Stage::done; }
     Step next(const View& view) override {
         const auto& c=view.context;
@@ -119,9 +122,26 @@ public:
         if (stage_==Stage::locate) completion_.begin(c.now);
         completion_.observe_origin(view);
         if (stage_==Stage::done) return Done{"Respawn finished; confirming the hive"};
-        if (stage_==Stage::locate && view.observations && view.observations->alive.has_value(c,Time(2000),minimum_)
+        if (shortcut_<3 && view.observations && view.observations->alive.has_value(c,Time(2000))
             && !view.observations->alive.value) {
-            stage_=Stage::transition; started_=c.now; transition_=view.observations->alive.captured;
+            stage_=Stage::transition; shortcut_=3; started_=c.now; transition_=view.observations->alive.captured;
+        }
+        // The first attempt is the normal keyboard shortcut. Do not wait for
+        // captures or button recognition between its fast taps. Observation
+        // below is for completion and for retrying a screen left open by lag.
+        if (shortcut_<3) {
+            issued_=true;
+            switch (shortcut_++) {
+            case 0:
+                stage_=Stage::select; requested_from_=game::RespawnScreen::game;
+                return TapMenuKey{Key::game_menu,"Open game menu"};
+            case 1:
+                stage_=Stage::confirm; requested_from_=game::RespawnScreen::menu;
+                return TapMenuKey{Key::respawn,"Select respawn"};
+            default:
+                stage_=Stage::transition; transition_=c.now; requested_from_=game::RespawnScreen::confirmation;
+                return TapMenuKey{Key::confirm,"Confirm respawn"};
+            }
         }
         const auto reading=source_->read(c);
         const bool fresh=reading.has_value(c,Time(2000),minimum_);
@@ -141,6 +161,8 @@ public:
             if (completion_.ready(view,reading,minimum_,transition_)) {
                 return complete(view,true);
             }
+            if (!completion_.transitioned() && !fresh && c.now-minimum_>=Time(8000))
+                throw ClientRejoinRequired("No fresh reset-menu view was available after the shortcut");
             if (!completion_.transitioned() && live && fresh && reading.value.screen==game::RespawnScreen::game
                 && c.now-transition_>=Time(8000)) {
                 // A reset at the unclaimed spawn platform has no hive prompt
@@ -163,21 +185,11 @@ public:
                 throw ClientRejoinRequired("Respawn confirmation did not respond");
             throw ClientRejoinRequired("Respawn menu could not be confirmed");
         }
-        // Origin evidence is optional and can finish processing after Escape.
-        // Do not delay opening the menu just to obtain that extra evidence.
-        if (!fresh) {
-            if (stage_==Stage::locate && view.observations
-                && ((view.observations->game_hud.has_value(c,Time(2000),minimum_) && view.observations->game_hud.value)
-                    || view.observations->text.has_value(c,Time(2000),minimum_))) {
-                stage_=Stage::select; issued_=true; requested_from_=game::RespawnScreen::game;
-                return TapMenuKey{Key::game_menu,"Open game menu"};
-            }
-            return Wait{Time(50),"Waiting for respawn menu"};
-        }
+        if (!fresh) return Wait{Time(50),"Waiting for respawn menu"};
         const auto screen=reading.value.screen;
         // The HUD can show through a menu animation. Do not toggle Escape
         // again while waiting for the menu or confirmation to finish opening.
-        if (screen==game::RespawnScreen::game && stage_!=Stage::locate)
+        if (screen==game::RespawnScreen::game)
             return Wait{Time(50),"Waiting for respawn controls"};
         // R and Enter may be retried while their own controls remain visible.
         if (requested_from_==screen && c.now-minimum_<Time(750))
@@ -198,8 +210,7 @@ public:
             stage_=Stage::confirm; issued_=true;
             return TapMenuKey{Key::respawn,"Select respawn",press};
         }
-        stage_=Stage::select; issued_=true;
-        return TapMenuKey{Key::game_menu,"Open game menu"};
+        return Wait{Time(50),"Waiting for respawn controls"};
     }
     void step_completed(const View& view) override {
         if (!issued_) return;
