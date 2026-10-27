@@ -153,6 +153,8 @@ HudFeatures HudInspector::inspect(const Frame& frame,std::uint64_t generation,bo
     if (menus) {
         if (!result.resources) result.resources=resource_hud_regions(frame);
         result.open_menu=read_open_menu(frame,result,generation);
+        if (result.open_menu.knowledge==Knowledge::absent)
+            for (auto& menu:result.menus) if (menu.selected==true) menu.selected=false;
     }
     return result;
 }

@@ -27,6 +27,7 @@ bool sidebar_visible(const Frame& frame) {
     // Scroll panels share a straight, solid rail beside their content. Measure
     // that rail rather than requiring readable text or a visible toggle icon.
     const int step=std::max(1,frame.width/640);
+    const int edge_distance=std::max(2,int(std::round(frame.height*.012)));
     const auto color=[&](int x,int y) {
         const auto i=(std::size_t(y)*frame.width+x)*4;
         return std::array<int,3>{frame.rgba[i],frame.rgba[i+1],frame.rgba[i+2]};
@@ -37,17 +38,24 @@ bool sidebar_visible(const Frame& frame) {
     };
     // Keep every column: the rail can be a single pixel after UI scaling.
     for (int x=int(frame.width*.08);x<frame.width*.45;++x) {
-        int start=0,missed=0,matched=0; auto reference=color(x,0);
+        int start=0,missed=0,matched=0,left_edges=0,right_edges=0; auto reference=color(x,0);
         for (int y=step;y<frame.height;y+=step) {
             const auto c=color(x,y);
             if (!rail(c) || !rail(reference) || std::abs(c[0]-reference[0])>18
                 || std::abs(c[1]-reference[1])>18 || std::abs(c[2]-reference[2])>18) {
                 missed+=step;
-                if (missed>frame.height*.015) { start=y; reference=c; missed=matched=0; }
+                if (missed>frame.height*.015) { start=y; reference=c; missed=matched=left_edges=right_edges=0; }
             } else {
                 missed=0; matched+=step;
+                // Broad gray platforms can resemble the rail's color. A real
+                // sidebar also has a nearby, consistently vertical edge.
+                const auto edge=[&](int neighbor) {
+                    const auto other=color(std::clamp(neighbor,0,frame.width-1),y);
+                    return std::max({std::abs(c[0]-other[0]),std::abs(c[1]-other[1]),std::abs(c[2]-other[2])})>=30;
+                };
+                left_edges+=edge(x-edge_distance)*step; right_edges+=edge(x+edge_distance)*step;
                 if (start<frame.height*.4 && y>frame.height*.65 && y-start>frame.height*.45
-                    && matched>=(y-start)*.8) return true;
+                    && matched>=(y-start)*.8 && std::max(left_edges,right_edges)>=matched*.65) return true;
             }
         }
     }
@@ -59,17 +67,21 @@ Reading<Point> read_open_menu(const Frame& frame,const HudFeatures& hud,std::uin
     if (!frame.valid() || !frame.window.id || !generation) return result;
     // Seeing the game underneath Roblox's own menu does not make its controls
     // available. Use the reset workflow's reader for this distinction too.
-    if (game_hud_visible(hud) && read_respawn_menu(frame,generation).knowledge!=Knowledge::absent) return result;
+    const bool game=game_hud_visible(hud);
+    if (game && read_respawn_menu(frame,generation).knowledge!=Knowledge::absent) return result;
+    const bool controls_closed=hud.menus.size()==3 && std::all_of(hud.menus.begin(),hud.menus.end(),
+        [](const auto& control) { return control.selected==false; });
+    if (controls_closed) { result.knowledge=Knowledge::absent; return result; }
+    // These icons are translucent: bright scenery can make an unselected
+    // icon look white. Require the actual panel before acting on that color.
+    const bool panel=sidebar_visible(frame);
+    if (game && !panel) { result.knowledge=Knowledge::absent; return result; }
     for (const auto& control:hud.menus) if (control.selected==true) {
         if (result.knowledge==Knowledge::present) return {Knowledge::unknown,{},frame.captured,frame.window,generation};
         result.knowledge=Knowledge::present; result.value=control.center();
     }
     if (result.knowledge==Knowledge::present) return result;
-    // A readable game with no sidebar does not require all three icons to be
-    // visible. A panel with an obscured toggle stays unknown, never closed.
-    const bool controls_closed=hud.menus.size()==3 && std::all_of(hud.menus.begin(),hud.menus.end(),
-        [](const auto& control) { return control.selected==false; });
-    if (controls_closed || (game_hud_visible(hud) && !sidebar_visible(frame))) result.knowledge=Knowledge::absent;
+    // A panel with an obscured toggle stays unknown, never closed.
     return result;
 }
 Point pointer_rest(const ObservationContext& c,const State& state) {
