@@ -1,18 +1,37 @@
 #include "plan.hpp"
 #include "chat.hpp"
+#include "game/actions/field/shift_lock.hpp"
+#include "game/actions/hive/hive_setup.hpp"
 #include "game/detection/vicious.hpp"
 #include "modules/shared/movement.hpp"
 #include "game/data/fields.hpp"
+#include <array>
 
 namespace hive::features::combat {
 namespace {
 class Hunt final : public automation::Program {
-    enum class Phase { travel,search,result,home,prepare,aligned };
+    enum class Phase { choose,route,scan,travel,unlock,camera,search,result,home,prepare,aligned };
     Enemy enemy_;
     double speed_;
     automation::ProgramFactory prepare_,home_;
     std::shared_ptr<const movement::Recipes> movement_;
-    Phase phase_{Phase::travel};
+    Phase phase_{Phase::choose};
+    std::vector<movement::Step> route_;
+    std::size_t route_step_{};
+    unsigned segment_{},empty_views_{},candidate_views_{};
+    bool circuit_used_{},field_entry_{},view_changed_{};
+    Time scan_after_{},scan_frame_{Time(-1)};
+    std::optional<Point> candidate_;
+    static constexpr std::array<std::string_view,5> circuit{"pepper","mountaintop","spider","cactus","rose"};
+    void load_route(std::string from,unsigned slot=0) {
+        route_=movement_->sequence("vicious-scout",{{"from",std::move(from)},{"slot",int(slot)}},speed_);
+        route_step_=0;phase_=Phase::route;
+    }
+    void next_segment() {
+        if (segment_==circuit.size()) { field_entry_=false;phase_=remaining_.empty()?Phase::result:Phase::home;return; }
+        const auto from=segment_?std::string(circuit[segment_-1]):"spawn";
+        field_=circuit[segment_++];load_route(from);
+    }
     std::vector<std::string> remaining_;
     std::string field_,reported_;
     Time reported_at_{Time(-1)};
@@ -25,7 +44,7 @@ class Hunt final : public automation::Program {
         if (reported_at_>=Time{} && view.context.now-reported_at_<=Time(30000)) preferred=reported_;
         auto found=std::find(remaining_.begin(),remaining_.end(),preferred);
         if (found==remaining_.end()) found=remaining_.begin();
-        field_=*found; remaining_.erase(found); retries_=0;
+        field_=*found; retries_=0;
     }
 public:
     Hunt(Enemy enemy,double speed,automation::ProgramFactory prepare,automation::ProgramFactory home,movement::Source source)
@@ -40,7 +59,7 @@ public:
     ActivityStatus activity_status() const override {
         if (phase_==Phase::result || phase_==Phase::home || phase_==Phase::prepare || phase_==Phase::aligned) return {};
         const auto field=game::field_at(field_+".entry");
-        return {phase_==Phase::search?"Travelling":"Searching",enemy_.species+(field?" · "+field->name:"")};
+        return {phase_==Phase::route || phase_==Phase::unlock?"Travelling":"Searching",enemy_.species+(field?" · "+field->name:"")};
     }
     void observe(const automation::View& view) override {
         if (enemy_.vicious) {
@@ -61,15 +80,16 @@ public:
                 reported_=activity.field; reported_at_=seen->visible.captured;
             }
     }
-    void step_completed(const automation::View&) override {
+    void step_completed(const automation::View& view) override {
         if (chat_opening_) { chat_opening_=false; chat_ready_=true; }
+        if (view_changed_) { scan_after_=view.context.now+Time(150);view_changed_=false; }
     }
     automation::ProgramFactory recovery(automation::Interruption reason,const automation::View& view) override {
         if (reason==automation::Interruption::disconnected || reason==automation::Interruption::client_rejoin
             || field_.empty() || retries_>=2 || (began_ && view.context.now-*began_>=std::chrono::minutes(5))) return {};
         const auto progress=enemy_.progress->read();
         if (progress.defeated || progress.unavailable || defeat_seen_) { phase_=Phase::result; return home_; }
-        ++retries_; retrying_=true; phase_=Phase::prepare;
+        ++retries_; retrying_=true; circuit_used_=true; field_entry_=true; phase_=Phase::prepare;
         return home_;
     }
     automation::Step next(const automation::View& view) override {
@@ -87,29 +107,98 @@ public:
             chat_opening_=true;
             return RunProgram{show_chat};
         }
-        if (enemy_.vicious && phase_==Phase::travel
+        if (enemy_.vicious && phase_==Phase::choose
             && !game::read_vicious(*enemy_.vicious,view.context).has_value(view.context,Time(2000))) {
             if (view.context.now-*began_>=Time(5000)) throw ObservationUnavailable("Combat notifications could not be captured");
             return Wait{Time(100),"Preparing combat notifications"};
         }
         const bool expired=view.context.now-*began_>=std::chrono::minutes(5);
         if (phase_==Phase::result) {
+            std::erase(remaining_,field_);
             if (remaining_.empty() || expired) {
                 enemy_.progress->finish(false,std::chrono::minutes(10));
                 return Done{expired?"Vicious Bee search time limit reached":"No Vicious Bee in the selected fields"};
             }
-            phase_=Phase::home; return RunProgram{home_};
+            phase_=Phase::home;
         }
-        if (phase_==Phase::home) phase_=Phase::prepare;
+        if (phase_==Phase::home) { phase_=Phase::prepare;return RunProgram{home_}; }
         if (phase_==Phase::prepare) {
-            if (!retrying_) choose(view);
-            retrying_=false; phase_=Phase::aligned; return RunProgram{prepare_};
+            if (!retrying_ && !field_entry_) choose(view);
+            retrying_=false;field_entry_=true;phase_=Phase::aligned;return RunProgram{prepare_};
         }
-        if (phase_==Phase::aligned) phase_=Phase::travel;
+        if (phase_==Phase::aligned) phase_=Phase::choose;
+        if (phase_==Phase::choose) {
+            if (expired) { enemy_.progress->finish(false,std::chrono::minutes(10));return Done{"Vicious Bee search time limit reached"}; }
+            if (!circuit_used_ && enemy_.vicious && enemy_.scout_route && enemy_.scout_hive
+                && std::any_of(circuit.begin(),circuit.end(),[&](auto field) {return std::find(remaining_.begin(),remaining_.end(),field)!=remaining_.end();})) {
+                const auto hive=enemy_.scout_hive->read(view.context,view.observations);
+                if (hive && hive->claimed_slot && hive->camera_prepared) {
+                    circuit_used_=true;segment_=0;load_route("hive",*hive->claimed_slot);
+                } else throw ObservationUnavailable("Vicious Bee scout route needs the prepared hive position");
+            } else phase_=Phase::travel;
+        }
+        if (phase_==Phase::route) {
+            if (route_step_<route_.size()) {
+                auto& step=route_[route_step_];
+                if (const auto* lock=std::get_if<movement::ShiftLock>(&step)) {
+                    ++route_step_;view_changed_=true;return RunProgram{[enabled=lock->enabled] { return set_shift_lock(enabled); }};
+                }
+                if (const auto* marker=std::get_if<movement::Marker>(&step)) {
+                    if (marker->name!="cannon" || !enemy_.scout_transport) throw ObservationUnavailable("Vicious Bee scout cannon is unavailable");
+                    const auto prompt=enemy_.scout_transport->read(view.context);
+                    if (!prompt.has_value(view.context,Time(1000),scan_after_) || !prompt.value) {
+                        if (view.context.now-scan_after_>Time(3000)) throw ObservationUnavailable("Vicious Bee scout cannon was not reached");
+                        return Wait{Time(50),"Checking the scout cannon"};
+                    }
+                    ++route_step_;view_changed_=true;return Hold{{Key::interact},Time(100)};
+                }
+                ++route_step_;view_changed_=true;return FollowPath{std::get<workflows::CheckpointPlan>(step)};
+            }
+            if (!segment_ || std::find(remaining_.begin(),remaining_.end(),field_)==remaining_.end()) {
+                next_segment();return Wait{Time(1),"Moving to the next field view"};
+            }
+            phase_=Phase::scan;scan_frame_=Time(-1);empty_views_=candidate_views_=0;candidate_.reset();
+        }
+        if (phase_==Phase::scan) {
+            const auto reading=game::read_vicious(*enemy_.vicious,view.context);
+            if (!reading.has_value(view.context,Time(1000),scan_after_) || !reading.value.world_visible || reading.captured<=scan_frame_) {
+                if (view.context.now-scan_after_>Time(5000)) throw ObservationUnavailable("Vicious Bee field view was unavailable");
+                return Wait{Time(50),"Checking the field view"};
+            }
+            scan_frame_=reading.captured;
+            const game::ViciousCandidate* found=nullptr;
+            for (const auto& hit:reading.value.candidates) if (hit.center.x>=.5 && hit.center.y<=.57) {
+                if (!found || (candidate_ && std::hypot(hit.center.x-candidate_->x,hit.center.y-candidate_->y)
+                    <std::hypot(found->center.x-candidate_->x,found->center.y-candidate_->y))) found=&hit;
+            }
+            if (reading.value.visible) candidate_views_=2;
+            else if (found) {
+                candidate_views_=candidate_ && std::hypot(found->center.x-candidate_->x,found->center.y-candidate_->y)<.025?candidate_views_+1:1;
+                candidate_=found->center;empty_views_=0;
+            } else { ++empty_views_;candidate_views_=0;candidate_.reset(); }
+            if (candidate_views_>=2) { field_entry_=true;phase_=Phase::home;return ReportActivity{{"Vicious Bee candidate",field_}}; }
+            if (empty_views_>=2) {
+                std::erase(remaining_,field_);
+                if (remaining_.empty()) {phase_=Phase::result;return next(view);}
+                next_segment();return Wait{Time(1),"Field view checked"};
+            }
+            if (view.context.now-scan_after_>Time(2000)) {
+                // Ambiguous colour evidence gets an in-field check, not a false clear.
+                field_entry_=true;phase_=Phase::home;return Wait{Time(1),"Checking a possible Vicious Bee"};
+            }
+            return Wait{Time(50),"Confirming the field view"};
+        }
         if (phase_==Phase::travel) {
-            if (expired) { enemy_.progress->finish(false,std::chrono::minutes(10)); return Done{"Vicious Bee search time limit reached"}; }
-            travelled_=view.context.now; phase_=Phase::search; return Navigate{field_+".entry"};
+            field_entry_=false;travelled_=view.context.now;phase_=enemy_.vicious?Phase::unlock:Phase::search;
+            return Navigate{field_+".entry"};
         }
+        if (phase_==Phase::unlock) { phase_=Phase::camera;return RunProgram{[] {return set_shift_lock(false);}}; }
+        if (phase_==Phase::camera) {
+            phase_=Phase::search;view_changed_=true;
+            auto camera=game::pitch_limit(Key::pitch_up);camera.press=Time(100);
+            return MoveCamera{camera};
+        }
+        if (enemy_.vicious && view.context.now<scan_after_) return Wait{Time(50),"Settling the search view"};
         auto encounter_enemy=enemy_;
         encounter_enemy.scheduled={}; encounter_enemy.field=field_;
         if (!enemy_.vicious) encounter_enemy.requested_field=[source=enemy_.observations,remaining=remaining_,requested=enemy_.requested_field](const ObservationContext& context) {
@@ -118,7 +207,8 @@ public:
                 for (const auto& activity:seen->activity) if (activity.name=="Vicious Bee") field=activity.field;
             return std::find(remaining.begin(),remaining.end(),field)!=remaining.end()?field:std::string{};
         };
-        encounter_enemy.search=movement_walks(*movement_,"vicious-search",{{"field",field_}},true);
+        encounter_enemy.visual_search=bool(enemy_.vicious);
+        if (!enemy_.vicious) encounter_enemy.search=movement_walks(*movement_,"vicious-search",{{"field",field_}},true);
         phase_=Phase::result;
         return RunProgram{[enemy=std::move(encounter_enemy),speed=speed_,entered=travelled_] { return encounter(enemy,speed,entered); }};
     }

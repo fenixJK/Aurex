@@ -70,7 +70,7 @@ Plan catalog_plan() {
     enemy.boss=true; enemy.selected_by_default=false; enemy.inspect_when_unknown=true;
     enemy.cooldown=std::chrono::minutes(20); enemy.respawn_reduction=false;
     enemy.fight.duration=Time(300000);
-    enemy.hunt_fields={"pepper","mountaintop","rose","cactus","spider","clover"};
+    enemy.hunt_fields={"pepper","mountaintop","spider","cactus","rose","clover"};
     plan.enemies.push_back(std::move(enemy));
     return plan;
 }
@@ -86,6 +86,11 @@ Plan walking_plan(const workflows::RouteCatalog& routes,double speed,std::shared
             std::erase_if(enemy.hunt_fields,[&](const auto& field) { return !routes.network().contains(field+".entry"); });
             if (enemy.hunt_fields.empty()) return true;
             enemy.scheduled=game::during_night(daylight); enemy.departure=return_to_hive;
+            enemy.scout_hive=returns.hive;enemy.scout_transport=returns.transport_prompt;
+            enemy.scout_route=returns.access.cannon && bool(returns.transport_prompt)
+                && routes.network().contains("pepper.entry") && routes.network().contains("mountaintop.entry")
+                && routes.network().contains("spider.entry") && routes.network().contains("cactus.entry")
+                && routes.network().contains("rose.entry");
         } else {
             if (!routes.network().contains(enemy.destination) || !routes.network().contains(*plan.finish_at)) return true;
             bool outbound=false,inbound=false;

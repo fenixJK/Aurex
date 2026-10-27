@@ -3,6 +3,7 @@ add_library(hive_game
   detection/respawn.cpp
   detection/enemies.cpp
   detection/vicious.cpp
+  detection/vicious_candidates.cpp
   data/fields.cpp
   detection/nectar.cpp
   detection/dialog.cpp

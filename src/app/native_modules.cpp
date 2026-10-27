@@ -134,7 +134,7 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
         modules.combat.plan=features::combat::walking_plan(*routes,*speed,enemies,return_to_hive,returns,modules.collection.daylight);
         for (auto& enemy:modules.combat.plan.enemies) if (enemy.species=="Vicious Bee" && modules.combat.vicious) {
             enemy.vicious=modules.combat.vicious;
-            // The fast search follows the established field order without waking OCR.
+            // Scouting and combat use shared pixel evidence without waking enemy OCR.
             enemy.requested_field={};
         }
         modules.combat.plan.setup=service.plan.hive_setup;

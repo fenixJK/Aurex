@@ -2,6 +2,7 @@
 #include "vicious_glyphs.hpp"
 #include "vicious_masks.hpp"
 #include "bar_regions.hpp"
+#include "perception.hpp"
 #include <algorithm>
 #include <opencv2/imgproc.hpp>
 
@@ -168,6 +169,8 @@ public:
         // A nameplate is current local evidence even if activation happened before
         // entering the field. A toast must arrive after baseline, on distinct frames.
         events.visible=local.visible && local_.visible && f.captured>previous_.captured;
+        events.world_visible=game_hud_visible(f,input.generation);
+        events.candidates=events.world_visible?vicious_candidates(f):std::vector<ViciousCandidate>{};
         if(local.toast && local_.toast && !toast_seen_ && f.captured>previous_.captured) {
             if(!events.defeated) events.defeated=f.captured;
             toast_seen_=true;

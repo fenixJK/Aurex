@@ -3,6 +3,7 @@ add_library(hive_combat
   catalog.cpp
   encounter.cpp
   hunt.cpp
+  visual_search.cpp
   progress.cpp
   preparation.cpp)
 target_link_libraries(hive_combat PUBLIC hive_automation)
