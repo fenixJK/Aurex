@@ -128,9 +128,14 @@ public:
         const auto reading=source_->read();
         if (!reading || !reading->error.empty()) return {};
         const auto packet=std::dynamic_pointer_cast<const Packet>(reading->value);
-        if (!packet || packet->view.captured!=reading->context.now || !packet->view.has_value(context,Time(2000))
+        if (!packet || packet->view.captured!=reading->context.now
             || packet->view.window.id!=reading->context.window.id || packet->view.window.process!=reading->context.window.process
             || packet->view.window.bounds!=reading->context.window.bounds || packet->view.generation!=reading->context.generation) return {};
+        // Preserve the capture stamp even when its contents are unrecognized.
+        // Callers still need has_value() to act, but can distinguish failed
+        // recognition from a capture that never arrived or became stale.
+        const Observation<bool> captured{Knowledge::present,true,packet->view.captured,packet->view.window,packet->view.generation};
+        if (!captured.has_value(context,Time(2000))) return {};
         return packet->view;
     }
 };

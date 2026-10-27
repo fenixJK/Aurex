@@ -3,6 +3,14 @@
 
 namespace hive::automation {
 namespace {
+std::string unreadable_respawn(const Observation<game::RespawnView>& reading,const View& view,Time minimum) {
+    const Observation<bool> captured{Knowledge::present,true,reading.captured,reading.window,reading.generation};
+    if (captured.has_value(view.context,Time(2000),minimum+Time(1)))
+        return "Respawn controls were not recognized in the latest capture";
+    if (view.observations && !view.observations->observation_error.empty())
+        return "Respawn observation failed: "+view.observations->observation_error;
+    return "No fresh respawn view arrived after the shortcut";
+}
 class RespawnCompletion {
     bool transitioned_{},away_from_hive_{},origin_known_{};
     Time last_dead_{Time(-1)},origin_before_{Time(-1)};
@@ -90,7 +98,6 @@ class Respawn final : public Program {
     bool retried_{};
     unsigned shortcut_{};
     unsigned key_retries_{};
-    unsigned unobserved_confirmation_retries_{};
     std::optional<game::RespawnScreen> requested_from_;
     Step complete(const View& view,bool confirmed) {
         if (result_) result_->transition={Knowledge::present,confirmed,view.context.now,
@@ -101,8 +108,7 @@ class Respawn final : public Program {
     Step retry(Time now,std::string reason) {
         if (retried_) throw ClientRejoinRequired("Reset could not be verified after retrying; rejoining Bee Swarm");
         retried_=true; stage_=Stage::locate; started_=minimum_=now; transition_=Time(-1);
-        requested_from_.reset(); key_retries_=0; unobserved_confirmation_retries_=0;
-        shortcut_=0; completion_=RespawnCompletion{};
+        requested_from_.reset(); key_retries_=0; shortcut_=0; completion_=RespawnCompletion{};
         return ReportActivity{{"Retrying reset",std::move(reason)}};
     }
 public:
@@ -146,7 +152,7 @@ public:
             }
         }
         const auto reading=source_->read(c);
-        const bool fresh=reading.has_value(c,Time(2000),minimum_);
+        const bool fresh=reading.has_value(c,Time(2000),minimum_+Time(1));
         const auto* state=view.observations;
         const bool live=state && state->alive.has_value(c,Time(2000),minimum_) && state->alive.value
             && state->game_hud.has_value(c,Time(2000),minimum_) && state->game_hud.value
@@ -163,23 +169,8 @@ public:
             if (completion_.ready(view,reading,minimum_,transition_)) {
                 return complete(view,true);
             }
-            if (!completion_.transitioned() && !fresh) {
-                if (c.now-started_>=Time(8000))
-                    throw ClientRejoinRequired("Reset confirmation remained unreadable");
-                // Lag can drop Enter and delay the capture that would normally
-                // trigger a retry. Finish only the pending confirmation twice;
-                // never replay Escape/R blindly or accept this as a reset.
-                const bool interrupted=state &&
-                    ((state->connection.has_value(c,Time(2000)) && state->connection.value==game::Connection::disconnected)
-                    || (state->client_home.has_value(c,Time(2000)) && state->client_home.value));
-                if (!interrupted && requested_from_==game::RespawnScreen::confirmation
-                    && unobserved_confirmation_retries_<2 && c.now-minimum_>=Time(750)) {
-                    ++unobserved_confirmation_retries_;
-                    key_retries_=std::min(key_retries_+1,2u);
-                    issued_=true;
-                    return TapMenuKey{Key::confirm,"Retrying respawn confirmation",Time(50*key_retries_)};
-                }
-            }
+            if (!completion_.transitioned() && !fresh && c.now-started_>=Time(8000))
+                throw ClientRejoinRequired(unreadable_respawn(reading,view,minimum_));
             if (!completion_.transitioned() && live && fresh && reading.value.screen==game::RespawnScreen::game
                 && c.now-transition_>=Time(8000)) {
                 // A reset at the unclaimed spawn platform has no hive prompt
@@ -194,8 +185,7 @@ public:
         if (c.now-started_>=Time(8000)) {
             if ((stage_==Stage::select || stage_==Stage::confirm) && live && fresh && reading.value.screen==game::RespawnScreen::game)
                 return retry(c.now,"Respawn controls did not appear after the shortcut");
-            if (!fresh) throw ClientRejoinRequired("No fresh reset-menu view was available"+
-                (state && !state->observation_error.empty()?": "+state->observation_error:std::string{}));
+            if (!fresh) throw ClientRejoinRequired(unreadable_respawn(reading,view,minimum_));
             if (reading.value.screen==game::RespawnScreen::menu)
                 throw ClientRejoinRequired("Respawn shortcut did not open the confirmation");
             if (reading.value.screen==game::RespawnScreen::confirmation)
@@ -208,9 +198,9 @@ public:
         // again while waiting for the menu or confirmation to finish opening.
         if (screen==game::RespawnScreen::game)
             return Wait{Time(50),"Waiting for respawn controls"};
-        // R and Enter may be retried while their own controls remain visible.
-        if (requested_from_==screen && c.now-minimum_<Time(750))
-            return Wait{Time(50),"Waiting for respawn menu response"};
+        // Retry only from a capture taken after the previous key completed.
+        // The new frame determines whether R or Enter is still needed; no
+        // additional delay is necessary once its page is visibly still open.
         // Keep the first press instantaneous. Only a control that remains
         // visible after a missed input gets a longer press, capped at 100 ms.
         key_retries_=requested_from_==screen?std::min(key_retries_+1,2u):0;
