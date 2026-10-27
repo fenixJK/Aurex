@@ -10,7 +10,7 @@
 namespace hive::features::combat {
 namespace {
 class Hunt final : public automation::Program {
-    enum class Phase { choose,route,scan,travel,unlock,camera,search,result,home,prepare,aligned };
+    enum class Phase { choose,route,scan,travel,search,result,home,prepare,aligned };
     Enemy enemy_;
     double speed_;
     automation::ProgramFactory prepare_,home_;
@@ -59,7 +59,7 @@ public:
     ActivityStatus activity_status() const override {
         if (phase_==Phase::result || phase_==Phase::home || phase_==Phase::prepare || phase_==Phase::aligned) return {};
         const auto field=game::field_at(field_+".entry");
-        return {phase_==Phase::route || phase_==Phase::unlock?"Travelling":"Searching",enemy_.species+(field?" · "+field->name:"")};
+        return {phase_==Phase::route?"Travelling":"Searching",enemy_.species+(field?" · "+field->name:"")};
     }
     void observe(const automation::View& view) override {
         if (enemy_.vicious) {
@@ -189,16 +189,9 @@ public:
             return Wait{Time(50),"Confirming the field view"};
         }
         if (phase_==Phase::travel) {
-            field_entry_=false;travelled_=view.context.now;phase_=enemy_.vicious?Phase::unlock:Phase::search;
+            field_entry_=false;travelled_=view.context.now;phase_=Phase::search;
             return Navigate{field_+".entry"};
         }
-        if (phase_==Phase::unlock) { phase_=Phase::camera;return RunProgram{[] {return set_shift_lock(false);}}; }
-        if (phase_==Phase::camera) {
-            phase_=Phase::search;view_changed_=true;
-            auto camera=game::pitch_limit(Key::pitch_up);camera.press=Time(100);
-            return MoveCamera{camera};
-        }
-        if (enemy_.vicious && view.context.now<scan_after_) return Wait{Time(50),"Settling the search view"};
         auto encounter_enemy=enemy_;
         encounter_enemy.scheduled={}; encounter_enemy.field=field_;
         if (!enemy_.vicious) encounter_enemy.requested_field=[source=enemy_.observations,remaining=remaining_,requested=enemy_.requested_field](const ObservationContext& context) {
@@ -207,8 +200,9 @@ public:
                 for (const auto& activity:seen->activity) if (activity.name=="Vicious Bee") field=activity.field;
             return std::find(remaining.begin(),remaining.end(),field)!=remaining.end()?field:std::string{};
         };
-        encounter_enemy.visual_search=bool(enemy_.vicious);
-        if (!enemy_.vicious) encounter_enemy.search=movement_walks(*movement_,"vicious-search",{{"field",field_}},true);
+        // Colour sightings identify a field to visit. Use the established field
+        // route to find/activate the bee; palette patches are not reliable targets.
+        encounter_enemy.search=movement_walks(*movement_,"vicious-search",{{"field",field_}},true);
         phase_=Phase::result;
         return RunProgram{[enemy=std::move(encounter_enemy),speed=speed_,entered=travelled_] { return encounter(enemy,speed,entered); }};
     }
