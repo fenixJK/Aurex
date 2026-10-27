@@ -89,7 +89,9 @@ std::shared_ptr<const Actions> desktop_actions(const ExecutionPlan& plan,
     std::map<std::string,PlanterControls> controls;
     for (const auto& item : equipment()) {
         const auto name=item.label+(item.id=="PlanterOfPlenty"?"":" Planter");
-        controls.emplace(item.id,PlanterControls{{name}});
+        std::vector<std::string> names{name};
+        if (item.id=="PlanterOfPlenty") names.push_back("The "+name);
+        controls.emplace(item.id,PlanterControls{std::move(names)});
     }
     const auto search=[source=plan.movement,speed=plan.config.speed] {
         return movement::snapshot(source)->path("planter-search",{},speed).at(0);

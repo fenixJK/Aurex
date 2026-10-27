@@ -97,7 +97,7 @@ class Enemies final : public Detector {
 public:
     std::vector<Rect> text_regions(const Frame& frame,std::uint64_t) const override {
         std::vector<Rect> regions{{.5,.4,.5,.6}};
-        for (const auto& bar:detail::bar_regions(frame,health_pixel)) regions.push_back(detail::label_region(frame,bar,3,0.5));
+        for (const auto& bar:detail::bar_regions(frame,health_pixel,true)) regions.push_back(detail::label_region(frame,bar,3,0.5));
         return regions;
     }
 
@@ -108,7 +108,9 @@ public:
         auto result=std::make_shared<EnemiesDetection>();
         result->visible={Knowledge::present,{},frame.captured,frame.window,input.generation};
         for (const auto* name : names) result->defeats[name]={Knowledge::absent,false,frame.captured,frame.window,input.generation};
-        static const std::regex label(R"(^(?:gifted )?(ladybug|rhino beetle|mantis|spider|scorpion|werewolf|vicious bee|mondo chick|king beetle|tunnel bear|coconut crab|stump snail|commando chick)(?: l[vuy]l ?([1-9][0-9]?))?$)");
+        // Identify the species at the start of its label. Level text is unused
+        // and must never prevent a name plus its health bar from being recognized.
+        static const std::regex label(R"(^(?:gifted )?(ladybug|rhino beetle|mantis|spider|scorpion|werewolf|vicious bee|mondo chick|king beetle|tunnel bear|coconut crab|stump snail|commando chick)(?: |$))");
         static const std::regex boss_defeat(R"(^(?:gifted )?(vicious bee|mondo chick|king beetle|tunnel bear|coconut crab|stump snail|commando chick) has been defeated$)");
         static const std::regex defeat(R"(^(?:you )?defeated (ladybug|rhino beetle|mantis|spider|scorpion|werewolf|vicious bee|mondo chick|king beetle|tunnel bear|coconut crab|stump snail|commando chick)(?: ([1-9][0-9]{0,7}) battle points?)?$)");
         static const std::regex attacking(R"(^(?:gifted )?vicious bee is attacking .{1,40} in (?:the )?(.+?)(?: field| patch| forest)?$)");
@@ -125,7 +127,13 @@ public:
             }
             const auto text=normalized(line.text);
             std::smatch match;
-            const bool enemy_label=std::regex_match(text,match,label);
+            std::string species;
+            std::optional<HealthBar> health;
+            if (confidence(line,.3f) && box.y>=frame.height*.1 && box.height>=5 && box.height<=frame.height*.12
+                && box.width<=frame.width*.5 && std::regex_search(text,match,label)) {
+                species=match[1];health=health_bar(input,box,budget);
+            }
+            const bool enemy_label=health.has_value();
             if (box.x>=frame.width*.5 && !enemy_label) {
                 auto notice=text;
                 if (confidence(line,.8f) && (text.starts_with("vicious bee ") || text.starts_with("gifted vicious bee "))
@@ -164,12 +172,8 @@ public:
                 }
             }
             if (!budget || (input.cancelled && input.cancelled())) return {};
-            if (!confidence(line,.3f) || box.y<frame.height*.1 || box.height<5 || box.height>frame.height*.12
-                || box.width>frame.width*.5 || !enemy_label) continue;
-            const auto health=health_bar(input,box,budget);
-            if (!budget || (input.cancelled && input.cancelled())) return {};
             if (!health) continue;
-            for (std::size_t i=0;i<names.size();++i) if (const auto* name=names[i]; normalized(name)==match[1]) {
+            for (std::size_t i=0;i<names.size();++i) if (const auto* name=names[i]; normalized(name)==species) {
                 const auto duplicate=std::any_of(result->visible.value.begin(),result->visible.value.end(),[&](const auto& enemy) {
                     return enemy.name==name && std::abs(enemy.health_bar.x-health->bounds.x)<box.height
                         && std::abs(enemy.health_bar.y-health->bounds.y)<box.height;

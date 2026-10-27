@@ -22,14 +22,34 @@ template<class Color> std::vector<Rect> bar_regions(const Frame& frame,Color col
     }
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(mask,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
-    std::vector<Rect> result;
+    std::vector<cv::Rect> boxes;
     for (const auto& contour:contours) {
         const auto b=cv::boundingRect(contour);
+        if (b.height<2 || b.height>frame.height*.08 || b.width<b.height || b.width>frame.width*.6) continue;
+        if (!labelled && cv::contourArea(contour)<b.area()*.65) continue;
+        boxes.push_back(b);
+    }
+    if (labelled) {
+        // HP/growth text can cut a bar into separate colored pieces. Join only
+        // nearby fragments with the same top and height; the caller still has
+        // to recognize the label before treating a candidate as evidence.
+        std::sort(boxes.begin(),boxes.end(),[](auto a,auto b) { return a.x<b.x; });
+        for (std::size_t i=0;i<boxes.size();++i) for (std::size_t j=i+1;j<boxes.size();) {
+            const auto a=boxes[i],b=boxes[j];
+            const int height=std::max(a.height,b.height),gap=b.x-(a.x+a.width);
+            if (gap>frame.height*.24) break;
+            if (gap>height*3) { ++j; continue; }
+            if (gap>=0 && std::abs(a.y-b.y)<=height*.25 && std::abs(a.height-b.height)<=height*.25) {
+                boxes[i]|=b;boxes.erase(boxes.begin()+j);
+            } else ++j;
+        }
+    }
+    std::vector<Rect> result;
+    for (const auto& b:boxes) {
         // Label validation can separate a bar from attached scenery; retain a
         // loose horizontal-shape bound here to exclude compact world objects.
         if (b.width<frame.width*.015 || b.width>frame.width*.6 || b.height<2 || b.height>frame.height*.08
-            || b.width<b.height*(labelled?3:4) || b.width>b.height*65
-            || (!labelled && cv::contourArea(contour)<b.area()*.65)) continue;
+            || b.width<b.height*(labelled?3:4) || b.width>b.height*65) continue;
         result.push_back({double(b.x),double(b.y),double(b.width),double(b.height)});
     }
     return result;
