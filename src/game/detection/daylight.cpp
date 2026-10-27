@@ -12,9 +12,10 @@ public:
         const auto& f=input.frame;
         if (!f.valid() || !input.generation || std::size_t(f.width)*f.height>32000000) return result;
         const auto hud=resource_hud_regions(input);
+        if (!hud) return result;
         const double scale=f.width/f.window.bounds.width;
         unsigned dark=0,blue=0;
-        if (hud) {
+        {
             const int top=std::lround((*hud)[1].y+(*hud)[1].height+42*scale);
             const int size=std::max(12,int(std::lround(20*scale)));
             const int bottom=std::min(f.height/3,top+size*4);
@@ -39,8 +40,10 @@ public:
                 for (int yy=y;yy<y+patch;yy+=2) for (int xx=x;xx<x+patch;xx+=2) {
                     const auto p=(std::size_t(yy)*f.width+xx)*4;
                     const int r=f.rgba[p],g=f.rgba[p+1],b=f.rgba[p+2]; ++count;
-                    night+=r>=12 && r<=31 && g>=64 && g<=80 && b>=23 && b<=38;
-                    day+=r>=30 && r<=85 && g>=105 && g<=175 && b>=42 && b<=100 && g>r*1.8 && g>b*1.5;
+                    night+=r>=12 && r<=45 && g>=58 && g<=88 && b>=20 && b<=50 && g>r*1.4 && g>b*1.4;
+                    // Allow the lighter, less saturated grass in reported views,
+                    // while retaining daylight brightness and green dominance.
+                    day+=r>=30 && r<=125 && g>=105 && g<=190 && b>=42 && b<=120 && g>r*1.3 && g>b*1.3;
                 }
                 night_ground+=night*100>=count*95;
                 day_ground+=day*100>=count*95;

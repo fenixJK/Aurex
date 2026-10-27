@@ -8,14 +8,15 @@
 
 namespace hive::game {
 namespace {
-enum class Ink { light,red,dark };
+enum class Ink { light,red,dark,gold };
 cv::Mat ink(const cv::Mat& rgba,Ink mode) {
     cv::Mat mask(rgba.rows,rgba.cols,CV_8UC1);
     for (int y=0;y<rgba.rows;++y) for (int x=0;x<rgba.cols;++x) {
         const auto p=rgba.at<cv::Vec4b>(y,x); const int r=p[0],g=p[1],b=p[2];
         const auto lo=std::min({r,g,b}),hi=std::max({r,g,b});
         mask.at<unsigned char>(y,x)=(mode==Ink::light?lo>=140 && hi-lo<=70:
-            mode==Ink::red?r>80 && r>g*1.5 && r>b*1.4:hi<135)?255:0;
+            mode==Ink::red?r>80 && r>g*1.5 && r>b*1.4:
+            mode==Ink::gold?r>=125 && g>=105 && r>b+35 && g>b+25:hi<135)?255:0;
     }
     return mask;
 }
@@ -35,6 +36,79 @@ bool label_matches(const cv::Mat& mask,const cv::Mat& label,double low,double hi
     }
     return false;
 }
+std::vector<cv::Mat> words(const cv::Mat& mask) {
+    if (mask.empty() || !cv::countNonZero(mask)) return {};
+    const auto text=mask(cv::boundingRect(mask));
+    std::vector<cv::Mat> result;
+    for (int x=0;x<text.cols;) {
+        if (!cv::countNonZero(text.col(x))) { ++x; continue; }
+        const int begin=x++; int end=x;
+        while (x<text.cols && x-end<std::max(2.,text.rows*.3)) {
+            if (cv::countNonZero(text.col(x))) end=x+1;
+            ++x;
+        }
+        const auto word=text.colRange(begin,end);
+        result.push_back(word(cv::boundingRect(word)).clone());
+    }
+    return result;
+}
+float defeat_score(const cv::Mat& mask) {
+    // Normalize each complete word independently. Resizing a whole sentence
+    // lets small font/spacing differences accumulate over its entire width.
+    static const auto phrase=words(detail::vicious_toast());
+    if (mask.empty() || !cv::countNonZero(mask)) return 0.f;
+    const auto text=mask(cv::boundingRect(mask));
+    std::vector<std::pair<int,int>> spans;
+    for (int x=0;x<text.cols;) {
+        if (!cv::countNonZero(text.col(x))) { ++x;continue; }
+        const int begin=x++;
+        while (x<text.cols && cv::countNonZero(text.col(x))) ++x;
+        spans.emplace_back(begin,x);
+    }
+    if (spans.size()>120) return 0.f;
+    // Font hinting can make an inter-letter gap as wide as a space. Try
+    // bounded adjacent spans instead of assuming one fixed space width.
+    std::vector<float> scores(spans.size()+1,0.f);
+    for (std::size_t k=0;k<phrase.size();++k) {
+        const auto& expected=phrase[k];
+        std::vector<float> next(spans.size()+1,-1.f);
+        const double widest=(double(expected.cols)/expected.rows+.12)*text.rows+3;
+        for (std::size_t begin=0;begin<spans.size();++begin) {
+            if (scores[begin]<0) continue;
+            for (std::size_t end=begin;end<spans.size();++end) {
+                if (spans[end].second-spans[begin].first>widest) break;
+                auto word=text.colRange(spans[begin].first,spans[end].second);
+                word=word(cv::boundingRect(word));
+                if (word.rows<6) cv::resize(word,word,{},2,2,cv::INTER_NEAREST);
+                auto score=detail::similarity(word,expected,.12);
+                // The final verb distinguishes a defeat from other announcements.
+                // Small font hinting needs its own shapes to keep this check strict.
+                if (k==4) for (const auto& label:detail::vicious_defeated())
+                    score=std::max(score,detail::similarity(word,label,.12));
+                const float minimum=k==4?.88f:(k==2 || k==3)?.65f:.68f;
+                if (score>=minimum) next[end+1]=std::max(next[end+1],scores[begin]+score);
+            }
+        }
+        scores=std::move(next);
+    }
+    return *std::max_element(scores.begin(),scores.end())/phrase.size();
+}
+bool defeat_matches(const cv::Mat& mask,bool chat=false) {
+    const auto score=defeat_score(mask);
+    if (score>=.80f) return true;
+    if (!chat || mask.empty() || !cv::countNonZero(mask)) return false;
+    // Chat uses small italic text; remove its slant before comparing the
+    // same five words. Scenery crops do not use this extra pass.
+    const auto text=mask(cv::boundingRect(mask));
+    for (double slant:{.16,.22,.28}) {
+        cv::Mat upright;
+        const cv::Mat transform=(cv::Mat_<double>(2,3)<<1,slant,0,0,1,0);
+        cv::warpAffine(text,upright,transform,{text.cols+int(std::ceil(text.rows*slant)),text.rows},cv::INTER_LINEAR);
+        cv::threshold(upright,upright,127,255,cv::THRESH_BINARY);
+        if (defeat_score(upright)>=.80f) return true;
+    }
+    return false;
+}
 struct LocalEvidence { bool visible{},toast{}; };
 LocalEvidence local_evidence(const Frame& frame) {
     // Only inspect the play area and notification stack. No OCR or other HUD decoding.
@@ -44,7 +118,6 @@ LocalEvidence local_evidence(const Frame& frame) {
         cv::Mat scaled;cv::resize(full,scaled,{1280,int(std::lround(frame.height*1280./frame.width))},0,0,cv::INTER_AREA);
         small.width=scaled.cols;small.height=scaled.rows;small.rgba.assign(scaled.data,scaled.data+scaled.total()*4);
     } else small.rgba=frame.rgba;
-    const cv::Mat pixels(small.height,small.width,CV_8UC4,small.rgba.data());
     const auto world=small.crop({.05,.15,.9,.7});
     const cv::Mat area(world.height,world.width,CV_8UC4,const_cast<std::uint8_t*>(world.rgba.data()));
     auto bars=detail::bar_regions(world,[](const std::uint8_t* p) {
@@ -66,8 +139,12 @@ LocalEvidence local_evidence(const Frame& frame) {
             result.visible=true; break;
         }
     }
-    const cv::Rect stack(int(small.width*.65),int(small.height*.65),small.width-int(small.width*.65),small.height-int(small.height*.65));
-    const auto toast=pixels(stack);
+    // UI text has a fixed size in window points. Scaling the entire scene to
+    // 1280 made notices progressively smaller on wide/Retina windows.
+    const cv::Rect stack(int(frame.width*.55),int(frame.height*.5),frame.width-int(frame.width*.55),frame.height-int(frame.height*.5));
+    cv::Mat toast;
+    const double ui_scale=frame.width/(frame.region.width*frame.window.bounds.width);
+    cv::resize(full(stack),toast,{},1/ui_scale,1/ui_scale,cv::INTER_AREA);
     // A defeat notice has a gold background; blue rewards and death notices do not qualify.
     cv::Mat gold(toast.rows,toast.cols,CV_8UC1);
     for(int y=0;y<toast.rows;++y)for(int x=0;x<toast.cols;++x) {
@@ -78,7 +155,7 @@ LocalEvidence local_evidence(const Frame& frame) {
     for(const auto& contour:contours) {
         const auto box=cv::boundingRect(contour);
         if(box.width<100 || box.height<9 || box.height>45 || box.width<box.height*6)continue;
-        if(label_matches(ink(toast(box),Ink::dark),detail::vicious_toast(),.6,1.8)) {result.toast=true;break;}
+        if(defeat_matches(ink(toast(box),Ink::dark))) {result.toast=true;break;}
     }
     return result;
 }
@@ -121,17 +198,19 @@ std::array<unsigned,2> notifications(const DetectionInput& input) {
         int previous=-100;
         for (const auto y:hits) if (y-previous>12) { ++counts[k]; previous=y; }
     }
-    const auto red=ink(chat,Ink::red);
-    cv::Mat lines;cv::morphologyEx(red,lines,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_RECT,{6,2}));
-    std::vector<std::vector<cv::Point>> contours;cv::findContours(lines,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
-    unsigned announcements=0;
-    for(const auto& contour:contours) {
-        auto box=cv::boundingRect(contour);
-        if(box.width<60 || box.height<5 || box.height>30 || box.width<box.height*6)continue;
-        box=(box+cv::Size(4,4)-cv::Point(2,2))&cv::Rect(0,0,chat.cols,chat.rows);
-        if(label_matches(red(box),detail::vicious_attack(),.6,1.8))++announcements;
+    for (unsigned kind=0;kind<2;++kind) {
+        const auto text=ink(chat,kind?Ink::gold:Ink::red);
+        cv::Mat lines;cv::morphologyEx(text,lines,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_RECT,{kind?16:6,2}));
+        std::vector<std::vector<cv::Point>> contours;cv::findContours(lines,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
+        unsigned announcements=0;
+        for(const auto& contour:contours) {
+            auto box=cv::boundingRect(contour);
+            if(box.width<60 || box.height<5 || box.height>30 || box.width<box.height*6)continue;
+            box=(box+cv::Size(4,4)-cv::Point(2,2))&cv::Rect(0,0,chat.cols,chat.rows);
+            if(kind?defeat_matches(text(box),true):label_matches(text(box),detail::vicious_attack(),.6,1.8))++announcements;
+        }
+        counts[kind]=std::max(counts[kind],announcements);
     }
-    counts[0]=std::max(counts[0],announcements);
     return counts;
 }
 class ViciousDetector final : public Detector {

@@ -60,7 +60,7 @@ std::vector<game::DetectorConfig> game_detectors(std::shared_ptr<game::Inventory
         {"enemies",hive::game::enemy_detector()},
         {"vicious",hive::game::vicious_detector(),hive::Time(100),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::responsive},
         {"memory-board",hive::game::memory_match_detector(),hive::Time(250),hive::game::DetectionMode::pixels},
-        {"daylight",hive::game::daylight_detector(),hive::Time(2000),hive::game::DetectionMode::pixels,true},
+        {"daylight",hive::game::daylight_detector(),hive::Time(250),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::responsive},
         {"item-menu",hive::game::item_menu_detector(),hive::Time(750),hive::game::DetectionMode::text,true},
         {"buff-upkeep",hive::game::buff_detector(),hive::Time(6000),hive::game::DetectionMode::pixels},
         {"field-boosts",hive::game::field_boost_detector(),hive::Time(1000),hive::game::DetectionMode::pixels},

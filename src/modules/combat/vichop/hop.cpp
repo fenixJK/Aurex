@@ -39,14 +39,14 @@ game::RequestBatch Controller::requests() const {
 }
 namespace {
 class ServerVisit final : public automation::Program {
-    enum class Phase { select,joining,night,setup,prepared,hunt,result,complete };
+    enum class Phase { select,joining,night,night_view,setup,prepared,hunt,result,complete };
     Services services_;
     std::shared_ptr<Controller> controller_;
-    Time duration_,since_{},sample_{Time(-1)};
+    Time duration_,since_{},sample_since_{},sample_{Time(-1)};
     std::optional<bool> night_;
     std::optional<std::string> hop_reason_;
     Phase phase_{Phase::select};
-    bool counted_night_{},running_{},needs_setup_{true},kill_counted_{},yield_requested_{};
+    bool counted_night_{},running_{},needs_setup_{true},kill_counted_{},yield_requested_{},sky_checked_{};
     ObservationContext context_;
     void record_kill() {
         if (phase_==Phase::result && !kill_counted_ && services_.enemy.progress->read().defeated) {
@@ -82,7 +82,7 @@ public:
         record_kill();
         if (kill_counted_) { finish_visit(Controller::Result::kill,"Vicious Bee defeated"); return true; }
         needs_setup_=phase_==Phase::joining;
-        phase_=Phase::night; since_=view.context.now; sample_=Time(-1); night_.reset(); return true;
+        phase_=Phase::night; sample_since_=since_=view.context.now; sample_=Time(-1); night_.reset(); sky_checked_=false; return true;
     }
     ActivityStatus activity_status() const override { return (phase_==Phase::result || phase_==Phase::prepared)?ActivityStatus{}:ActivityStatus{"Vic Hop",controller_->read().status}; }
     automation::Step next(const automation::View& view) override {
@@ -107,27 +107,35 @@ public:
                     throw ObservationUnavailable("Vic Hop could not join the requested public server");
                 return Wait{Time(100),"Joining a public server"};
             }
-            phase_=Phase::night; since_=view.context.now;
+            phase_=Phase::night; sample_since_=since_=view.context.now;
         }
         if (phase_==Phase::night) {
             controller_->status("Checking for night");
-            const auto reading=game::read_night(*services_.daylight,view.context,since_);
-            if (reading.has_value(view.context,Time(5000),since_) && reading.captured>sample_) {
+            const auto reading=game::read_night(*services_.daylight,view.context,sample_since_);
+            if (reading.has_value(view.context,Time(2000),sample_since_) && reading.captured>sample_) {
                 if (night_ && *night_==reading.value) {
                     if (!reading.value) { finish_visit(Controller::Result::skipped,"Daytime server skipped"); return Wait{Time(100),"Finding a night server"}; }
                     if (!counted_night_) { controller_->night(); counted_night_=true; }
-                    phase_=needs_setup_?Phase::setup:Phase::hunt;
+                    phase_=(needs_setup_ || sky_checked_)?Phase::setup:Phase::hunt;
                 }
                 night_=reading.value; sample_=reading.captured;
             }
             if (phase_==Phase::night) {
-                if (view.context.now-since_>=Time(15000)) { finish_visit(Controller::Result::skipped,"Night could not be confirmed"); return Wait{Time(100),"Trying another server"}; }
+                // A blocked spawn view will not improve by staring at it.
+                // Only adjust the camera when the initial view is inconclusive;
+                // normal hive setup establishes its own camera after this check.
+                if (!sky_checked_ && (!night_ || view.context.now-sample_>=Time(750)) && view.context.now-since_>=Time(750)) {
+                    sky_checked_=true; phase_=Phase::night_view;
+                    controller_->status("Checking the sky for night");
+                    return MoveCamera{game::pitch_limit(Key::pitch_down)};
+                }
+                if (view.context.now-since_>=Time(5000)) { finish_visit(Controller::Result::skipped,"Night could not be confirmed"); return Wait{Time(100),"Trying another server"}; }
                 return Wait{Time(100),"Checking for night"};
             }
         }
         if (phase_==Phase::setup) {
             controller_->status("Preparing hive on night server"); phase_=Phase::prepared;
-            return RunProgram{services_.joined_setup,true};
+            return RunProgram{needs_setup_?services_.joined_setup:services_.prepare,true};
         }
         if (phase_==Phase::hunt) {
             controller_->status("Searching for Vicious Bee"); phase_=Phase::result;
@@ -139,6 +147,10 @@ public:
     }
     void step_completed(const automation::View& view) override {
         context_=view.context;
+        if (phase_==Phase::night_view) {
+            phase_=Phase::night; sample_since_=view.context.now+Time(1); sample_=Time(-1); night_.reset();
+            return;
+        }
         if ((phase_!=Phase::result && phase_!=Phase::prepared) || !view.completed) return;
         record_kill();
         if (view.completed->state==automation::State::stopped || view.completed->state==automation::State::paused) {
