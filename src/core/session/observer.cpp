@@ -130,10 +130,15 @@ ObservedState Observer::latest(bool request_speed) {
         speed_observation_=result.state.movement_speed;
     } else if (speed_source_) result.state.movement_speed=speed_observation_;
     for (const auto& entry:detectors_) if (entry.observation && wanted(entry,monotonic_now()))
-        if (const auto reading=entry.channel->peek(); reading && !reading->error.empty()) result.error=reading->error;
+        if (const auto reading=entry.channel->peek(); reading && !reading->error.empty()) {
+            result.error=reading->error;
+            result.state.observation_error=reading->error;
+        }
     if (!labels_error_.empty()) result.error=labels_error_;
-    if (!capture_error_.empty()) result.error=capture_error_;
-    result.state.observation_error=result.error;
+    if (!capture_error_.empty()) {
+        result.error=capture_error_;
+        result.state.observation_error=capture_error_;
+    }
     return result;
 }
 void Observer::capture() {
