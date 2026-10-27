@@ -56,7 +56,7 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
         modules.planters.plan={};
         modules.collection.plan={}; modules.collection.availability.reset();
         modules.combat.plan={}; modules.combat.availability.reset();
-        modules.combat.arrival={}; modules.combat.joined_setup={};
+        modules.combat.arrival={}; modules.combat.joined_setup={}; modules.combat.spawn_setup={};
         if (modules.planters.inventory) modules.planters.actions.reset();
         auto routes=automation::live_hive_routes(28,modules.travel_access,modules.movement,true);
         modules.gathering=features::gathering::field_services(routes->network(),28,modules.patterns,modules.screen_reference);
@@ -78,12 +78,17 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
     };
     service.plan.hive_setup=setup(automation::HiveStart::locate);
     modules.combat.arrival=hive.recovery?automation::ProgramFactory([source=hive.recovery] { return automation::wait_for_reconnect(source); }):automation::ProgramFactory{};
-    modules.combat.joined_setup=[movement=modules.movement_setup,hive,speed=*speed] {
-        return automation::prepare_travel(movement,[hive,speed] {
-            auto options=hive.options(speed); options.existing_slot=0; options.confirmed_spawn=true;
-            return automation::acquire_hive(hive.slot_source,hive.spawn,hive.reference,hive.proximity,options);
-        },speed);
+    const auto joined_setup=[movement=modules.movement_setup,hive,speed=*speed](automation::HiveGoal goal) -> automation::ProgramFactory {
+        return [movement,hive,speed,goal] {
+            return automation::prepare_travel(movement,[hive,speed,goal] {
+                auto options=hive.options(speed); options.existing_slot=0; options.confirmed_spawn=true;
+                return automation::acquire_hive(hive.slot_source,hive.spawn,hive.reference,hive.proximity,options,
+                    automation::HiveStart::locate,goal);
+            },speed,goal==automation::HiveGoal::owned_hive);
+        };
     };
+    modules.combat.joined_setup=joined_setup(automation::HiveGoal::owned_hive);
+    modules.combat.spawn_setup=joined_setup(automation::HiveGoal::spawn_direction);
     modules.startup=setup(hive.recovery?automation::HiveStart::reset:automation::HiveStart::locate);
     if (hive.recovery) service.plan.recovery=[hive,speed=*speed] {
         return automation::recover_to_hive(hive.slot_source,hive.spawn,hive.reference,hive.proximity,
@@ -290,6 +295,7 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
         services.movement=plan.movement; services.daylight=modules.collection.daylight;
         services.servers=features::vichop::public_servers();
         services.arrival=modules.combat.arrival; services.joined_setup=modules.combat.joined_setup;
+        services.spawn_setup=modules.combat.spawn_setup;
         auto manifest=features::combat::module_manifest(service.configuration?*service.configuration:service.plan,"hive.native-combat","native-combat",true);
         manifest.name="Combat";
         manifest.settings_version=7;

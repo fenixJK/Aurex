@@ -6,17 +6,18 @@ namespace {
 class Preparation final : public Program {
     ProgramFactory movement_,hive_;
     double speed_;
+    bool convert_backpack_;
     unsigned conversion_retries_{};
     enum class Phase { park,movement,hive,converting,done } phase_{Phase::park};
 public:
-    Preparation(ProgramFactory movement,ProgramFactory hive,double speed)
-        :movement_(std::move(movement)),hive_(std::move(hive)),speed_(speed) {
+    Preparation(ProgramFactory movement,ProgramFactory hive,double speed,bool convert_backpack)
+        :movement_(std::move(movement)),hive_(std::move(hive)),speed_(speed),convert_backpack_(convert_backpack) {
         if (!hive_ || !std::isfinite(speed_) || speed_<8 || speed_>200)
             throw std::invalid_argument("Travel preparation needs hive setup and a valid movement speed");
     }
     RunConfig config() const override { return {std::chrono::minutes(30),speed_,{},true,true}; }
     ActivityStatus activity_status() const override {
-        if (phase_==Phase::converting || phase_==Phase::done) return {"Converting","Backpack"};
+        if (convert_backpack_ && (phase_==Phase::converting || phase_==Phase::done)) return {"Converting","Backpack"};
         return {};
     }
     ProgramFactory recovery(Interruption reason,const View&) override {
@@ -42,12 +43,12 @@ public:
     void step_completed(const View&) override {
         if (phase_==Phase::park) phase_=Phase::movement;
         else if (phase_==Phase::movement) phase_=Phase::hive;
-        else if (phase_==Phase::hive) phase_=Phase::converting;
+        else if (phase_==Phase::hive) phase_=convert_backpack_?Phase::converting:Phase::done;
         else if (phase_==Phase::converting) phase_=Phase::done;
     }
 };
 }
-std::unique_ptr<Program> prepare_travel(ProgramFactory movement,ProgramFactory hive,double speed) {
-    return std::make_unique<Preparation>(std::move(movement),std::move(hive),speed);
+std::unique_ptr<Program> prepare_travel(ProgramFactory movement,ProgramFactory hive,double speed,bool convert_backpack) {
+    return std::make_unique<Preparation>(std::move(movement),std::move(hive),speed,convert_backpack);
 }
 }

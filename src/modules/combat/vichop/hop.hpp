@@ -14,6 +14,7 @@ struct Services {
     std::shared_ptr<ServerDirectory> servers;
     automation::ProgramFactory arrival,joined_setup;
     std::function<void(const ObservationContext&)> confirmed;
+    automation::ProgramFactory spawn_setup;
 };
 struct Snapshot {
     bool active{},joined{};

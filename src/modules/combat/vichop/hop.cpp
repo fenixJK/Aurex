@@ -47,6 +47,7 @@ class ServerVisit final : public automation::Program {
     std::optional<std::string> hop_reason_;
     Phase phase_{Phase::select};
     bool counted_night_{},running_{},needs_setup_{true},kill_counted_{},yield_requested_{},sky_checked_{};
+    bool scout_from_spawn_{};
     ObservationContext context_;
     void record_kill() {
         if (phase_==Phase::result && !kill_counted_ && services_.enemy.progress->read().defeated) {
@@ -82,6 +83,7 @@ public:
         record_kill();
         if (kill_counted_) { finish_visit(Controller::Result::kill,"Vicious Bee defeated"); return true; }
         needs_setup_=phase_==Phase::joining;
+        scout_from_spawn_=false;
         phase_=Phase::night; sample_since_=since_=view.context.now; sample_=Time(-1); night_.reset(); sky_checked_=false; return true;
     }
     ActivityStatus activity_status() const override { return (phase_==Phase::result || phase_==Phase::prepared)?ActivityStatus{}:ActivityStatus{"Vic Hop",controller_->read().status}; }
@@ -134,13 +136,14 @@ public:
             }
         }
         if (phase_==Phase::setup) {
-            controller_->status("Preparing hive on night server"); phase_=Phase::prepared;
-            return RunProgram{needs_setup_?services_.joined_setup:services_.prepare,true};
+            scout_from_spawn_=needs_setup_ && services_.spawn_setup && combat::uses_scout_route(services_.enemy);
+            controller_->status(scout_from_spawn_?"Preparing spawn for scouting":"Preparing hive on night server"); phase_=Phase::prepared;
+            return RunProgram{scout_from_spawn_?services_.spawn_setup:needs_setup_?services_.joined_setup:services_.prepare,true};
         }
         if (phase_==Phase::hunt) {
             controller_->status("Searching for Vicious Bee"); phase_=Phase::result;
-            return RunProgram{[services=services_] {
-                return combat::hunt(services.enemy,services.speed,services.prepare,services.home,services.movement);
+            return RunProgram{[services=services_,start=scout_from_spawn_?combat::HuntStart::spawn:combat::HuntStart::hive] {
+                return combat::hunt(services.enemy,services.speed,services.prepare,services.home,services.movement,start);
             },true};
         }
         return Wait{Time(100),"Finishing the search"};
@@ -158,7 +161,7 @@ public:
         }
         if (phase_==Phase::prepared) {
             if (view.completed->state==automation::State::completed) { needs_setup_=false; phase_=Phase::hunt; }
-            else finish_visit(Controller::Result::failed,"Hive setup interrupted: "+view.completed->message);
+            else finish_visit(Controller::Result::failed,std::string(scout_from_spawn_?"Spawn setup interrupted: ":"Hive setup interrupted: ")+view.completed->message);
             return;
         }
         const auto result=services_.enemy.progress->read();

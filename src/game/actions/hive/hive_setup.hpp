@@ -43,6 +43,7 @@ struct HiveClaimOptions {
     std::shared_ptr<const game::LandmarkSource> spawn_direction;
 };
 enum class HiveStart { locate, reset };
+enum class HiveGoal { owned_hive, spawn_direction };
 // Only passed directly between stages that have completed the spawn camera inputs.
 enum class HiveCameraStart { unknown, spawn_view };
 inline constexpr unsigned hive_spawn_pitch_steps=5;
@@ -58,7 +59,8 @@ std::unique_ptr<Program> whirligig_to_hive(unsigned slot,std::shared_ptr<Whirlig
     std::shared_ptr<const game::LandmarkSource> proximity,ProgramFactory prepare,ProgramFactory return_method);
 std::unique_ptr<Program> acquire_hive(std::shared_ptr<const game::HiveSlotsSource> slots,
     std::shared_ptr<const game::LandmarkSource> spawn,std::shared_ptr<const game::LandmarkSource> reference,
-    std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options={},HiveStart start=HiveStart::locate);
+    std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options={},HiveStart start=HiveStart::locate,
+    HiveGoal goal=HiveGoal::owned_hive);
 std::unique_ptr<Program> respawn_to_hive(std::shared_ptr<const game::HiveSlotsSource> slots,
     std::shared_ptr<const game::LandmarkSource> spawn,std::shared_ptr<const game::LandmarkSource> reference,
     std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options);

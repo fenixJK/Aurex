@@ -9,11 +9,13 @@
 
 namespace hive::features::combat {
 namespace {
+constexpr std::array<std::string_view,5> circuit{"pepper","mountaintop","spider","cactus","rose"};
 class Hunt final : public automation::Program {
     enum class Phase { choose,route,scan,travel,search,result,home,prepare,aligned };
     Enemy enemy_;
     double speed_;
     automation::ProgramFactory prepare_,home_;
+    HuntStart start_;
     std::shared_ptr<const movement::Recipes> movement_;
     Phase phase_{Phase::choose};
     std::vector<movement::Step> route_;
@@ -22,7 +24,6 @@ class Hunt final : public automation::Program {
     bool circuit_used_{},field_entry_{},view_changed_{};
     Time scan_after_{},scan_frame_{Time(-1)};
     std::optional<Point> candidate_;
-    static constexpr std::array<std::string_view,5> circuit{"pepper","mountaintop","spider","cactus","rose"};
     void load_route(std::string from,unsigned slot=0) {
         route_=movement_->sequence("vicious-scout",{{"from",std::move(from)},{"slot",int(slot)}},speed_);
         route_step_=0;phase_=Phase::route;
@@ -47,12 +48,14 @@ class Hunt final : public automation::Program {
         field_=*found; retries_=0;
     }
 public:
-    Hunt(Enemy enemy,double speed,automation::ProgramFactory prepare,automation::ProgramFactory home,movement::Source source)
-        :enemy_(std::move(enemy)),speed_(speed),prepare_(std::move(prepare)),home_(std::move(home)),movement_(movement::snapshot(source)),remaining_(enemy_.hunt_fields) {
+    Hunt(Enemy enemy,double speed,automation::ProgramFactory prepare,automation::ProgramFactory home,movement::Source source,HuntStart start)
+        :enemy_(std::move(enemy)),speed_(speed),prepare_(std::move(prepare)),home_(std::move(home)),start_(start),movement_(movement::snapshot(source)),remaining_(enemy_.hunt_fields) {
         if (!prepare_ || !home_ || remaining_.empty() || !enemy_.observations || !enemy_.progress)
             throw std::invalid_argument("Hunting needs fields, observations and hive travel");
         std::set<std::string> fields(remaining_.begin(),remaining_.end());
         if (fields.size()!=remaining_.size()) throw std::invalid_argument("Duplicate hunt field");
+        if (start_==HuntStart::spawn && !uses_scout_route(enemy_))
+            throw std::invalid_argument("Spawn scouting needs an accessible scout route");
         enemy_.progress->begin(0);
     }
     automation::RunConfig config() const override { return {std::chrono::minutes(15),speed_,{},true,true}; }
@@ -129,12 +132,15 @@ public:
         if (phase_==Phase::aligned) phase_=Phase::choose;
         if (phase_==Phase::choose) {
             if (expired) { enemy_.progress->finish(false,std::chrono::minutes(10));return Done{"Vicious Bee search time limit reached"}; }
-            if (!circuit_used_ && enemy_.vicious && enemy_.scout_route && enemy_.scout_hive
-                && std::any_of(circuit.begin(),circuit.end(),[&](auto field) {return std::find(remaining_.begin(),remaining_.end(),field)!=remaining_.end();})) {
-                const auto hive=enemy_.scout_hive->read(view.context,view.observations);
-                if (hive && hive->claimed_slot && hive->camera_prepared) {
-                    circuit_used_=true;segment_=0;load_route("hive",*hive->claimed_slot);
-                } else throw ObservationUnavailable("Vicious Bee scout route needs the prepared hive position");
+            if (!circuit_used_ && uses_scout_route(enemy_)) {
+                if (start_==HuntStart::spawn) load_route("spawn-start");
+                else {
+                    const auto hive=enemy_.scout_hive->read(view.context,view.observations);
+                    if (!hive || !hive->claimed_slot || !hive->camera_prepared)
+                        throw ObservationUnavailable("Vicious Bee scout route needs the prepared hive position");
+                    load_route("hive",*hive->claimed_slot);
+                }
+                circuit_used_=true;segment_=0;
             } else phase_=Phase::travel;
         }
         if (phase_==Phase::route) {
@@ -208,7 +214,13 @@ public:
     }
 };
 }
-std::unique_ptr<automation::Program> hunt(const Enemy& enemy,double speed,automation::ProgramFactory prepare,automation::ProgramFactory home,movement::Source movement) {
-    return std::make_unique<Hunt>(enemy,speed,std::move(prepare),std::move(home),std::move(movement));
+bool uses_scout_route(const Enemy& enemy) {
+    return enemy.vicious && enemy.scout_route && enemy.scout_hive
+        && std::any_of(circuit.begin(),circuit.end(),[&](auto field) {
+            return std::find(enemy.hunt_fields.begin(),enemy.hunt_fields.end(),field)!=enemy.hunt_fields.end();
+        });
+}
+std::unique_ptr<automation::Program> hunt(const Enemy& enemy,double speed,automation::ProgramFactory prepare,automation::ProgramFactory home,movement::Source movement,HuntStart start) {
+    return std::make_unique<Hunt>(enemy,speed,std::move(prepare),std::move(home),std::move(movement),start);
 }
 }

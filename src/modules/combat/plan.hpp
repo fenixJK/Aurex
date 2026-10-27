@@ -94,7 +94,10 @@ Plan catalog_plan();
 Plan walking_plan(const workflows::RouteCatalog& routes,double speed,std::shared_ptr<const game::DetectionSource> observations,
     automation::ProgramFactory return_to_hive={},automation::FieldReturnOptions returns={},std::shared_ptr<const game::DetectionSource> daylight={});
 automation::VisitPlan visit_plan(Plan plan);
-std::unique_ptr<automation::Program> hunt(const Enemy& enemy,double speed,automation::ProgramFactory prepare,automation::ProgramFactory home,movement::Source movement);
+enum class HuntStart { hive, spawn };
+bool uses_scout_route(const Enemy& enemy);
+std::unique_ptr<automation::Program> hunt(const Enemy& enemy,double speed,automation::ProgramFactory prepare,automation::ProgramFactory home,
+    movement::Source movement,HuntStart start=HuntStart::hive);
 std::unique_ptr<automation::Program> encounter(const Enemy& enemy,double speed,Time entered);
 std::shared_ptr<const automation::AvailabilitySource> availability(std::map<std::string,std::string> enemies,
     std::shared_ptr<const game::EnemySource> source);

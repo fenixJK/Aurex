@@ -36,6 +36,10 @@ return function(p)
         camera(down and "pitch_up" or "pitch_down",down and 11-n or n)
     end
     local function zoom(n) camera("zoom_out",n) end
+    local function scout_camera()
+        flush();path[#path+1]={kind="shift_lock",enabled=true}
+        camera("zoom_in",10);pitch(4);zoom(5)
+    end
     if p.from=="hive" then
         assert(p.slot>=1 and p.slot<=6,"Confirmed hive slot required")
         -- Align against the hive wall, cross to the middle hive, then reach
@@ -43,8 +47,11 @@ return function(p)
         walk(5,F)
         if p.slot~=3 then walk(9.2*math.abs(p.slot-3),p.slot>3 and R or L) end
         walk(21,B);flush()
-        path[#path+1]={kind="shift_lock",enabled=true}
-        camera("zoom_in",10);pitch(4);zoom(5)
+        scout_camera()
+    elseif p.from=="spawn-start" then
+        -- Fresh joins already stand at the circuit's start. The shared spawn
+        -- direction check supplies yaw; no hive claim or return walk is needed.
+        scout_camera()
     elseif p.from=="spawn" then
         turn("rotate_right");held={F};glide(700);glide(700);move(1.25)
         turn("rotate_right");move(2.25);held={}

@@ -53,12 +53,14 @@ public:
     void finished(State state) override { if (state!=State::completed) result_->reset(); }
 };
 class AcquireHive final : public Program {
-    enum class Stage { locate,zoom,pitch_limit,pitch,observe,turn,claim,prepare,recover,done };
+    enum class Stage { locate,zoom,pitch_limit,pitch,observe,turn,oriented,claim,prepare,recover,done };
     Stage stage_{Stage::locate};
     std::shared_ptr<const game::HiveSlotsSource> slots_;
     std::shared_ptr<const game::LandmarkSource> spawn_,reference_,proximity_;
     HiveClaimOptions options_;
     HiveStart start_;
+    HiveGoal goal_;
+    Observation<bool> spawn_heading_;
     std::unique_ptr<Program> child_;
     std::unique_ptr<RunGuard> child_guard_;
     Time minimum_{},seen_{Time(-1)},child_started_{},away_since_{Time(-1)};
@@ -139,13 +141,15 @@ class AcquireHive final : public Program {
 public:
     AcquireHive(std::shared_ptr<const game::HiveSlotsSource> slots,std::shared_ptr<const game::LandmarkSource> spawn,
         std::shared_ptr<const game::LandmarkSource> reference,std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options,HiveStart start,
-        std::shared_ptr<RespawnResult> reset_result={})
+        std::shared_ptr<RespawnResult> reset_result={},HiveGoal goal=HiveGoal::owned_hive)
         :slots_(std::move(slots)),spawn_(std::move(spawn)),reference_(std::move(reference)),proximity_(std::move(proximity)),options_(options),start_(start),
-        reset_result_(std::move(reset_result)),resets_(options.after_respawn?1u:0u) {
+        goal_(goal),reset_result_(std::move(reset_result)),resets_(options.after_respawn?1u:0u) {
         if (!slots_ || !spawn_ || !reference_ || !proximity_) throw std::invalid_argument("Hive setup requires slot, spawn and hive observations");
         if (!std::isfinite(options.speed) || options.speed<8 || options.speed>200 || options.preferred_slot>6 || options.existing_slot>6)
             throw std::invalid_argument("Invalid hive setup speed or preferred slot");
         if (start_==HiveStart::reset && !options_.recovery) throw std::invalid_argument("Hive startup reset needs menu observations");
+        if (goal_==HiveGoal::spawn_direction && (!options_.confirmed_spawn || start_!=HiveStart::locate))
+            throw std::invalid_argument("Spawn-only preparation requires a confirmed fresh join");
     }
     RunConfig config() const override { return {Time(240000),options_.speed,{},true,true}; }
     std::string activity_label() const override { return stage_==Stage::claim?"Claiming hive":""; }
@@ -198,6 +202,8 @@ public:
         return child_step(view);
     }
     Step prepare_owned(const View& view,const Observation<bool>& owned) {
+        if (goal_==HiveGoal::spawn_direction)
+            throw ObservationUnavailable("Spawn scouting cannot start from an owned hive");
         const auto result=options_.result?options_.result->read():std::nullopt;
         const unsigned slot=result && result->claimed_slot?*result->claimed_slot:options_.existing_slot;
         if (!slot || !options_.result)
@@ -219,6 +225,7 @@ public:
             verify_spawn_=unconfirmed_reset(view.context);
             recovered_=recovered_ || options_.after_respawn;
             if (options_.result) {
+                if (goal_==HiveGoal::spawn_direction) options_.result->reset();
                 options_.confirmed_spawn=options_.result->consume_join(view.context) || options_.confirmed_spawn;
                 const auto& current=view.context;
                 const auto previous=options_.result->read(current,view.observations);
@@ -238,6 +245,7 @@ public:
         case Stage::prepare:
         case Stage::recover: return child_step(view);
         case Stage::done: {
+            if (goal_==HiveGoal::spawn_direction) return Done{"Spawn direction confirmed"};
             const auto result=options_.result?options_.result->read():std::nullopt;
             if (result && result->claimed_slot) return Done{"Hive "+std::to_string(*result->claimed_slot)+" confirmed and camera prepared"};
             throw std::runtime_error("Select your already claimed hive in Setup, or start at spawn to claim one automatically");
@@ -246,6 +254,7 @@ public:
         case Stage::pitch_limit: return MoveCamera{game::pitch_limit(Key::pitch_down)};
         case Stage::pitch: return MoveCamera{{Key::pitch_up,hive_spawn_pitch_steps}};
         case Stage::turn: return MoveCamera{{Key::rotate_right,4}};
+        case Stage::oriented: return AdoptHeading{0,spawn_heading_};
         case Stage::locate: {
             // Missing the death frame does not imply an unclaimed spawn. A
             // fresh owned-hive prompt can enter camera alignment; its visual
@@ -329,6 +338,9 @@ public:
         if (reading.usable(c,Time(2000),minimum_) && reading.captured>seen_) {
             seen_=reading.captured;
             if (reading.knowledge==Knowledge::present && reading.value) {
+                if (goal_==HiveGoal::spawn_direction) {
+                    spawn_heading_=reading;stage_=Stage::oriented;return next(view);
+                }
                 begin(Stage::claim,view); return child_step(view);
             }
             if (!turned_) { stage_=Stage::turn; return next(view); }
@@ -349,6 +361,7 @@ public:
             observe(view.context.now);
             break;
         case Stage::turn: turned_=true; observe(view.context.now); break;
+        case Stage::oriented: stage_=Stage::done; break;
         case Stage::claim:
         case Stage::prepare:
         case Stage::recover:
@@ -368,8 +381,8 @@ public:
 }
 std::unique_ptr<Program> acquire_hive(std::shared_ptr<const game::HiveSlotsSource> slots,
     std::shared_ptr<const game::LandmarkSource> spawn,std::shared_ptr<const game::LandmarkSource> reference,
-    std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options,HiveStart start) {
-    return std::make_unique<AcquireHive>(std::move(slots),std::move(spawn),std::move(reference),std::move(proximity),options,start);
+    std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options,HiveStart start,HiveGoal goal) {
+    return std::make_unique<AcquireHive>(std::move(slots),std::move(spawn),std::move(reference),std::move(proximity),options,start,nullptr,goal);
 }
 std::unique_ptr<Program> respawn_to_hive(std::shared_ptr<const game::HiveSlotsSource> slots,
     std::shared_ptr<const game::LandmarkSource> spawn,std::shared_ptr<const game::LandmarkSource> reference,
