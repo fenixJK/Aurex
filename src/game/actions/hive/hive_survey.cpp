@@ -28,6 +28,7 @@ class HiveSurvey final : public Program {
     bool turned_{};
     std::string result_;
     HiveClaimOptions claim_;
+    HiveCameraStart camera_start_;
     std::shared_ptr<const movement::Recipes> movement_;
     unsigned selected_{},next_slot_{},claim_attempts_{};
     Time pressed_{Time(-1)};
@@ -97,8 +98,8 @@ class HiveSurvey final : public Program {
     }
     bool started_{};
 public:
-    explicit HiveSurvey(std::shared_ptr<const game::HiveSlotsSource> source,HiveClaimOptions claim)
-        :source_(std::move(source)),claim_(claim) {
+    explicit HiveSurvey(std::shared_ptr<const game::HiveSlotsSource> source,HiveClaimOptions claim,HiveCameraStart camera_start)
+        :source_(std::move(source)),claim_(claim),camera_start_(camera_start) {
         if (can_scan()) stage_=Stage::unlock;
         if (!source_) throw std::invalid_argument("Hive survey requires slot observations");
         if (claim_.confirmed_spawn && claim_.search_opposite_view)
@@ -113,7 +114,7 @@ public:
         switch (stage_) {
         case Stage::unlock: return RunProgram{[] { return set_shift_lock(false); }};
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
-        case Stage::pitch: return MoveCamera{game::pitch_limit(Key::pitch_up)};
+        case Stage::pitch: return MoveCamera{hive_overhead_move(camera_start_)};
         case Stage::turn:
         case Stage::restore: return MoveCamera{{Key::rotate_right,4}};
         case Stage::departure_pitch: return MoveCamera{{Key::pitch_down,4}};
@@ -196,7 +197,7 @@ public:
     void finished(State state) override { if (claim_.result && state!=State::completed) claim_.result->reset(); }
 };
 }
-std::unique_ptr<Program> claim_hive_from_spawn(std::shared_ptr<const game::HiveSlotsSource> source,HiveClaimOptions options) {
-    return std::make_unique<HiveSurvey>(std::move(source),options);
+std::unique_ptr<Program> claim_hive_from_spawn(std::shared_ptr<const game::HiveSlotsSource> source,HiveClaimOptions options,HiveCameraStart camera_start) {
+    return std::make_unique<HiveSurvey>(std::move(source),options,camera_start);
 }
 }

@@ -54,6 +54,13 @@ ApproachPrompt hive_row_approach(double speed,movement::Source source) {
     auto plan=movement::snapshot(source)->path("hive",{{"action",std::string("row")}},speed).at(0);
     return {std::move(plan),game::hive_proximity_prompt()};
 }
+game::CameraMove hive_overhead_move(HiveCameraStart start) {
+    auto move=game::pitch_limit(Key::pitch_up);
+    // Spawn setup already travelled partway up from the lower limit. Finish
+    // that same sweep, still reaching the exact upper limit before lowering.
+    if (start==HiveCameraStart::spawn_view) move.steps-=hive_spawn_pitch_steps;
+    return move;
+}
 namespace {
 bool claimed_here(const std::shared_ptr<HiveSetupResult>& result,const ObservationContext& context,const Observation<bool>& proximity) {
     const auto claim=result?result->read():std::nullopt;
@@ -91,13 +98,14 @@ class PrepareHiveView final : public Program {
     unsigned turns_{};
     bool lowered_{};
     bool started_{};
+    HiveCameraStart camera_start_;
     void observe(Time finished) {
         stage_=Stage::observe; minimum_=finished+Time(150); seen_=Time(-1);
     }
 public:
     PrepareHiveView(std::shared_ptr<const game::LandmarkSource> reference,std::shared_ptr<const game::LandmarkSource> proximity,
-        std::shared_ptr<HiveSetupResult> result)
-        :reference_(std::move(reference)),proximity_(std::move(proximity)),result_(std::move(result)) {
+        std::shared_ptr<HiveSetupResult> result,HiveCameraStart camera_start)
+        :reference_(std::move(reference)),proximity_(std::move(proximity)),result_(std::move(result)),camera_start_(camera_start) {
         if (!reference_ || !proximity_) throw std::invalid_argument("Hive preparation requires proximity and visual observations");
     }
     RunConfig config() const override { return {Time(60000),28,{},true,true}; }
@@ -119,7 +127,7 @@ public:
         }
         case Stage::unlock: return RunProgram{[] { return set_shift_lock(false); }};
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
-        case Stage::pitch_limit: return MoveCamera{game::pitch_limit(Key::pitch_up)};
+        case Stage::pitch_limit: return MoveCamera{hive_overhead_move(camera_start_)};
         case Stage::pitch: return MoveCamera{{Key::pitch_down,4}};
         case Stage::turn: return MoveCamera{{Key::rotate_right,turns_==0?4u:turns_==4?2u:1u,Time(100),Time(50)}};
         case Stage::lower: return MoveCamera{{Key::pitch_down,1}};
@@ -157,7 +165,7 @@ public:
         switch (stage_) {
         case Stage::claim:
             reference_->read(view.context); stage_=Stage::unlock; break;
-        case Stage::unlock: stage_=Stage::zoom; break;
+        case Stage::unlock: stage_=camera_start_==HiveCameraStart::spawn_view?Stage::pitch_limit:Stage::zoom; break;
         case Stage::zoom: stage_=Stage::pitch_limit; break;
         case Stage::pitch_limit: stage_=Stage::pitch; break;
         case Stage::pitch: observe(view.context.now); break;
@@ -174,7 +182,7 @@ public:
 };
 }
 std::unique_ptr<Program> prepare_hive_view(std::shared_ptr<const game::LandmarkSource> reference,
-    std::shared_ptr<const game::LandmarkSource> proximity,std::shared_ptr<HiveSetupResult> result) {
-    return std::make_unique<PrepareHiveView>(std::move(reference),std::move(proximity),std::move(result));
+    std::shared_ptr<const game::LandmarkSource> proximity,std::shared_ptr<HiveSetupResult> result,HiveCameraStart camera_start) {
+    return std::make_unique<PrepareHiveView>(std::move(reference),std::move(proximity),std::move(result),camera_start);
 }
 }

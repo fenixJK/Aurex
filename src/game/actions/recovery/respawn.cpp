@@ -88,6 +88,7 @@ class Respawn final : public Program {
     RespawnCompletion completion_;
     bool issued_{};
     bool retried_{};
+    unsigned key_retries_{};
     std::optional<game::RespawnScreen> requested_from_;
     Step complete(const View& view,bool confirmed) {
         if (result_) result_->transition={Knowledge::present,confirmed,view.context.now,
@@ -98,7 +99,7 @@ class Respawn final : public Program {
     Step retry(Time now,std::string reason) {
         if (retried_) throw ClientRejoinRequired("Reset could not be verified after retrying; rejoining Bee Swarm");
         retried_=true; stage_=Stage::locate; started_=minimum_=now; transition_=Time(-1);
-        requested_from_.reset(); completion_=RespawnCompletion{};
+        requested_from_.reset(); key_retries_=0; completion_=RespawnCompletion{};
         return ReportActivity{{"Retrying reset",std::move(reason)}};
     }
 public:
@@ -181,7 +182,10 @@ public:
         // R and Enter may be retried while their own controls remain visible.
         if (requested_from_==screen && c.now-minimum_<Time(750))
             return Wait{Time(50),"Waiting for respawn menu response"};
-        const auto press=requested_from_==screen?Time(50):Time{};
+        // Keep the first press instantaneous. Only a control that remains
+        // visible after a missed input gets a longer press, capped at 100 ms.
+        key_retries_=requested_from_==screen?std::min(key_retries_+1,2u):0;
+        const auto press=Time(50*key_retries_);
         requested_from_=screen;
         if (screen==game::RespawnScreen::confirmation) {
             // Retrying Enter must not move the start of this reset attempt

@@ -69,6 +69,7 @@ class AcquireHive final : public Program {
     std::shared_ptr<RespawnResult> reset_result_;
     bool verify_spawn_{},reset_at_spawn_{};
     unsigned resets_{};
+    Observation<bool> spawn_camera_;
     void reserve_reset() {
         if (resets_>=2) throw ClientRejoinRequired("Hive position could not be confirmed after retrying resets; rejoining Bee Swarm");
         ++resets_;
@@ -78,10 +79,12 @@ class AcquireHive final : public Program {
     }
     void begin(Stage stage,const View& view) {
         stage_=stage;
+        const auto camera_start=spawn_camera_.has_value(view.context,Time::max())?HiveCameraStart::spawn_view:HiveCameraStart::unknown;
+        spawn_camera_={};
         auto claim=options_; claim.search_opposite_view=false; claim.confirmed_spawn=true;
         if (stage==Stage::recover) reset_result_=std::make_shared<RespawnResult>();
-        child_=stage==Stage::recover?request_respawn(options_.recovery,reset_result_):stage==Stage::claim?claim_hive_from_spawn(slots_,std::move(claim))
-            :prepare_hive_view(reference_,proximity_,options_.result);
+        child_=stage==Stage::recover?request_respawn(options_.recovery,reset_result_):stage==Stage::claim?claim_hive_from_spawn(slots_,std::move(claim),camera_start)
+            :prepare_hive_view(reference_,proximity_,options_.result,camera_start);
         child_guard_=child_->guard(); child_started_=view.context.now;
         child_running_.reset(); child_steps_=0; issued_=false;
     }
@@ -175,6 +178,7 @@ public:
         if (child_) child_->finished(State::stopped);
         child_.reset(); child_guard_.reset(); child_running_.reset();
         reset_result_=std::make_shared<RespawnResult>(); verify_spawn_=false;
+        spawn_camera_={};
         if (options_.result) options_.result->invalidate_camera();
         stage_=Stage::locate; started_=turned_=issued_=false; recovered_=true; options_.confirmed_spawn=false;
         seen_=away_since_=Time(-1);
@@ -240,7 +244,7 @@ public:
         }
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
         case Stage::pitch_limit: return MoveCamera{game::pitch_limit(Key::pitch_down)};
-        case Stage::pitch: return MoveCamera{{Key::pitch_up,5}};
+        case Stage::pitch: return MoveCamera{{Key::pitch_up,hive_spawn_pitch_steps}};
         case Stage::turn: return MoveCamera{{Key::rotate_right,4}};
         case Stage::locate: {
             // Missing the death frame does not imply an unclaimed spawn. A
@@ -339,6 +343,7 @@ public:
         case Stage::zoom: stage_=Stage::pitch_limit; break;
         case Stage::pitch_limit: stage_=Stage::pitch; break;
         case Stage::pitch:
+            spawn_camera_={Knowledge::present,true,view.context.now,view.context.window,view.context.generation};
             // A fresh join confirms the platform position, not the camera yaw.
             // Use the same observed heading check as a post-reset spawn.
             observe(view.context.now);
