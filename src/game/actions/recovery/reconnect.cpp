@@ -5,12 +5,15 @@ namespace hive::automation {
 namespace {
 class Reconnect final : public Program {
     std::shared_ptr<const game::RespawnSource> source_;
+    std::shared_ptr<ReconnectResult> result_;
     Time minimum_{Time(-1)},started_{Time(-1)},last_{Time(-1)},retry_at_{};
     unsigned attempts_{};
     bool clicked_{},issued_{},resuming_{};
 public:
-    explicit Reconnect(std::shared_ptr<const game::RespawnSource> source,bool joining=false):source_(std::move(source)),clicked_(joining) {
+    explicit Reconnect(std::shared_ptr<const game::RespawnSource> source,bool joining=false,std::shared_ptr<ReconnectResult> result={})
+        :source_(std::move(source)),result_(std::move(result)),clicked_(joining) {
         if (!source_) throw std::invalid_argument("Reconnect needs game-view observations");
+        if (result_) result_->joined={};
     }
     RunConfig config() const override { return {game_loading_timeout+Time(15000),28,{},true,true}; }
     std::string activity_label() const override { return "Rejoining Bee Swarm"; }
@@ -47,6 +50,7 @@ public:
             && !(state.connection.has_value(c,Time(2000)) && state.connection.value==game::Connection::disconnected)
             && !(state.alive.has_value(c,Time(2000)) && !state.alive.value)
             ) {
+            if (result_) result_->joined={Knowledge::present,clicked_,c.now,c.window,c.generation};
             return Done{"Game view returned after reconnect"};
         }
         if (!clicked_ && c.now-minimum_>=Time(10000)) throw ClientRejoinRequired("Reconnect button or returned game view could not be confirmed");
@@ -61,8 +65,8 @@ public:
     }
 };
 }
-std::unique_ptr<Program> request_reconnect(std::shared_ptr<const game::RespawnSource> source) {
-    return std::make_unique<Reconnect>(std::move(source));
+std::unique_ptr<Program> request_reconnect(std::shared_ptr<const game::RespawnSource> source,std::shared_ptr<ReconnectResult> result) {
+    return std::make_unique<Reconnect>(std::move(source),false,std::move(result));
 }
 std::unique_ptr<Program> wait_for_reconnect(std::shared_ptr<const game::RespawnSource> source) {
     return std::make_unique<Reconnect>(std::move(source),true);

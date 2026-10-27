@@ -10,13 +10,14 @@ class RespawnToHive final : public Program {
     std::shared_ptr<const game::RespawnSource> respawn_;
     std::shared_ptr<HiveSetupResult> result_;
     std::shared_ptr<RespawnResult> reset_result_;
+    std::shared_ptr<ReconnectResult> join_result_;
     double speed_;
     unsigned phase_{};
     Reentry reentry_;
 public:
     RespawnToHive(ProgramFactory reset,ProgramFactory acquire,std::shared_ptr<const game::RespawnSource> respawn,
-        std::shared_ptr<HiveSetupResult> result,double speed,Reentry reentry=Reentry::reset,std::shared_ptr<RespawnResult> reset_result={})
-        :reset_(std::move(reset)),acquire_(std::move(acquire)),respawn_(std::move(respawn)),result_(std::move(result)),reset_result_(std::move(reset_result)),speed_(speed),reentry_(reentry) {
+        std::shared_ptr<HiveSetupResult> result,double speed,Reentry reentry=Reentry::reset,std::shared_ptr<RespawnResult> reset_result={},std::shared_ptr<ReconnectResult> join_result={})
+        :reset_(std::move(reset)),acquire_(std::move(acquire)),respawn_(std::move(respawn)),result_(std::move(result)),reset_result_(std::move(reset_result)),join_result_(std::move(join_result)),speed_(speed),reentry_(reentry) {
         if (!result_) throw std::invalid_argument("Returning by respawn requires confirmed hive setup");
     }
     RunConfig config() const override { return {Time(reentry_==Reentry::reconnect?360000:300000),speed_,{},true,true}; }
@@ -43,7 +44,13 @@ public:
             throw std::runtime_error("Return did not confirm a hive slot and prepared camera");
         return Done{"Returned to a confirmed hive"};
     }
-    void step_completed(const View&) override { ++phase_; }
+    void step_completed(const View& view) override {
+        // A completed Reconnect click reaches the same unclaimed spawn as a
+        // relaunched client. Hand that fact to the shared hive setup once.
+        if (!phase_ && join_result_ && join_result_->joined.has_value(view.context,Time(2000)) && join_result_->joined.value)
+            result_->joined(view.context.window,view.context.now);
+        ++phase_;
+    }
     void finished(State state) override { if (state!=State::completed) result_->reset(); }
 };
 class AcquireHive final : public Program {
@@ -368,9 +375,10 @@ std::unique_ptr<Program> reconnect_to_hive(std::shared_ptr<const game::HiveSlots
     if (!options.recovery) throw std::invalid_argument("Reconnect needs game-view observations");
     if (start!=ReconnectStart::request && start!=ReconnectStart::loading) throw std::invalid_argument("Invalid reconnect starting phase");
     options.confirmed_spawn=start==ReconnectStart::loading;
+    auto join_result=std::make_shared<ReconnectResult>();
     acquire_hive(slots,spawn,reference,proximity,options);
-    return std::make_unique<RespawnToHive>([source=options.recovery,start] { return start==ReconnectStart::loading?wait_for_reconnect(source):request_reconnect(source); },
-        [slots,spawn,reference,proximity,options] { return acquire_hive(slots,spawn,reference,proximity,options); },options.recovery,options.result,options.speed,Reentry::reconnect);
+    return std::make_unique<RespawnToHive>([source=options.recovery,start,join_result] { return start==ReconnectStart::loading?wait_for_reconnect(source):request_reconnect(source,join_result); },
+        [slots,spawn,reference,proximity,options] { return acquire_hive(slots,spawn,reference,proximity,options); },options.recovery,options.result,options.speed,Reentry::reconnect,nullptr,join_result);
 }
 
 }

@@ -65,7 +65,7 @@ private:
     std::unique_ptr<Runner> recovery_;
     ProgramFactory replacement_;
     ProgramFactory connection_reconnect_,connection_replacement_;
-    bool startup_pending_{},connection_recovering_{},resume_connected_{};
+    bool startup_pending_{},startup_joining_{},connection_recovering_{},resume_connected_{};
     unsigned connection_attempts_{};
     bool awaiting_window_{},window_replaced_{},allow_rejoin_{},rejoin_requested_{};
     unsigned depth_{};

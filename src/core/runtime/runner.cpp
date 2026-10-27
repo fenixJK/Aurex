@@ -248,7 +248,7 @@ void Runner::replace_window(const ObservationContext& c,ModuleScope scope) {
     guard_=program_->guard(); if (!guard_) guard_=observation_guard(config_);
     clock_started_=true;
     recovery_=std::make_unique<Runner>(replacement_(),permissions_,static_cast<TaskPort&>(*this),scope_,navigation_services_,depth_+1); recovery_->configure_conversion(hive_conversion_); recovery_->configure_statistics(recovery_counts_); recovery_->configure_reporting(activity_sink_);
-    recovery_->startup_pending_=true;
+    recovery_->startup_pending_=recovery_->startup_joining_=true;
     recovery_->start(c); awaiting_window_=false; rejoin_requested_=false; window_replaced_=true;
     progress_.message="Confirming the replacement game window";
 }
@@ -355,7 +355,10 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
                 && observations.connection.has_value(c,Time(2000),context_.now)
                 && observations.connection.value==game::Connection::disconnected;
             if (!hud && !connected && !reconnect_dialog) {
-                if (observations.client_home.has_value(c,Time(2000),context_.now)
+                // Roblox can show Home while an already requested join opens.
+                // Let that launch use its loading budget instead of relaunching
+                // on each Home frame and exhausting all recovery attempts.
+                if (!startup_joining_ && !expects_reconnect() && observations.client_home.has_value(c,Time(2000),context_.now)
                     && observations.client_home.value) {
                     interrupt(Interruption::client_rejoin,c,observations,"Roblox is on its home screen"); return;
                 }
