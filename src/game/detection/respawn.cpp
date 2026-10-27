@@ -46,29 +46,39 @@ Observation<RespawnView> read_respawn_menu(const Frame& f,std::uint64_t generati
     // Resolve its controls before accepting the underlying game view.
     static constexpr std::array<std::string_view,7> controls{"Reset","Respawn","Cancel","Don't Respawn","Reset Character","Resume","Leave"};
     const auto labels=fixed_ui_labels(f,{0,.2,1,.8},controls);
-    const TextLine *reset=nullptr,*cancel=nullptr,*leave=nullptr,*resume=nullptr;
+    std::vector<const TextLine*> resets,cancels,leaves,resumes;
     for (const auto& label:labels) {
-        const TextLine** target=label.text=="Cancel" || label.text=="Don't Respawn"?&cancel:
-            label.text=="Leave"?&leave:label.text=="Resume"?&resume:&reset;
-        if (*target) return result;
-        *target=&label;
+        auto& targets=label.text=="Cancel" || label.text=="Don't Respawn"?cancels:
+            label.text=="Leave"?leaves:label.text=="Resume"?resumes:resets;
+        targets.push_back(&label);
     }
     auto aligned=[](const Rect& a,const Rect& b) {
         return std::abs(a.y+a.height/2-b.y-b.height/2)<std::max(a.height,b.height)*.6;
     };
-    if (reset && cancel) {
+    // A label elsewhere in the game or chat is not another menu. Resolve
+    // complete control groups before deciding that a view is ambiguous.
+    std::optional<Rect> confirmation;
+    for (const auto* reset:resets) for (const auto* cancel:cancels) {
         const auto a=reset->pixels,b=cancel->pixels;
         if (aligned(a,b) && std::abs(a.x-b.x)>std::max(a.width,b.width)) {
-            result.knowledge=Knowledge::present;
-            result.value={RespawnScreen::confirmation,Point{(a.x+a.width/2)/f.width,(a.y+a.height/2)/f.height}};
+            if (confirmation && *confirmation!=a) return result;
+            confirmation=a;
         }
+    }
+    if (confirmation) {
+        const auto a=*confirmation;
+        result.knowledge=Knowledge::present;
+        result.value={RespawnScreen::confirmation,Point{(a.x+a.width/2)/f.width,(a.y+a.height/2)/f.height}};
         return result;
     }
-    if (reset && leave) {
+    for (const auto* reset:resets) for (const auto* leave:leaves) {
         const auto a=reset->pixels,b=leave->pixels;
         const double height=std::max(a.height,b.height);
         const bool horizontal=aligned(a,b) && b.x<a.x
-            && (!resume || (aligned(a,resume->pixels) && a.x<resume->pixels.x));
+            && (std::none_of(resumes.begin(),resumes.end(),[&](const auto* resume) { return aligned(a,resume->pixels); })
+                || std::any_of(resumes.begin(),resumes.end(),[&](const auto* resume) {
+                return aligned(a,resume->pixels) && a.x<resume->pixels.x;
+            }));
         // Roblox also places these shortcuts in a vertical sidebar.
         const bool vertical=std::abs(a.x-b.x)<=height*1.5 && a.x+a.width<f.width*.5
             && b.y-a.y>=height && b.y-a.y<=height*6;
