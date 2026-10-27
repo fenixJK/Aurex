@@ -281,8 +281,12 @@ Manifest read_manifest(const QString& path) {
         require(obj["setupProfiles"].isArray() && obj["setupProfiles"].toArray().size()<=16,"Invalid setup profiles");
         for (const auto& value:obj["setupProfiles"].toArray()) {
             require(value.isObject(),"Invalid setup profile"); const auto profile=value.toObject();
-            keys(profile,{"name","order","settings"}); require(profile["settings"].isObject(),"Invalid setup settings");
-            m.setup_profiles.push_back({text(profile,"name",80),integer(profile["order"],0,100),decode_settings(profile["settings"].toObject())});
+            keys(profile,{"name","order","settings","enabled","ifEmpty","description"}); require(profile["settings"].isObject(),"Invalid setup settings");
+            SetupProfile setup{text(profile,"name",80),integer(profile["order"],0,100),decode_settings(profile["settings"].toObject())};
+            if (profile.contains("enabled")) { require(profile["enabled"].isBool(),"Invalid setup enabled state"); setup.enabled=profile["enabled"].toBool(); }
+            if (profile.contains("ifEmpty")) { require(profile["ifEmpty"].isObject(),"Invalid setup selection defaults"); setup.if_empty=decode_settings(profile["ifEmpty"].toObject()); }
+            if (profile.contains("description")) setup.description=text(profile,"description",300);
+            m.setup_profiles.push_back(std::move(setup));
         }
     }
     validate_settings(m,defaults(m)); validate_page(m); validate_setup_profiles(m); return m;
@@ -292,10 +296,19 @@ void validate_setup_profiles(const Manifest& manifest) {
     if (manifest.setup_profiles.size()>16) throw std::invalid_argument("Too many module setup profiles");
     std::set<std::string> names;
     for (const auto& profile:manifest.setup_profiles) {
-        if (profile.name.empty() || profile.name.size()>80 || profile.order<0 || profile.order>100 || !names.insert(profile.name).second)
+        if (profile.name.empty() || profile.name.size()>80 || profile.description.size()>300 || profile.order<0 || profile.order>100 || !names.insert(profile.name).second)
             throw std::invalid_argument("Invalid module setup profile");
         auto values=defaults(manifest);
         for (const auto& [id,value]:profile.settings) values[id]=value;
+        validate_settings(manifest,values);
+        for (const auto& [id,value]:profile.if_empty) {
+            const auto found=values.find(id);
+            const auto* selection=std::get_if<SettingSelection>(&value);
+            if (found==values.end() || !std::holds_alternative<SettingSelection>(found->second)
+                || !selection || selection->empty() || profile.settings.contains(id))
+                throw std::invalid_argument("Setup defaults require nonempty selections without an override");
+            values[id]=value;
+        }
         validate_settings(manifest,values);
     }
 }

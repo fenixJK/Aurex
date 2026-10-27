@@ -50,7 +50,14 @@ struct RoutineParticipation {
     bool fallback{},reactive{},demand_only{};
     bool interrupt_gather{true};
 };
-struct SetupProfile { std::string name; int order{}; Settings settings; };
+struct SetupProfile {
+    std::string name;
+    int order{};
+    Settings settings;
+    std::optional<bool> enabled; // Omitted keeps the user's module state.
+    Settings if_empty; // Selection defaults, without replacing existing choices.
+    std::string description;
+};
 void validate(const RoutineParticipation& participation);
 struct Manifest {
     std::string id, name, version, description, provider;

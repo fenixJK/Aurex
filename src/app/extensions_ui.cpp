@@ -102,6 +102,9 @@ ExtensionsUi::ExtensionsUi(Navigation* navigation,QStackedWidget* pages,QString 
     auto heading=new QHBoxLayout; heading->addWidget(text("Modules","heading"),1);
     auto presets=new QPushButton("Presets…"); heading->addWidget(presets);
     connect(presets,&QPushButton::clicked,this,[this,state_file] {
+        // A starting point copies the current setup. Flush pending widget edits
+        // before taking that snapshot, or applying it can restore older values.
+        if (busy_() || !perform([this] { apply_settings(); })) return;
         show_presets(manager_,QFileInfo(state_file).dir().filePath("presets"),[this] {
             apply_settings(); auto preset=host_.preset(); QJsonArray order;
             for (const auto& id:run_order()) if (host_.entries().at(id).manifest.presets) order.append(q(id));

@@ -6,18 +6,24 @@
 
 namespace hive::extensions {
 std::vector<QJsonObject> Host::starter_presets() const {
-    struct Profile { QJsonObject modules; std::vector<std::pair<int,std::string>> order; QStringList details; };
+    struct Profile { QJsonObject modules; std::vector<std::pair<int,std::string>> order; QStringList details,enabled,disabled; };
     std::map<std::string,Profile> profiles;
     for (const auto& [id,entry]:entries_) if (entry.manifest.presets && entry.config_valid) {
         for (const auto& setup:entry.manifest.setup_profiles) {
             auto settings=entry.settings;
+            for (const auto& [key,value]:setup.if_empty)
+                if (std::get<SettingSelection>(settings.at(key)).empty()) settings[key]=value;
             for (const auto& [key,value]:setup.settings) settings[key]=value;
             validate_settings(entry.manifest,settings);
             auto& profile=profiles[setup.name];
+            const bool enabled=setup.enabled.value_or(entry.requested);
             profile.modules[QString::fromStdString(id)]=QJsonObject{{"version",entry.manifest.settings_version},
-                {"enabled",entry.requested},{"settings",encode_settings(settings)}};
-            if (entry.requested) profile.order.emplace_back(setup.order,id);
-            for (const auto& setting:entry.manifest.settings) if (entry.requested && setup.settings.contains(setting.id)) {
+                {"enabled",enabled},{"settings",encode_settings(settings)}};
+            if (enabled) profile.order.emplace_back(setup.order,id);
+            else profile.disabled.push_back(QString::fromStdString(entry.manifest.name));
+            if (enabled && !entry.requested) profile.enabled.push_back(QString::fromStdString(entry.manifest.name));
+            if (enabled && !setup.description.empty()) profile.details.push_back(QString::fromStdString(entry.manifest.name+": "+setup.description));
+            for (const auto& setting:entry.manifest.settings) if (enabled && setup.description.empty() && setup.settings.contains(setting.id)) {
                 const auto* value=std::get_if<bool>(&setup.settings.at(setting.id));
                 if (value) profile.details.push_back(QString::fromStdString(entry.manifest.name+": "+setting.label+(*value?" on":" off")));
             }
@@ -28,9 +34,13 @@ std::vector<QJsonObject> Host::starter_presets() const {
         std::sort(profile.order.begin(),profile.order.end());
         QJsonArray order; QStringList names;
         for (const auto& [priority,id]:profile.order) { order.append(QString::fromStdString(id)); names.push_back(QString::fromStdString(entries_.at(id).manifest.name)); }
+        QStringList description{names.empty()?"No modules enabled":"Run order: "+names.join(" → ")};
+        if (!profile.enabled.empty()) description.push_back("Turns on: "+profile.enabled.join(", "));
+        if (!profile.disabled.empty()) description.push_back("Off: "+profile.disabled.join(", "));
+        if (!profile.details.empty()) description.push_back(profile.details.join("\n"));
         result.push_back({{"format","aurex-preset"},{"version",1},{"name",QString::fromStdString(name)},
             {"modules",profile.modules},{"order",order},
-            {"description",names.join(" → ")+"\n"+profile.details.join(" · ")}});
+            {"description",description.join("\n")}});
     }
     return result;
 }

@@ -11,6 +11,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSaveFile>
+#include <QPlainTextEdit>
 #include <QTimer>
 #include <QUuid>
 #include <QVBoxLayout>
@@ -35,12 +36,13 @@ void write(const QString& path,const QJsonObject& preset) {
 void show_presets(QWidget* parent,const QString& folder,std::function<QJsonObject()> capture,
     std::function<void(const QJsonObject&)> apply,std::function<bool()> busy,std::vector<QJsonObject> starters) {
     auto dialog=new QDialog(parent); dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setWindowTitle("Presets"); dialog->setWindowModality(Qt::WindowModal); dialog->setFixedSize(520,390);
+    dialog->setWindowTitle("Presets"); dialog->setWindowModality(Qt::WindowModal); dialog->resize(580,490);
     auto layout=new QVBoxLayout(dialog);
-    auto hint=new QLabel("Choose a starting point or a saved setup. Starting points change run order and gather interrupts; your fields, equipment and selected tasks stay as they are.");
+    auto hint=new QLabel("Built-in routines apply the module states, priorities and limits shown below. They keep your fields, patterns, equipment and task selections. If no field is selected, Gathering starts in Sunflower when available. Saved setups restore their saved settings.");
     hint->setWordWrap(true); layout->addWidget(hint);
-    auto list=new QListWidget; layout->addWidget(list,1);
-    auto description=new QLabel; description->setWordWrap(true); description->setMinimumHeight(60); layout->addWidget(description);
+    auto list=new QListWidget; list->setMinimumHeight(100); layout->addWidget(list,1);
+    auto description=new QPlainTextEdit; description->setReadOnly(true); description->setFrameShape(QFrame::NoFrame);
+    description->setStyleSheet("background: transparent; border: none;"); description->setMinimumHeight(160); layout->addWidget(description,2);
     auto buttons=new QHBoxLayout;
     auto save=new QPushButton("Save as…"),load=new QPushButton("Apply"),import=new QPushButton("Import…"),export_file=new QPushButton("Export…"),remove=new QPushButton("Delete");
     for (auto button:{save,load,import,export_file,remove}) buttons->addWidget(button);
@@ -48,7 +50,7 @@ void show_presets(QWidget* parent,const QString& folder,std::function<QJsonObjec
     const auto refresh=[list,folder,starters] {
         list->clear();
         for (const auto& preset:starters) {
-            auto item=new QListWidgetItem(preset["name"].toString()+" · Starting point",list);
+            auto item=new QListWidgetItem(preset["name"].toString()+" · Built-in",list);
             item->setData(Qt::UserRole+1,preset);
         }
         for (const auto& path:QDir(folder).entryInfoList({"*.json"},QDir::Files,QDir::Name)) {
@@ -103,7 +105,8 @@ void show_presets(QWidget* parent,const QString& folder,std::function<QJsonObjec
     const auto state=[=] {
         const auto item=list->currentItem(); const bool builtin=item && item->data(Qt::UserRole+1).isValid();
         save->setEnabled(!busy()); load->setEnabled(item && !busy()); export_file->setEnabled(item); remove->setEnabled(item && !builtin);
-        description->setText(builtin?item->data(Qt::UserRole+1).toJsonObject()["description"].toString():QString{});
+        const auto preview=builtin?item->data(Qt::UserRole+1).toJsonObject()["description"].toString():QString{};
+        if (description->toPlainText()!=preview) description->setPlainText(preview);
     };
     auto timer=new QTimer(dialog); QObject::connect(timer,&QTimer::timeout,dialog,state); timer->start(250);
     QObject::connect(list,&QListWidget::itemSelectionChanged,dialog,state);

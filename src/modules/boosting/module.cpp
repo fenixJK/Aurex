@@ -108,6 +108,8 @@ extensions::Manifest module_manifest() {
     manifest.name="Boosting"; manifest.version="1.0.0";
     manifest.settings_version=4;
     manifest.description="Follow boosts, roll for a field and extend with glitter. Uses Gathering's field settings.";
+    manifest.setup_profiles={{"Honey farming",15,{{"follow",true},{"interrupt-gather",true}},{},{},"Follow boosts in your selected fields. Keeps your item limits."},
+        {"Quest progress",60,{},false},{"Materials",60,{},false}};
     manifest.permissions={automation::Permission::movement,automation::Permission::interact};
     manifest.requests={extensions::RequestService::fields};
     manifest.consumes={extensions::RequestService::stations};

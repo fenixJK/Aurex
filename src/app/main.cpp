@@ -515,7 +515,7 @@ public:
             refresh();
             if (!selected()) throw std::runtime_error("Open Roblox with the target visible first");
             if (!desktop_->permissions().capture) throw std::runtime_error("Screen capture permission is required");
-            return hive::app::pick_window_point(desktop_->capture(selected()),QString::fromStdString(prompt),this);
+            return hive::app::pick_window_point(*desktop_,desktop_->inspect(selected()).window,QString::fromStdString(prompt),this);
         },[this](const std::string& id,QWidget* parent)->QWidget* {
             return id=="hive.native-accounts"?new hive::features::accounts::Page(native_modules_.accounts,parent):nullptr;
         });

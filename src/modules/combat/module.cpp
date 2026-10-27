@@ -307,8 +307,9 @@ Settings migrate_settings(int version,const Settings& values,const Plan& plan) {
 }
 extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string provider,bool requests) {
     auto manifest=features::visits::manifest(visit_plan(plan),std::move(id),std::move(provider),"Combat",permissions);
-    manifest.setup_profiles={{"Honey farming",50,{{"interrupt-gather",false}}},
-        {"Quest progress",20,{{"interrupt-gather",true}}},{"Materials",10,{{"interrupt-gather",true}}}};
+    manifest.setup_profiles={{"Honey farming",50,{{"interrupt-gather",false}},false},
+        {"Quest progress",20,{{"interrupt-gather",true}},true,{},"Current-server fights for quests and your selected enemies."},
+        {"Materials",10,{{"interrupt-gather",true}},true,{},"Current-server fights for your selected enemies when due. Choose mobs on Combat."}};
     manifest.enabled_by_default=true;
     for(auto& setting:manifest.settings) if(setting.id=="interrupt-gather")
         setting.help="Allow ready Combat work to interrupt gathering. With Hop for night, more servers are almost always ready, so this can leave little gathering time. Turn off to finish active gathering first; due upkeep can run between server visits.";
@@ -353,6 +354,8 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     sections.push_back({"overview","Progress",{},{},true,2,true});
     for (auto& section:sections) section.inline_labels=true;
     for (auto setting:option_settings(plan)) manifest.settings.push_back(std::move(setting));
+    if (std::any_of(manifest.settings.begin(),manifest.settings.end(),[](const auto& setting) { return setting.id=="vicious-servers"; }))
+        for (auto& profile:manifest.setup_profiles) if (profile.enabled.value_or(false)) profile.settings["vicious-servers"]=std::string("Current server");
     for (const auto& enemy:plan.enemies) if (!enemy.boss)
         for (auto& setting:manifest.settings) if (setting.id==option_key("loot",enemy.id)) setting.enabled_by=features::visits::selection_key(enemy.id);
     if (manifest.settings.size()>maximum_settings) throw std::invalid_argument("Too many Combat settings");
