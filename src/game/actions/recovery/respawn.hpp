@@ -8,5 +8,6 @@ namespace hive::automation {
 struct RespawnResult { Observation<bool> transition; };
 std::unique_ptr<Program> request_respawn(std::shared_ptr<const game::RespawnSource> source,
     std::shared_ptr<RespawnResult> result={});
-std::unique_ptr<Program> wait_for_respawn(std::shared_ptr<const game::RespawnSource> source);
+std::unique_ptr<Program> wait_for_respawn(std::shared_ptr<const game::RespawnSource> source,
+    std::shared_ptr<RespawnResult> result={});
 }

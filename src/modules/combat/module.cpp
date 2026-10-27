@@ -107,6 +107,7 @@ class CombatModule final : public extensions::Module {
     Time hop_limit_{};
     std::uint64_t hunt_session_{};
     std::string hunt_id_;
+    SettingSelection hunt_fields_;
 public:
     CombatModule(const extensions::Manifest& manifest,const Plan& plan,const Plan& available,Builder build,std::shared_ptr<MondoTrip> trip,std::optional<vichop::Services> hopping,std::shared_ptr<visits::Cooldowns> saved)
         :visits_(manifest),available_(visit_plan(plan),visit_plan(available)),options_(option_settings(plan)),build_(std::move(build)),trip_(std::move(trip)),clock_(plan.wall_clock),hopping_(std::move(hopping)),hunt_(std::make_shared<vichop::Controller>(manifest.id)),saved_(std::move(saved)) {
@@ -160,7 +161,7 @@ public:
                 if(hop_enabled_) {
                     if(!hopping_ || !hopping_->servers || !hopping_->daylight || !hopping_->arrival || !hopping_->joined_setup)
                         throw std::invalid_argument("Vicious server hopping needs server arrival and night detection");
-                    hopping_->enemy.hunt_fields=hunt.fields;
+                    hunt_fields_=select_hunt_fields(hopping_->enemy.hunt_fields,hunt.fields);
                     hopping_->enemy.fight.duration=choice.fight_limit;
                     if(saved_)hopping_->confirmed=[saved=saved_,id=target.id](const ObservationContext& context) {
                         saved->remember(id,context.now,context.now+std::chrono::hours(22),true,context);
@@ -281,7 +282,9 @@ public:
             // Each server visit remains bounded; Forever removes the session cap,
             // without bypassing normal recovery or scheduler handoffs.
             const auto remaining=hop_limit_>Time{}?std::max(Time(1000),hop_limit_-hunt_->read().elapsed):Time(std::chrono::hours(8));
-            return vichop::visit(*hopping_,hunt_,remaining);
+            auto services=*hopping_;
+            services.enemy.hunt_fields=hunt_fields_;
+            return vichop::visit(std::move(services),hunt_,remaining);
         }
         return delegate_->program();
     }
@@ -388,7 +391,13 @@ extensions::Factory module_factory(Plan plan,automation::NavigationServices navi
     features::visits::factory(visit_plan(plan),navigation,availability,permissions,demand);
     if (configuration) for (auto& enemy:configuration->enemies) {
         const auto available=std::find_if(plan.enemies.begin(),plan.enemies.end(),[&](const auto& item) { return item.id==enemy.id; });
-        if (available!=plan.enemies.end()) enemy=*available;
+        if (available!=plan.enemies.end()) {
+            // Keep the saved-settings schema independent of current access.
+            // The executable plan filters selected fields against real routes.
+            auto fields=std::move(enemy.hunt_fields);
+            enemy=*available;
+            enemy.hunt_fields=std::move(fields);
+        }
     }
     const auto display=std::make_shared<const Plan>(configuration?std::move(*configuration):plan);
     const auto defaults=std::make_shared<const Plan>(std::move(plan));

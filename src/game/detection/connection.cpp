@@ -80,7 +80,8 @@ ConnectionView read_connection_view(const Frame& frame,std::uint64_t generation,
     }
     if (!game_visible && resource_hud_behind_menu(frame)) {
         const auto menu=read_respawn_menu(frame,generation);
-        if (menu.knowledge==Knowledge::present && menu.value.screen==RespawnScreen::menu) {
+        if (menu.knowledge==Knowledge::present
+            && (menu.value.screen==RespawnScreen::menu || menu.value.screen==RespawnScreen::confirmation)) {
             result.connection={Knowledge::present,Connection::connected,frame.captured,frame.window,generation};
             result.home={Knowledge::present,false,frame.captured,frame.window,generation};
             return result;

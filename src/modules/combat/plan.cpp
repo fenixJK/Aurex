@@ -41,6 +41,15 @@ std::shared_ptr<const automation::AvailabilitySource> availability_for(const Pla
     for (const auto& enemy:plan.enemies) if (!enemy.hunt_fields.empty()) hunts.insert(enemy.id);
     return std::make_shared<Availability>(std::move(identities),std::move(source),std::move(hunts));
 }
+std::vector<std::string> select_hunt_fields(const std::vector<std::string>& available,const SettingSelection& fields) {
+    std::vector<std::string> selected; std::set<std::string> seen;
+    for (const auto& field:fields) {
+        if (!seen.insert(field).second) throw std::invalid_argument("Duplicate hunt field");
+        if (std::find(available.begin(),available.end(),field)!=available.end()) selected.push_back(field);
+    }
+    if (selected.empty()) throw std::invalid_argument("Select a reachable Vicious search field");
+    return selected;
+}
 automation::VisitPlan visit_plan(Plan plan) {
     if (plan.options.respawn_reduction<0 || plan.options.respawn_reduction>100)
         throw std::invalid_argument("Respawn reduction must be between 0 and 100 percent");
@@ -112,13 +121,7 @@ automation::VisitPlan visit_plan(Plan plan) {
                 enemy.fight.duration=enemy.session_limit+Time(15000);
             } else if (const auto* hunt=std::get_if<HuntOptions>(&options->second.boss)) {
                 if (enemy.hunt_fields.empty()) throw std::invalid_argument("Hunt preferences need a hunting target");
-                std::vector<std::string> selected; std::set<std::string> seen;
-                for (const auto& field:hunt->fields) {
-                    if (!seen.insert(field).second) throw std::invalid_argument("Duplicate hunt field");
-                    if (std::find(enemy.hunt_fields.begin(),enemy.hunt_fields.end(),field)!=enemy.hunt_fields.end()) selected.push_back(field);
-                }
-                if (selected.empty()) throw std::invalid_argument("Select a reachable Vicious search field");
-                enemy.hunt_fields=std::move(selected);
+                enemy.hunt_fields=select_hunt_fields(enemy.hunt_fields,hunt->fields);
                 if (hunt->daily_only) defeat_cooldown=std::chrono::hours(22);
             } else if (const auto* beetle=std::get_if<BeetleOptions>(&options->second.boss)) {
                 if (enemy.species!="King Beetle") throw std::invalid_argument("Beetle preferences need King Beetle");

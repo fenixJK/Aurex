@@ -20,9 +20,8 @@ cv::Mat ink(const cv::Mat& rgba,Ink mode) {
 }
 // Compare complete fixed words across font scales. Color thresholds tolerate
 // antialiasing/compression; the word shapes, rather than single pixels, identify the event.
-std::vector<int> label_rows(const cv::Mat& mask,const cv::Mat& label,double low,double high,double threshold=.72) {
-    std::vector<int> rows;
-    if (mask.empty() || cv::countNonZero(mask)<20) return rows;
+bool label_matches(const cv::Mat& mask,const cv::Mat& label,double low,double high,double threshold=.72) {
+    if (mask.empty() || cv::countNonZero(mask)<20) return false;
     cv::Mat softened;cv::GaussianBlur(mask,softened,{3,3},.6);
     for (double scale=low;scale<=high+.001;scale+=.1) {
         cv::Mat pattern,score;
@@ -30,15 +29,10 @@ std::vector<int> label_rows(const cv::Mat& mask,const cv::Mat& label,double low,
         if (pattern.rows>mask.rows || pattern.cols>mask.cols || pattern.rows<6) continue;
         cv::GaussianBlur(pattern,pattern,{3,3},.6);
         cv::matchTemplate(softened,pattern,score,cv::TM_CCOEFF_NORMED);
-        for (int y=0;y<score.rows;++y) {
-            double best{};cv::minMaxLoc(score.row(y),nullptr,&best);
-            if (best>=threshold) rows.push_back(y);
-        }
+        double best{};cv::minMaxLoc(score,nullptr,&best);
+        if (best>=threshold) return true;
     }
-    std::sort(rows.begin(),rows.end());
-    std::vector<int> distinct;
-    for (int y:rows) if (distinct.empty() || y-distinct.back()>6) distinct.push_back(y);
-    return distinct;
+    return false;
 }
 struct LocalEvidence { bool visible{},toast{}; };
 LocalEvidence local_evidence(const Frame& frame) {
@@ -67,7 +61,7 @@ LocalEvidence local_evidence(const Frame& frame) {
         if (bottom<=y || right<=x || bar.width<35 || bar.height<6) continue;
         const auto text=ink(area(cv::Rect(x,y,right-x,bottom-y)),Ink::light);
         const auto scale=bar.height/20.;
-        if (!label_rows(text,detail::vicious_name(),std::max(.6,scale*.7),std::min(2.,scale*1.3),.70).empty()) {
+        if (label_matches(text,detail::vicious_name(),std::max(.6,scale*.7),std::min(2.,scale*1.3),.70)) {
             result.visible=true; break;
         }
     }
@@ -83,7 +77,7 @@ LocalEvidence local_evidence(const Frame& frame) {
     for(const auto& contour:contours) {
         const auto box=cv::boundingRect(contour);
         if(box.width<100 || box.height<9 || box.height>45 || box.width<box.height*6)continue;
-        if(!label_rows(ink(toast(box),Ink::dark),detail::vicious_toast(),.6,1.8).empty()) {result.toast=true;break;}
+        if(label_matches(ink(toast(box),Ink::dark),detail::vicious_toast(),.6,1.8)) {result.toast=true;break;}
     }
     return result;
 }
@@ -134,7 +128,7 @@ std::array<unsigned,2> notifications(const DetectionInput& input) {
         auto box=cv::boundingRect(contour);
         if(box.width<60 || box.height<5 || box.height>30 || box.width<box.height*6)continue;
         box=(box+cv::Size(4,4)-cv::Point(2,2))&cv::Rect(0,0,chat.cols,chat.rows);
-        if(!label_rows(red(box),detail::vicious_attack(),.6,1.8).empty())++announcements;
+        if(label_matches(red(box),detail::vicious_attack(),.6,1.8))++announcements;
     }
     counts[0]=std::max(counts[0],announcements);
     return counts;

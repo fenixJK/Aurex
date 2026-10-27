@@ -60,6 +60,7 @@ struct SnailOptions {
 struct CommandoOptions { int level{3}; bool until_defeated{}; int health{}; };
 struct BeetleOptions { bool keep_old{true}; };
 struct HuntOptions { SettingSelection fields; bool daily_only{}; };
+std::vector<std::string> select_hunt_fields(const std::vector<std::string>& available,const SettingSelection& selected);
 int commando_health(int level);
 std::unique_ptr<automation::Program> wait_for_buff(std::string location,std::string buff,std::shared_ptr<const game::DetectionSource> source,double speed,std::vector<workflows::CheckpointPlan> entry={});
 std::unique_ptr<automation::Program> wait_for_spawn(std::string location,Time deadline,std::function<Time()> clock,double speed);

@@ -58,17 +58,23 @@ public:
 };
 class AwaitRespawn final : public Program {
     std::shared_ptr<const game::RespawnSource> source_;
+    std::shared_ptr<RespawnResult> result_;
     Time started_{Time(-1)};
     RespawnCompletion completion_{true};
 public:
-    explicit AwaitRespawn(std::shared_ptr<const game::RespawnSource> source):source_(std::move(source)) {
+    AwaitRespawn(std::shared_ptr<const game::RespawnSource> source,std::shared_ptr<RespawnResult> result)
+        :source_(std::move(source)),result_(std::move(result)) {
         if (!source_) throw std::invalid_argument("Respawn wait needs game observations");
+        if (result_) *result_={};
     }
     RunConfig config() const override { return {Time(30000),28,{},true,true}; }
     bool expects_respawn() const noexcept override { return true; }
     Step next(const View& view) override {
         if (started_<Time{}) started_=view.context.now;
-        if (completion_.ready(view,source_->read(view.context),started_,started_)) return Done{"Game view returned after respawn"};
+        if (completion_.ready(view,source_->read(view.context),started_,started_)) {
+            if (result_) result_->transition={Knowledge::present,true,view.context.now,view.context.window,view.context.generation};
+            return Done{"Game view returned after respawn"};
+        }
         if (view.context.now-started_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return the game view; rejoining Bee Swarm");
         return Wait{Time(100),"Waiting for player respawn"};
     }
@@ -200,5 +206,7 @@ public:
 std::unique_ptr<Program> request_respawn(std::shared_ptr<const game::RespawnSource> source,std::shared_ptr<RespawnResult> result) {
     return std::make_unique<Respawn>(std::move(source),std::move(result));
 }
-std::unique_ptr<Program> wait_for_respawn(std::shared_ptr<const game::RespawnSource> source) { return std::make_unique<AwaitRespawn>(std::move(source)); }
+std::unique_ptr<Program> wait_for_respawn(std::shared_ptr<const game::RespawnSource> source,std::shared_ptr<RespawnResult> result) {
+    return std::make_unique<AwaitRespawn>(std::move(source),std::move(result));
+}
 }

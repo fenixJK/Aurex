@@ -24,12 +24,11 @@ public:
     std::string activity_label() const override { return reentry_==Reentry::reconnect?"Rejoining Bee Swarm":"Returning to hive"; }
     bool expects_respawn() const noexcept override { return phase_==0; }
     bool expects_reconnect() const noexcept override { return reentry_==Reentry::reconnect && !phase_; }
-    ProgramFactory recovery(Interruption reason,const View& view) override {
+    ProgramFactory recovery(Interruption reason,const View&) override {
         if (reason!=Interruption::death) return {};
-        if (reset_result_) reset_result_->transition={Knowledge::present,true,view.context.now,view.context.window,view.context.generation};
         result_->invalidate_camera();
         phase_=1;
-        return [source=respawn_] { return wait_for_respawn(source); };
+        return [source=respawn_,result=reset_result_] { return wait_for_respawn(source,result); };
     }
     Step next(const View& view) override {
         if (!phase_) {
@@ -175,12 +174,12 @@ public:
         if (reason!=Interruption::death) reserve_reset();
         if (child_) child_->finished(State::stopped);
         child_.reset(); child_guard_.reset(); child_running_.reset();
-        reset_result_=reason==Interruption::death?nullptr:std::make_shared<RespawnResult>(); verify_spawn_=false;
+        reset_result_=std::make_shared<RespawnResult>(); verify_spawn_=false;
         if (options_.result) options_.result->invalidate_camera();
         stage_=Stage::locate; started_=turned_=issued_=false; recovered_=true; options_.confirmed_spawn=false;
         seen_=away_since_=Time(-1);
         return [source=options_.recovery,reason,result=reset_result_] {
-            return reason==Interruption::death?wait_for_respawn(source):request_respawn(source,result);
+            return reason==Interruption::death?wait_for_respawn(source,result):request_respawn(source,result);
         };
     }
     Step recover(const View& view) {
@@ -384,9 +383,12 @@ std::unique_ptr<Program> recover_to_hive(std::shared_ptr<const game::HiveSlotsSo
     std::shared_ptr<const game::LandmarkSource> proximity,HiveClaimOptions options) {
     if (!options.recovery) throw std::invalid_argument("Death recovery needs game observations");
     options.confirmed_spawn=false; options.after_respawn=true;
+    auto reset_result=std::make_shared<RespawnResult>();
     acquire_hive(slots,spawn,reference,proximity,options);
-    return std::make_unique<RespawnToHive>([source=options.recovery] { return wait_for_respawn(source); },
-        [slots,spawn,reference,proximity,options] { return acquire_hive(slots,spawn,reference,proximity,options); },options.recovery,options.result,options.speed,Reentry::respawn);
+    return std::make_unique<RespawnToHive>([source=options.recovery,reset_result] { return wait_for_respawn(source,reset_result); },
+        [slots,spawn,reference,proximity,options,reset_result] {
+            return std::make_unique<AcquireHive>(slots,spawn,reference,proximity,options,HiveStart::locate,reset_result);
+        },options.recovery,options.result,options.speed,Reentry::respawn,reset_result);
 }
 
 std::unique_ptr<Program> reconnect_to_hive(std::shared_ptr<const game::HiveSlotsSource> slots,

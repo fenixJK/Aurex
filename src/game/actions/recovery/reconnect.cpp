@@ -36,9 +36,13 @@ public:
             return UseControl{target,0,"Reconnect to game"};
         }
         const auto game_view=source_->read(c);
-        if (state.connection.has_value(c,Time(2000),minimum_) && state.connection.value==game::Connection::connected
-            && game_view.has_value(c,Time(2000),minimum_) && game_view.value.screen==game::RespawnScreen::menu) {
-            if (c.now<retry_at_) return Wait{Time(100),"Waiting for the game menu to close"};
+        const bool menu=game_view.has_value(c,Time(2000),minimum_)
+            && (game_view.value.screen==game::RespawnScreen::menu || game_view.value.screen==game::RespawnScreen::confirmation);
+        if (menu) {
+            // The HUD remains visible behind these menus. Do not hand off to
+            // hive setup while connection detection is still catching up.
+            if (!state.connection.has_value(c,Time(2000),minimum_) || state.connection.value!=game::Connection::connected
+                || c.now<retry_at_) return Wait{Time(100),"Waiting for the game menu to close"};
             issued_=resuming_=true;
             return TapMenuKey{Key::game_menu,"Resume loaded game"};
         }
