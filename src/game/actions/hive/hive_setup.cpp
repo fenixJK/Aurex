@@ -121,7 +121,7 @@ public:
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
         case Stage::pitch_limit: return MoveCamera{game::pitch_limit(Key::pitch_up)};
         case Stage::pitch: return MoveCamera{{Key::pitch_down,4}};
-        case Stage::turn: return MoveCamera{{Key::rotate_right,turns_?1u:4u,Time(100),Time(50)}};
+        case Stage::turn: return MoveCamera{{Key::rotate_right,turns_==0?4u:turns_==4?2u:1u,Time(100),Time(50)}};
         case Stage::lower: return MoveCamera{{Key::pitch_down,1}};
         case Stage::raise: return MoveCamera{{Key::pitch_up,1}};
         case Stage::reference: return AdoptHeading{0,heading_};
@@ -141,12 +141,11 @@ public:
                 stage_=Stage::reference;
                 return next(view);
             }
-            // Try the opposite spawn direction first. If it misses, inspect
-            // both pitches at each heading during one full correction sweep.
-            // Only a fresh honeycomb match establishes the heading.
-            if (!turns_) stage_=Stage::turn;
-            else if (!lowered_) stage_=Stage::lower;
-            else if (turns_<=8) stage_=Stage::raise;
+            // Check both pitches before abandoning a heading. Then try the
+            // opposite direction and each remaining heading once, skipping
+            // the original direction already checked: 0,4,5,6,7,1,2,3.
+            if (!lowered_) stage_=Stage::lower;
+            else if (turns_<7) stage_=Stage::raise;
             else throw HiveAlignmentError("Hive reference was not found at either camera pitch");
             return next(view);
         }

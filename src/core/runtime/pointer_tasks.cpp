@@ -12,12 +12,16 @@ std::string PointerTasks::submit(ModuleScope scope,TaskClass kind,std::vector<Ac
     if (kind!=TaskClass::interaction || !id_.empty() || actions.empty() || actions.size()>8 || results_.size()>8
         || lifetime<Time(1) || lifetime>Time(10000)) throw std::invalid_argument("Invalid concurrent pointer task");
     Time duration{};
+    bool positioned=false;
     for (const auto& action:actions) {
-        if (!action.pointer || action.pointer_to || action.pacing || action.continue_movement || action.tap
+        // Subsequent actions may use the position established in this batch,
+        // as in the main executor. Never inherit an unrelated cursor position.
+        positioned=positioned || action.pointer.has_value();
+        if (!positioned || action.pointer_to || action.pacing || action.continue_movement || action.tap
             || (action.held!=std::vector<Key>{} && action.held!=std::vector{Key::primary})
             || action.duration<Time(1) || action.duration>Time(250) || action.scroll<-8 || action.scroll>8
-            || (action.scroll && !action.held.empty()) || !std::isfinite(action.pointer->x) || !std::isfinite(action.pointer->y)
-            || action.pointer->x<0 || action.pointer->x>=1 || action.pointer->y<0 || action.pointer->y>=1)
+            || (action.scroll && !action.held.empty()) || (action.pointer && (!std::isfinite(action.pointer->x) || !std::isfinite(action.pointer->y)
+            || action.pointer->x<0 || action.pointer->x>=1 || action.pointer->y<0 || action.pointer->y>=1)))
             throw std::invalid_argument("Concurrent pointer work only supports bounded clicks and scrolling");
         duration+=action.duration;
     }
@@ -52,7 +56,8 @@ void PointerTasks::tick(Input& input,const Window& window,Time now,bool can_star
     }
     const auto& action=actions_.at(index_);
     const auto began=std::chrono::steady_clock::now();
-    input.pointer({window.bounds.x+action.pointer->x*window.bounds.width,window.bounds.y+action.pointer->y*window.bounds.height});
+    if (action.pointer)
+        input.pointer({window.bounds.x+action.pointer->x*window.bounds.width,window.bounds.y+action.pointer->y*window.bounds.height});
     now+=std::chrono::duration_cast<Time>(std::chrono::steady_clock::now()-began);
     now_=now;
     if (!action.held.empty()) { pressed_=true; input.key(Key::primary,true); }

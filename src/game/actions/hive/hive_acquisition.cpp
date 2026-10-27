@@ -244,10 +244,19 @@ public:
         case Stage::pitch: return MoveCamera{{Key::pitch_up,5}};
         case Stage::turn: return MoveCamera{{Key::rotate_right,4}};
         case Stage::locate: {
-            // An unseen death is not a confirmed hive arrival. Survey from the
-            // stationary game view, and require the spawn reference before
-            // walking. A hive prompt alone cannot authorize this fallback.
-            if (verify_spawn_ && !options_.confirmed_spawn) { stage_=Stage::zoom; return next(view); }
+            // Missing the death frame does not imply an unclaimed spawn. A
+            // fresh owned-hive prompt can enter camera alignment; its visual
+            // reference must still succeed before any departure is allowed.
+            if (verify_spawn_ && !options_.confirmed_spawn) {
+                if (view.observations) {
+                    const auto& text=view.observations->text;
+                    const auto owned=game::read_prompt_landmark(c,text,game::hive_proximity_prompt());
+                    const auto claim=game::read_prompt_landmark(c,text,game::hive_claim_prompt());
+                    if (owned.has_value(c,Time(2000)) && owned.value && !claim.value)
+                        return prepare_owned(view,owned);
+                }
+                stage_=Stage::zoom; return next(view);
+            }
             if (options_.confirmed_spawn) {
                 if (view.observations && view.observations->game_hud.has_value(c,Time(2000)) && view.observations->game_hud.value) {
                     stage_=Stage::zoom; return next(view);
@@ -294,7 +303,7 @@ public:
         }
         case Stage::observe: break;
         }
-        if (view.observations && !options_.confirmed_spawn && !verify_spawn_) {
+        if (view.observations && !options_.confirmed_spawn) {
             const auto& text=view.observations->text;
             const auto owned=game::read_prompt_landmark(c,text,game::hive_proximity_prompt());
             const auto claim=game::read_prompt_landmark(c,text,game::hive_claim_prompt());

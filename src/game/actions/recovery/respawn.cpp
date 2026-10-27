@@ -87,7 +87,7 @@ class Respawn final : public Program {
         if (result_) result_->transition={Knowledge::present,confirmed,view.context.now,
             view.context.window,view.context.generation};
         stage_=Stage::done;
-        return Done{confirmed?"Respawn finished; confirming the hive":"Reset transition unseen; checking the spawn location"};
+        return Done{confirmed?"Respawn finished; confirming the hive":"Reset transition unseen; checking the return location"};
     }
     Step retry(Time now,std::string reason) {
         if (retried_) throw ClientRejoinRequired("Reset could not be verified after retrying; rejoining Bee Swarm");

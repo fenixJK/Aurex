@@ -67,7 +67,10 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
             minimum_=result.finished+Time(1); frame_=Time(-1); stage_=InventoryStage::searching;
         }
         if (!pending_.empty()) return;
-        if (!reading.has_value(c,Time(2000),minimum_)) return;
+        if (!reading.has_value(c,Time(2000),minimum_)) {
+            reason_="Waiting for a fresh inventory view";
+            return;
+        }
         game::validate(reading.value); const auto& view=reading.value;
         const game::InventoryItem* selected=nullptr;
         for (const auto& item : view.items) if (std::any_of(plan_.names.begin(),plan_.names.end(),[&](const auto& name) { return game::inventory_name(name)==game::inventory_name(item.name); })) {
@@ -90,7 +93,11 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
             if (scrolls_>=plan_.max_scrolls) { fail("Inventory scroll limit reached"); return; }
             const Point hover{view.viewport.x+view.viewport.width*0.5,view.viewport.y+view.viewport.height*0.5};
             last_scroll_=amount;
-            pending_=tasks.submit(scope,TaskClass::interaction,{{"Scroll inventory",{},Time(150),hover,amount}},Time(2000));
+            // Let the game process the hover before routing wheel input to
+            // the panel. Moving and scrolling in the same instant can zoom
+            // the world instead of moving the inventory.
+            pending_=tasks.submit(scope,TaskClass::interaction,
+                {{"Move to inventory",{},Time(50),hover},{"Scroll inventory",{},Time(150),{},amount}},Time(2000));
             before_rows_.clear(); for (const auto& item:view.items) before_rows_.emplace(game::inventory_name(item.name),item.bounds.y);
             ++scrolls_; before_scroll_=current; stage_=InventoryStage::scrolling; reason_="Searching inventory";
         };

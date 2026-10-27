@@ -155,7 +155,12 @@ public:
         const ObservationContext context{frame.window,generation,frame.captured};
         const auto layout=layout_->read(input);
         if (layout.has_value(context,Time(0)) && layout.value.open) return {layout.value.viewport};
-        if (previous_.has_value(context,Time(2000)) && previous_.value.open) return {previous_.value.viewport};
+        // This is only a crop hint, never permission to use old item content.
+        // A slow initial OCR pass can outlive the normal observation age;
+        // throwing away its geometry repeats the larger sidebar search forever.
+        // Detection below revalidates the panel on every new frame, and the
+        // observation context rejects hints from a resized/replaced window.
+        if (previous_.has_value(context,Time::max()) && previous_.value.open) return {previous_.value.viewport};
         const auto sidebar=sidebar_region(input,MenuTab::inventory);
         return sidebar?std::vector<Rect>{*sidebar}:std::vector<Rect>{};
     }

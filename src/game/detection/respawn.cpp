@@ -84,8 +84,11 @@ Observation<RespawnView> read_respawn_menu(const Frame& f,std::uint64_t generati
 namespace {
 struct Packet final : Detection { Observation<RespawnView> view; };
 bool visible_game(const DetectionInput& input) {
-    return (game_hud_visible(input.frame,input.generation) || interaction_prompt_region(input.frame).has_value())
-        && connection_dialog_regions(input.frame).empty();
+    if (!game_hud_visible(input.frame,input.generation) && !interaction_prompt_region(input.frame)) return false;
+    // Gray scenery is only a candidate panel. Use the same verified dialog
+    // evidence as connection recovery before rejecting a loaded game.
+    const auto connection=read_connection_view(input.frame,input.generation,true).connection;
+    return connection.knowledge==Knowledge::present && connection.value==Connection::connected;
 }
 class RespawnDetector final : public Detector {
 public:
