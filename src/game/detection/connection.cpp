@@ -12,7 +12,7 @@ namespace hive::game {
 std::vector<Rect> connection_dialog_regions(const Frame& frame) {
     if (!frame.valid()) return {};
     const int step=std::max(1,frame.width/240),w=frame.width/step,h=frame.height/step;
-    cv::Mat neutral(h,w,CV_8UC1,cv::Scalar(0)),dark(h,w,CV_8UC1,cv::Scalar(0));
+    cv::Mat neutral(h,w,CV_8UC1,cv::Scalar(0)),dark(h,w,CV_8UC1,cv::Scalar(0)),shade(h,w,CV_8UC1,cv::Scalar(255));
     for (int y=h/6;y<h*9/10;++y) for (int x=w/10;x<w*9/10;++x) {
         const auto i=(std::size_t(y*step)*frame.width+x*step)*4;
         const auto lo=std::min({frame.rgba[i],frame.rgba[i+1],frame.rgba[i+2]});
@@ -22,21 +22,37 @@ std::vector<Rect> connection_dialog_regions(const Frame& frame) {
         // Isolate the dark panel before considering other neutral surfaces.
         // The broader mask can merge it with the blurred world behind it.
         dark.at<unsigned char>(y,x)=gray && hi<=70?255:0;
+        if (gray) shade.at<unsigned char>(y,x)=hi;
     }
     // Remove narrow contacts with scenery at different capture scales.
     cv::morphologyEx(dark,dark,cv::MORPH_OPEN,cv::Mat::ones(3,3,CV_8UC1));
-    for (const auto& mask:{dark,neutral}) {
+    std::vector<cv::Mat> masks{dark,neutral};
+    // A disconnect can cover Roblox's dark, blurred menu. Both broad masks
+    // can merge those surfaces, so also isolate flat panels by shade. The
+    // overlapping bands tolerate antialiasing without choosing one UI color.
+    for (int low=16;low<=64;low+=8) {
+        cv::Mat mask;cv::inRange(shade,low,low+16,mask);
+        cv::morphologyEx(mask,mask,cv::MORPH_OPEN,cv::Mat::ones(3,3,CV_8UC1));
+        masks.push_back(std::move(mask));
+    }
+    std::vector<Rect> regions;
+    for (const auto& mask:masks) {
         std::vector<std::vector<cv::Point>> contours;
         cv::findContours(mask,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
         for (const auto& contour:contours) {
             const auto box=cv::boundingRect(contour);
             if (box.width>=w*.2 && box.width<w*.79 && box.height>=h*.12 && box.height<h*.7
                 && box.width>box.height && std::abs(box.x+box.width*.5-w*.5)<w*.12
-                && box.y<h*.6 && box.y+box.height>h*.4 && cv::contourArea(contour)>=box.area()*.8)
-                return {{double(box.x*step)/frame.width,double(box.y*step)/frame.height,double(box.width*step)/frame.width,double(box.height*step)/frame.height}};
+                && box.y<h*.6 && box.y+box.height>h*.4 && cv::contourArea(contour)>=box.area()*.8) {
+                const Rect region{double(box.x*step)/frame.width,double(box.y*step)/frame.height,double(box.width*step)/frame.width,double(box.height*step)/frame.height};
+                if (std::none_of(regions.begin(),regions.end(),[&](const auto& prior) {
+                    return std::abs(prior.x-region.x)*frame.width<=step*2 && std::abs(prior.y-region.y)*frame.height<=step*2
+                        && std::abs(prior.width-region.width)*frame.width<=step*2 && std::abs(prior.height-region.height)*frame.height<=step*2;
+                })) regions.push_back(region);
+            }
         }
     }
-    return {};
+    return regions;
 }
 
 ConnectionView read_connection_view(const Frame& frame,std::uint64_t generation,bool game_visible) {
