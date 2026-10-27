@@ -68,7 +68,7 @@ class AcquireHive final : public Program {
     bool turned_{},issued_{};
     bool started_{},recovered_{};
     std::shared_ptr<RespawnResult> reset_result_;
-    bool verify_spawn_{};
+    bool verify_spawn_{},reset_at_spawn_{};
     unsigned resets_{};
     void reserve_reset() {
         if (resets_>=2) throw ClientRejoinRequired("Hive position could not be confirmed after retrying resets; rejoining Bee Swarm");
@@ -122,7 +122,7 @@ class AcquireHive final : public Program {
             child_->finished(State::completed); child_.reset(); child_guard_.reset();
             if (stage_==Stage::recover) {
                 verify_spawn_=unconfirmed_reset(view.context);
-                recovered_=true; turned_=false; options_.confirmed_spawn=false; stage_=Stage::locate; minimum_=view.context.now+Time(1);
+                recovered_=true; turned_=false; options_.confirmed_spawn=reset_at_spawn_; stage_=Stage::locate; minimum_=view.context.now+Time(1);
                 seen_=away_since_=Time(-1); return Wait{};
             }
             if (stage_==Stage::claim) {
@@ -186,6 +186,9 @@ public:
     Step recover(const View& view) {
         if (!options_.recovery) throw ObservationUnavailable("Hive position could not be found");
         reserve_reset();
+        // A stationary direction survey cannot lose a known unclaimed spawn.
+        // Once claiming/preparation has moved us, location must be established again.
+        reset_at_spawn_=options_.confirmed_spawn && stage_!=Stage::claim && stage_!=Stage::prepare;
         if (options_.result) options_.result->begin_preparation(view.context);
         begin(Stage::recover,view);
         if (resets_>1) return ReportActivity{{"Retrying reset","Hive position was not confirmed after respawn"}};
@@ -244,12 +247,12 @@ public:
             // An unseen death is not a confirmed hive arrival. Survey from the
             // stationary game view, and require the spawn reference before
             // walking. A hive prompt alone cannot authorize this fallback.
-            if (verify_spawn_) { stage_=Stage::zoom; return next(view); }
+            if (verify_spawn_ && !options_.confirmed_spawn) { stage_=Stage::zoom; return next(view); }
             if (options_.confirmed_spawn) {
                 if (view.observations && view.observations->game_hud.has_value(c,Time(2000)) && view.observations->game_hud.value) {
                     stage_=Stage::zoom; return next(view);
                 }
-                if (c.now-minimum_>=Time(120000)) throw ClientRejoinRequired("Bee Swarm did not finish loading");
+                if (c.now-minimum_>=game_loading_timeout) throw ClientRejoinRequired("Bee Swarm did not finish loading");
                 return Wait{Time(100),"Waiting for Bee Swarm to load"};
             }
             const auto wait_for_prompt=[&]() -> Step {
@@ -300,9 +303,17 @@ public:
                 return prepare_owned(view,owned);
             }
         }
+        if (c.now<minimum_) return Wait{Time(50),"Settling spawn camera"};
         if (c.now-minimum_>=Time(5000)) return recover(view);
         const auto source=options_.confirmed_spawn && options_.spawn_direction?options_.spawn_direction:spawn_;
-        const auto reading=source->read(c);
+        auto reading=source->read(c);
+        if (source!=spawn_ && !reading.usable(c,Time(2000),minimum_)) {
+            // Direction is a fast path, not a veto of stronger spawn evidence.
+            // A missing strict reference says nothing about yaw, so only use a
+            // fresh positive fallback; never turn on its negative result.
+            const auto reference=spawn_->read(c);
+            if (reference.has_value(c,Time(2000),minimum_) && reference.value) reading=reference;
+        }
         if (reading.usable(c,Time(2000),minimum_) && reading.captured>seen_) {
             seen_=reading.captured;
             if (reading.knowledge==Knowledge::present && reading.value) {

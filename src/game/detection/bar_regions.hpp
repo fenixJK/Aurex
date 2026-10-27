@@ -34,15 +34,25 @@ template<class Color> std::vector<Rect> bar_regions(const Frame& frame,Color col
         // nearby fragments with the same top and height; the caller still has
         // to recognize the label before treating a candidate as evidence.
         std::sort(boxes.begin(),boxes.end(),[](auto a,auto b) { return a.x<b.x; });
-        for (std::size_t i=0;i<boxes.size();++i) for (std::size_t j=i+1;j<boxes.size();) {
+        std::vector<bool> merged(boxes.size());
+        for (std::size_t i=0;i<boxes.size();++i) {
+          if (merged[i]) continue;
+          for (std::size_t j=i+1;j<boxes.size();++j) {
+            if (merged[j]) continue;
             const auto a=boxes[i],b=boxes[j];
             const int height=std::max(a.height,b.height),gap=b.x-(a.x+a.width);
             if (gap>frame.height*.24) break;
-            if (gap>height*3) { ++j; continue; }
+            if (gap>height*3) continue;
             if (gap>=0 && std::abs(a.y-b.y)<=height*.25 && std::abs(a.height-b.height)<=height*.25) {
-                boxes[i]|=b;boxes.erase(boxes.begin()+j);
-            } else ++j;
+                boxes[i]|=b;merged[j]=true;
+            }
+          }
         }
+        // Compact once rather than moving every remaining candidate for each
+        // merged fragment on a busy field.
+        std::size_t kept=0;
+        for (std::size_t i=0;i<boxes.size();++i) if (!merged[i]) boxes[kept++]=boxes[i];
+        boxes.resize(kept);
     }
     std::vector<Rect> result;
     for (const auto& b:boxes) {

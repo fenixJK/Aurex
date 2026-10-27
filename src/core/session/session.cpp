@@ -109,9 +109,9 @@ Session::Session(Desktop& desktop): desktop_(desktop), observer_(desktop), runti
                             feature_->pause(monotonic_now(),runtime_.status().reason); runtime_.stop(feature_->progress().message);
                         } else feature_->stop(runtime_.status().reason);
                     }
-                    if (runtime_.status().state!=RunState::running) { window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); observer_.stop(); }
-                } catch (const std::exception& e) { runtime_.stop(e.what()); if (feature_) feature_->stop(e.what()); window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); observer_.stop(); }
-                catch (...) { runtime_.stop("Unexpected platform failure"); if (feature_) feature_->stop("Unexpected platform failure"); window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); observer_.stop(); }
+                    if (runtime_.status().state!=RunState::running) { window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); initial_join_.reset(); observer_.stop(); }
+                } catch (const std::exception& e) { runtime_.stop(e.what()); if (feature_) feature_->stop(e.what()); window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); initial_join_.reset(); observer_.stop(); }
+                catch (...) { runtime_.stop("Unexpected platform failure"); if (feature_) feature_->stop("Unexpected platform failure"); window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); initial_join_.reset(); observer_.stop(); }
             }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -143,7 +143,7 @@ void Session::resume() {
     runtime_.resume(now,snapshot);
     if (runtime_.status().state==RunState::running && observer_.has_detectors()) observer_.watch({snapshot.window,tasks_.generation(),now});
 }
-void Session::stop(std::string reason) { std::lock_guard lock(mutex_); if (feature_) feature_->stop(reason); runtime_.stop(std::move(reason)); window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); observer_.stop(); }
+void Session::stop(std::string reason) { std::lock_guard lock(mutex_); if (feature_) feature_->stop(reason); runtime_.stop(std::move(reason)); window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); initial_join_.reset(); observer_.stop(); }
 Status Session::status() { std::lock_guard lock(mutex_); return runtime_.status(); }
 SessionSnapshot Session::snapshot() {
     std::lock_guard lock(mutex_);
@@ -301,7 +301,10 @@ void Session::launch_feature(Window window,automation::Launch launch,Time now) {
         feature_->configure_conversion(hive_conversion_); feature_->configure_statistics(recovery_counts_);
         feature_->configure_connection_recovery(connection_reconnect_,connection_replacement_);
         feature_->allow_client_rejoin(rejoin_target_.has_value() && desktop_.client_lifecycle_available());
-        feature_->start({window,tasks_.generation(),now});
+        const auto joined=std::exchange(initial_join_,{});
+        const bool joining=joined && joined->first.process==window.process
+            && now>=joined->second && now-joined->second<automation::game_loading_timeout;
+        feature_->start({window,tasks_.generation(),now},joining);
         next_server_read_={};
         if (managed_ && requested_rejoin(now)) begin_client_rejoin(now,true);
         if (!client_rejoin_) observer_.watch({window,tasks_.generation(),now},observation_needs());

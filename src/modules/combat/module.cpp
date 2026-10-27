@@ -194,7 +194,7 @@ public:
         if(hop_enabled_ && view.status.state==RunState::running && hunt_session_!=view.session_id) {
             hunt_session_=view.session_id; hunt_->begin();
         }
-        if(view.status.state==RunState::stopped) hunt_->stop();
+        if(view.status.state==RunState::stopped || view.status.state==RunState::faulted) hunt_->stop();
         if (!connected_) { trip_->configure(public_mondo_,lead_,interrupt_); connected_=true; }
         delegate_->update(view);
         bool due=false;

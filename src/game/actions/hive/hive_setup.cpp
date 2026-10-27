@@ -20,8 +20,11 @@ void HiveSetupResult::clear_join() { std::lock_guard lock(mutex_); joined_.reset
 bool HiveSetupResult::consume_join(const ObservationContext& c) {
     std::lock_guard lock(mutex_);
     const auto joined=std::exchange(joined_,std::nullopt);
-    return joined && c.generation && c.window.id && c.window.id==joined->first.id
-        && c.window.process==joined->first.process && c.now>=joined->second && c.now-joined->second<Time(120000);
+    // Loading may replace the window within the same client process. Retain
+    // the join through the full loading budget plus its setup handoff.
+    return joined && c.generation && c.window.id && c.window.bounds.valid()
+        && c.window.process==joined->first.process && c.now>=joined->second
+        && c.now-joined->second<game_loading_timeout+Time(15000);
 }
 void HiveSetupResult::invalidate_camera() { std::lock_guard lock(mutex_); if (value_) value_->camera_prepared=false; }
 void HiveSetupResult::begin_preparation(const ObservationContext& c) {

@@ -37,6 +37,7 @@ public:
     void configure_rejoin_schedule(int hours,int minute=0);
     void configure_server_requests(std::shared_ptr<const game::RequestSource> requests);
     ClientRejoin connect_client(Time now,Window replace={});
+    void client_joined(const Window& window,Time now);
     void configure_connection_recovery(automation::ProgramFactory reconnect,automation::ProgramFactory replacement);
     void configure_conversion(std::shared_ptr<game::HiveConversion> conversion);
     void configure_hotbar(std::shared_ptr<automation::HotbarSource> source);
@@ -91,6 +92,7 @@ private:
     std::optional<WindowRecovery> window_recovery_;
     std::optional<game::JoinTarget> rejoin_target_;
     std::optional<ClientRejoin> client_rejoin_;
+    std::optional<std::pair<Window,Time>> initial_join_;
     std::shared_ptr<const game::RequestSource> server_requests_;
     std::optional<game::ServerGoal> requested_server_;
     std::string joined_server_,joining_server_;

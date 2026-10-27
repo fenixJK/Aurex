@@ -59,12 +59,6 @@ ConnectionView read_connection_view(const Frame& frame,std::uint64_t generation,
     ConnectionView result;
     if (!frame.valid() || !generation) return result;
     const auto regions=connection_dialog_regions(frame);
-    if (game_visible && regions.empty()) {
-        result.connection={Knowledge::present,Connection::connected,frame.captured,frame.window,generation};
-        result.reconnect={Knowledge::absent,{},frame.captured,frame.window,generation};
-        result.home={Knowledge::present,false,frame.captured,frame.window,generation};
-        return result;
-    }
     static constexpr std::array<std::string_view,3> dialog{"Disconnected","Connection Error","Reconnect"};
     for (const auto& region:regions) {
         const auto labels=fixed_ui_labels(frame,region,dialog,LabelInk::either);
@@ -76,6 +70,12 @@ ConnectionView read_connection_view(const Frame& frame,std::uint64_t generation,
             const auto& r=label.pixels;
             result.reconnect={Knowledge::present,{(r.x+r.width/2)/frame.width,(r.y+r.height/2)/frame.height},frame.captured,frame.window,generation};
         }
+        return result;
+    }
+    if (game_visible) {
+        result.connection={Knowledge::present,Connection::connected,frame.captured,frame.window,generation};
+        result.reconnect={Knowledge::absent,{},frame.captured,frame.window,generation};
+        result.home={Knowledge::present,false,frame.captured,frame.window,generation};
         return result;
     }
     if (!game_visible && resource_hud_behind_menu(frame)) {

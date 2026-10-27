@@ -44,11 +44,11 @@ struct LocalEvidence { bool visible{},toast{}; };
 LocalEvidence local_evidence(const Frame& frame) {
     // Only inspect the play area and notification stack. No OCR or other HUD decoding.
     const cv::Mat full(frame.height,frame.width,CV_8UC4,const_cast<std::uint8_t*>(frame.rgba.data()));
-    Frame small=frame;
+    Frame small{frame.window,frame.captured,frame.width,frame.height,{},frame.region};
     if (frame.width>1280) {
         cv::Mat scaled;cv::resize(full,scaled,{1280,int(std::lround(frame.height*1280./frame.width))},0,0,cv::INTER_AREA);
         small.width=scaled.cols;small.height=scaled.rows;small.rgba.assign(scaled.data,scaled.data+scaled.total()*4);
-    }
+    } else small.rgba=frame.rgba;
     const cv::Mat pixels(small.height,small.width,CV_8UC4,small.rgba.data());
     const auto world=small.crop({.05,.15,.9,.7});
     const cv::Mat area(world.height,world.width,CV_8UC4,const_cast<std::uint8_t*>(world.rgba.data()));

@@ -623,6 +623,7 @@ public:
                     const auto window=initial_join_->update(*desktop_,hive::monotonic_now());
                     if(!window) return;
                     window_id_=window->id; initial_join_.reset();
+                    session_.client_joined(*window,hive::monotonic_now());
                     hive_setup_->joined(*window,hive::monotonic_now());
                 }
                 auto snapshot=desktop_->inspect(selected());

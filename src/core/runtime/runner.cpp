@@ -101,9 +101,10 @@ void Runner::configure_connection_recovery(ProgramFactory reconnect,ProgramFacto
     connection_reconnect_=std::move(reconnect); connection_replacement_=std::move(replacement);
     startup_pending_=bool(connection_reconnect_) && permissions_.contains(Permission::interact);
 }
-void Runner::start(const ObservationContext& c) {
+void Runner::start(const ObservationContext& c,bool joining) {
     if (progress_.state!=State::ready || !c.window.id || !c.window.bounds.valid() || c.generation!=scope_.generation)
         throw std::logic_error("Feature needs a new program and valid session");
+    startup_joining_=startup_joining_ || joining;
     context_=c; speed_->start(c); last_=prerequisites_started_=c.now; clock_started_=!guard_; progress_.state=State::running; progress_.message="Running feature";
 }
 void Runner::clear_operations() {

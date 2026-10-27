@@ -41,6 +41,11 @@ ClientRejoin Session::connect_client(Time now,Window replace) {
     if(requested_server_ && requested_server_->expires>now) joined_server_=requested_server_->key;
     return ClientRejoin(*target,std::move(replace),desktop_.client_processes(),now);
 }
+void Session::client_joined(const Window& window,Time now) {
+    std::lock_guard lock(mutex_);
+    if (!window.id || !window.process || !window.bounds.valid()) throw std::invalid_argument("Joined client needs a valid window");
+    initial_join_=std::pair{window,now};
+}
 bool Session::begin_window_recovery(Time now) {
     if (!feature_ || !reconnect_windows_ || !active_window_.process || !feature_->suspend_window(now)) return false;
     observer_.stop();
