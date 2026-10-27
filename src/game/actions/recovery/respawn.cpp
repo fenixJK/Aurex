@@ -90,6 +90,7 @@ class Respawn final : public Program {
     bool retried_{};
     unsigned shortcut_{};
     unsigned key_retries_{};
+    unsigned unobserved_confirmation_retries_{};
     std::optional<game::RespawnScreen> requested_from_;
     Step complete(const View& view,bool confirmed) {
         if (result_) result_->transition={Knowledge::present,confirmed,view.context.now,
@@ -100,7 +101,8 @@ class Respawn final : public Program {
     Step retry(Time now,std::string reason) {
         if (retried_) throw ClientRejoinRequired("Reset could not be verified after retrying; rejoining Bee Swarm");
         retried_=true; stage_=Stage::locate; started_=minimum_=now; transition_=Time(-1);
-        requested_from_.reset(); key_retries_=0; shortcut_=0; completion_=RespawnCompletion{};
+        requested_from_.reset(); key_retries_=0; unobserved_confirmation_retries_=0;
+        shortcut_=0; completion_=RespawnCompletion{};
         return ReportActivity{{"Retrying reset",std::move(reason)}};
     }
 public:
@@ -139,7 +141,7 @@ public:
                 stage_=Stage::confirm; requested_from_=game::RespawnScreen::menu;
                 return TapMenuKey{Key::respawn,"Select respawn"};
             default:
-                stage_=Stage::transition; transition_=c.now; requested_from_=game::RespawnScreen::confirmation;
+                stage_=Stage::transition; started_=transition_=c.now; requested_from_=game::RespawnScreen::confirmation;
                 return TapMenuKey{Key::confirm,"Confirm respawn"};
             }
         }
@@ -161,8 +163,23 @@ public:
             if (completion_.ready(view,reading,minimum_,transition_)) {
                 return complete(view,true);
             }
-            if (!completion_.transitioned() && !fresh && c.now-minimum_>=Time(8000))
-                throw ClientRejoinRequired("No fresh reset-menu view was available after the shortcut");
+            if (!completion_.transitioned() && !fresh) {
+                if (c.now-started_>=Time(8000))
+                    throw ClientRejoinRequired("Reset confirmation remained unreadable");
+                // Lag can drop Enter and delay the capture that would normally
+                // trigger a retry. Finish only the pending confirmation twice;
+                // never replay Escape/R blindly or accept this as a reset.
+                const bool interrupted=state &&
+                    ((state->connection.has_value(c,Time(2000)) && state->connection.value==game::Connection::disconnected)
+                    || (state->client_home.has_value(c,Time(2000)) && state->client_home.value));
+                if (!interrupted && requested_from_==game::RespawnScreen::confirmation
+                    && unobserved_confirmation_retries_<2 && c.now-minimum_>=Time(750)) {
+                    ++unobserved_confirmation_retries_;
+                    key_retries_=std::min(key_retries_+1,2u);
+                    issued_=true;
+                    return TapMenuKey{Key::confirm,"Retrying respawn confirmation",Time(50*key_retries_)};
+                }
+            }
             if (!completion_.transitioned() && live && fresh && reading.value.screen==game::RespawnScreen::game
                 && c.now-transition_>=Time(8000)) {
                 // A reset at the unclaimed spawn platform has no hive prompt
