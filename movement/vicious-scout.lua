@@ -31,13 +31,24 @@ return function(p)
         assert(#held==0);flush()
         while n>0 do
             local count=math.min(8,n)
-            path[#path+1]={kind="turn",key=k,count=count,press=20,release=20}
+            path[#path+1]={kind="turn",key=k,count=count,press=50,release=20}
             n=n-count
         end
     end
+    -- Each circuit leg inherits the preceding leg's pitch. Keep this local
+    -- to the route invocation; a new hunt must not inherit old camera state.
+    local previous={spawn={4,false},pepper={6,false},mountaintop={6,true},spider={6,false},cactus={6,false}}
+    local pose=previous[p.from]
     local function pitch(n,down)
-        camera(down and "pitch_down" or "pitch_up",11)
-        camera(down and "pitch_up" or "pitch_down",down and 11-n or n)
+        down=not not down
+        if not pose or pose[2]~=down then
+            camera(down and "pitch_down" or "pitch_up",13)
+            camera(down and "pitch_up" or "pitch_down",down and 7 or 4)
+            pose={4,down}
+        end
+        local delta=n-pose[1]
+        camera(delta<0 and "pitch_up" or "pitch_down",math.abs(delta))
+        pose[1]=n
     end
     local function zoom(n) camera("zoom_out",n) end
     local function scout_camera(zoomed)

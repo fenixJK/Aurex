@@ -119,7 +119,7 @@ public:
     }
     RunConfig config() const override { return {Time(50000),28,{},true,true}; }
     std::vector<Rect> text_regions() const override {
-        return shortcut_<3?std::vector<Rect>{}:std::vector<Rect>{game::hive_proximity_prompt().region};
+        return transition_<Time{}?std::vector<Rect>{}:std::vector<Rect>{game::hive_proximity_prompt().region};
     }
     bool expects_respawn() const noexcept override { return stage_!=Stage::done; }
     Step next(const View& view) override {
@@ -130,25 +130,22 @@ public:
         if (stage_==Stage::locate) completion_.begin(c.now);
         completion_.observe_origin(view);
         if (stage_==Stage::done) return Done{"Respawn finished; confirming the hive"};
-        if (shortcut_<3 && view.observations && view.observations->alive.has_value(c,Time(2000))
+        if (shortcut_<2 && view.observations && view.observations->alive.has_value(c,Time(2000))
             && !view.observations->alive.value) {
-            stage_=Stage::transition; shortcut_=3; started_=c.now; transition_=view.observations->alive.captured;
+            stage_=Stage::transition; shortcut_=2; started_=c.now; transition_=view.observations->alive.captured;
         }
-        // The first attempt is the normal keyboard shortcut. Do not wait for
-        // captures or button recognition between its fast taps. Observation
-        // below is for completion and for retrying a screen left open by lag.
-        if (shortcut_<3) {
+        // Escape and R can run immediately. Enter activates the focused control,
+        // so it must follow a fresh confirmation view, even on the first attempt.
+        // If R was dropped, Enter on the main menu can open the Robux shop.
+        if (shortcut_<2) {
             issued_=true;
             switch (shortcut_++) {
             case 0:
                 stage_=Stage::select; requested_from_=game::RespawnScreen::game;
                 return TapMenuKey{Key::game_menu,"Open game menu"};
-            case 1:
+            default:
                 stage_=Stage::confirm; requested_from_=game::RespawnScreen::menu;
                 return TapMenuKey{Key::respawn,"Select respawn"};
-            default:
-                stage_=Stage::transition; started_=transition_=c.now; requested_from_=game::RespawnScreen::confirmation;
-                return TapMenuKey{Key::confirm,"Confirm respawn"};
             }
         }
         const auto reading=source_->read(c);

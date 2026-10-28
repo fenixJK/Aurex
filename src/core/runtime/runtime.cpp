@@ -133,6 +133,11 @@ void Runtime::tick(Time now, const Snapshot& snapshot) {
     if (now < last_tick_) { fault("Runtime clock moved backwards"); return; }
     last_tick_ = now;
     if (!guard(snapshot)) return;
+    const auto tick_time=now;
+    const auto tick_started=std::chrono::steady_clock::now();
+    const auto sync_time=[&] {
+        now=tick_time+std::chrono::duration_cast<Time>(std::chrono::steady_clock::now()-tick_started);
+    };
     try {
         if (tap_release_ && now>=tap_release_->until) {
             input_.key(tap_release_->key,false); held_.erase(tap_release_->key); tap_release_.reset();
@@ -141,9 +146,8 @@ void Runtime::tick(Time now, const Snapshot& snapshot) {
         Time continuation_end{};
         if (pointer_tasks_) {
             const bool compatible=!active_ || active_->job.actions.at(active_->index).concurrent_pointer==pointer_tasks_;
-            const auto began=std::chrono::steady_clock::now();
             pointer_tasks_->tick(input_,window_,now,compatible);
-            now+=std::chrono::duration_cast<Time>(std::chrono::steady_clock::now()-began);
+            sync_time();
         }
         if (active_ && active_->job.expires && now >= *active_->job.expires) {
             if (!release()) { fault(status_.reason); return; }
@@ -178,12 +182,14 @@ void Runtime::tick(Time now, const Snapshot& snapshot) {
             }
             if (tap_release_) keep.insert(tap_release_->key);
             if (!release(keep)) { fault(status_.reason); return; }
+            sync_time();
             active_->execution_time+=now-active_->segment_start;
             active_->begun = false; active_->remaining = remaining;
             if (remaining==Time{}) { ++active_->index; ++status_.completed_actions; }
             if (active_->index == active_->job.actions.size()) { finish(*active_,TaskOutcome::executed,now); active_.reset(); }
         }
         choose(now);
+        sync_time();
         if (status_.state!=RunState::running) return;
         if (!active_) {
             status_.job.clear(); status_.action.clear();
@@ -207,9 +213,7 @@ void Runtime::tick(Time now, const Snapshot& snapshot) {
         status_.job = pending.job.id; status_.action = action.label;
         pending.started=true;
         if (action.pointer) {
-            const auto began=std::chrono::steady_clock::now();
             input_.pointer({window_.bounds.x+action.pointer->x*window_.bounds.width, window_.bounds.y+action.pointer->y*window_.bounds.height});
-            now+=std::chrono::duration_cast<Time>(std::chrono::steady_clock::now()-began);
         }
         for (auto key : action.held) if (held_.insert(key).second) input_.key(key, true);
         if (action.tap && pending.remaining==Time{}) for (unsigned i=0;i<action.tap_count;++i) {
@@ -219,6 +223,12 @@ void Runtime::tick(Time now, const Snapshot& snapshot) {
             else { input_.key(*action.tap,false); held_.erase(*action.tap); }
         }
         if (action.scroll) input_.scroll(action.scroll);
+        // Input delivery can stall under load. Start the hold/release interval
+        // after delivery, as the source routes do, instead of consuming it
+        // while Windows is still handling the preceding key transition.
+        sync_time();
+        if (action.tap && action.tap_duration>Time{} && pending.remaining==Time{})
+            tap_release_->until=now+action.tap_duration;
         end_ = continuation_job==pending.job.id?continuation_end:now+duration;
         pending.begun = true;
         pending.segment_start = now;

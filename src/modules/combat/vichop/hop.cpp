@@ -48,6 +48,7 @@ class ServerVisit final : public automation::Program {
     Phase phase_{Phase::select};
     bool counted_night_{},running_{},needs_setup_{true},kill_counted_{},yield_requested_{},sky_checked_{};
     bool scout_from_spawn_{};
+    unsigned sky_steps_{};
     ObservationContext context_;
     void record_kill() {
         if (phase_==Phase::result && !kill_counted_ && services_.enemy.progress->read().defeated) {
@@ -84,7 +85,7 @@ public:
         if (kill_counted_) { finish_visit(Controller::Result::kill,"Vicious Bee defeated"); return true; }
         needs_setup_=phase_==Phase::joining;
         scout_from_spawn_=false;
-        phase_=Phase::night; sample_since_=since_=view.context.now; sample_=Time(-1); night_.reset(); sky_checked_=false; return true;
+        phase_=Phase::night; sample_since_=since_=view.context.now; sample_=Time(-1); night_.reset(); sky_checked_=false; sky_steps_=0; return true;
     }
     ActivityStatus activity_status() const override {
         return (phase_==Phase::result || (phase_==Phase::prepared && !scout_from_spawn_))
@@ -129,13 +130,17 @@ public:
                 // A blocked spawn view will not improve by staring at it.
                 // Only adjust the camera when the initial view is inconclusive;
                 // normal hive setup establishes its own camera after this check.
-                if (!sky_checked_ && (!night_ || view.context.now-sample_>=Time(750)) && view.context.now-since_>=Time(750)) {
-                    sky_checked_=true; phase_=Phase::night_view;
+                if (sky_steps_<11 && (!night_ || view.context.now-sample_>=Time(250))
+                    && view.context.now-std::max(since_,sample_since_)>=Time(250)) {
+                    // Reveal the sky a few taps at a time, checking fresh frames
+                    // between turns instead of always running to the pitch limit.
+                    const auto steps=std::min(3u,11-sky_steps_);
+                    sky_steps_+=steps; sky_checked_=true; phase_=Phase::night_view;
                     controller_->status("Checking the sky for night");
-                    return MoveCamera{game::pitch_limit(Key::pitch_down)};
+                    return MoveCamera{{Key::pitch_down,steps}};
                 }
                 if (view.context.now-since_>=Time(5000)) { finish_visit(Controller::Result::skipped,"Night could not be confirmed"); return Wait{Time(100),"Trying another server"}; }
-                return Wait{Time(100),"Checking for night"};
+                return Wait{Time(50),"Checking for night"};
             }
         }
         if (phase_==Phase::setup) {

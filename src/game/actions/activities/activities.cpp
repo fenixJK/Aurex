@@ -180,7 +180,11 @@ bool Runner::prepare_menu(const ObservationContext& c,const game::State& s) {
     std::optional<Point> target;
     // Camera keys such as Page Up can scroll an open quest/inventory panel.
     // Tracking menus may reopen for movement after the camera adjustment.
-    const bool camera=std::holds_alternative<MoveCamera>(*step_) || std::holds_alternative<SetHeading>(*step_);
+    const auto* path=std::get_if<FollowPath>(&*step_);
+    const bool route_camera=path && std::any_of(path->movement.approach.begin(),path->movement.approach.end(),[](const auto& action) {
+        return std::any_of(action.held.begin(),action.held.end(),camera_key);
+    });
+    const bool camera=route_camera || std::holds_alternative<MoveCamera>(*step_) || std::holds_alternative<SetHeading>(*step_);
     const auto required=camera?std::optional<game::MenuTab>{}:movement_menu();
     // Confirm the tab we closed directly; another unreadable icon does not
     // undo a fresh observation that this panel is no longer selected.
