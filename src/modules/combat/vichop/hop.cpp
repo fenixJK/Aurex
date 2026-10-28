@@ -129,7 +129,7 @@ public:
                 // A blocked spawn view will not improve by staring at it.
                 // Only adjust the camera when the initial view is inconclusive;
                 // normal hive setup establishes its own camera after this check.
-                if (!sky_checked_ && (!night_ || view.context.now-sample_>=Time(300)) && view.context.now-since_>=Time(300)) {
+                if (!sky_checked_ && (!night_ || view.context.now-sample_>=Time(750)) && view.context.now-since_>=Time(750)) {
                     sky_checked_=true; phase_=Phase::night_view;
                     controller_->status("Checking the sky for night");
                     return MoveCamera{game::pitch_limit(Key::pitch_down)};

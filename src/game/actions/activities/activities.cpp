@@ -196,11 +196,19 @@ bool Runner::prepare_menu(const ObservationContext& c,const game::State& s) {
     if (camera && !fresh && !closed) {
         if (!menu_wait_started_) menu_wait_started_=c.now;
         if (c.now-*menu_wait_started_>=Time(5000)) {
-            const auto detail=!s.observation_error.empty()?s.observation_error:
-                !s.open_menu.window.id?"no sidebar frame received":
-                s.open_menu.knowledge==Knowledge::unknown?"sidebar unreadable in the captured frame":
-                "sidebar frame is stale or belongs to an earlier window";
-            throw ObservationUnavailable("Could not confirm the sidebar is closed before adjusting the camera: "+std::string(detail));
+            auto detail=s.observation_error;
+            if (detail.empty()) {
+                const auto& reading=s.open_menu;
+                if (!reading.window.id) detail="no sidebar frame received";
+                else if (reading.generation!=c.generation) detail="sidebar frame belongs to an earlier game session";
+                else if (reading.window.id!=c.window.id || reading.window.process!=c.window.process || reading.window.bounds!=c.window.bounds)
+                    detail="sidebar frame belongs to a different game window or window size";
+                else if (reading.captured>c.now) detail="sidebar frame timestamp is ahead of the current update";
+                else if (reading.captured<menu_after_) detail="sidebar frame predates the last menu change";
+                else if (c.now-reading.captured>Time(1500)) detail="sidebar frame is "+std::to_string((c.now-reading.captured).count())+" ms old";
+                else detail="sidebar unreadable in the captured frame";
+            }
+            throw ObservationUnavailable("Could not confirm the sidebar is closed before adjusting the camera: "+detail);
         }
         progress_.message="Checking sidebar before adjusting camera";
         return true;
