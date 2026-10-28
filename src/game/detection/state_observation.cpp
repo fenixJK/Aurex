@@ -42,7 +42,10 @@ public:
         }
         case ObservationKind::menus: {
             const auto hud=hud_.inspect(frame,generation,true,false);
-            state.menus={Knowledge::present,hud.menus,frame.captured,frame.window,generation}; state.open_menu=hud.open_menu; break;
+            // Icons visible underneath another overlay are not clickable
+            // controls. Publish their availability with the same sidebar read.
+            state.menus={hud.open_menu.knowledge==Knowledge::unknown?Knowledge::unknown:Knowledge::present,
+                hud.menus,frame.captured,frame.window,generation}; state.open_menu=hud.open_menu; break;
         }
         case ObservationKind::backpack: {
             const auto hud=hud_.inspect(frame,generation,false,true);
@@ -64,15 +67,15 @@ std::vector<StateSensor> state_sensors() {
     auto add=[&](K kind,const char* name,Time interval,P priority=P::normal) {
         result.push_back({kind,{name,std::make_shared<StateDetector>(kind),interval,DetectionMode::pixels,false,priority}});
     };
-    add(K::interaction,"state.interaction",Time(50),P::responsive);
-    add(K::health,"state.health",Time(100),P::responsive);
-    add(K::connection,"state.connection",Time(750));
+    add(K::interaction,"state.interaction",Time(50),P::controls);
+    add(K::health,"state.health",Time(100),P::controls);
+    add(K::connection,"state.connection",Time(750),P::controls);
     // Camera input waits for this evidence. Do not queue it behind inventory,
     // bloom or other background detection while the game is ready for input.
-    add(K::menus,"state.menus",Time(100),P::responsive);
+    add(K::menus,"state.menus",Time(100),P::controls);
     add(K::backpack,"state.backpack",Time(750));
-    add(K::confirmation,"state.confirmation",Time(100));
-    add(K::shift_lock,"state.shift-lock",Time(100));
+    add(K::confirmation,"state.confirmation",Time(100),P::controls);
+    add(K::shift_lock,"state.shift-lock",Time(100),P::controls);
     return result;
 }
 void apply_state_observation(State& state,ObservationKind kind,const Detection& result) {

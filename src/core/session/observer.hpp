@@ -50,7 +50,7 @@ private:
     std::string capture_error_,labels_error_;
     void clear_detections();
     bool exiting_{};
-    std::thread capture_worker_,pixel_worker_,responsive_worker_,text_worker_;
+    std::thread capture_worker_,pixel_worker_,responsive_worker_,controls_worker_,text_worker_;
     void capture();
     void detect(DetectionMode mode,DetectionPriority priority=DetectionPriority::normal);
 };

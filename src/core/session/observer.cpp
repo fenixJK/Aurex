@@ -21,6 +21,7 @@ Observer::Observer(Desktop& desktop):desktop_(desktop) {
         capture_worker_=std::thread([this] { capture(); });
         pixel_worker_=std::thread([this] { detect(DetectionMode::pixels); });
         responsive_worker_=std::thread([this] { detect(DetectionMode::pixels,DetectionPriority::responsive); });
+        controls_worker_=std::thread([this] { detect(DetectionMode::pixels,DetectionPriority::controls); });
         text_worker_=std::thread([this] { detect(DetectionMode::text); });
     } catch (...) {
         { std::lock_guard lock(mutex_); exiting_=true; ++revision_; }
@@ -28,12 +29,13 @@ Observer::Observer(Desktop& desktop):desktop_(desktop) {
         if (capture_worker_.joinable()) capture_worker_.join();
         if (pixel_worker_.joinable()) pixel_worker_.join();
         if (responsive_worker_.joinable()) responsive_worker_.join();
+        if (controls_worker_.joinable()) controls_worker_.join();
         throw;
     }
 }
 Observer::~Observer() {
     { std::lock_guard lock(mutex_); exiting_=true; ++revision_; clear_detections(); }
-    wake_->changed.notify_all(); capture_worker_.join(); pixel_worker_.join(); responsive_worker_.join(); text_worker_.join();
+    wake_->changed.notify_all(); capture_worker_.join(); pixel_worker_.join(); responsive_worker_.join(); controls_worker_.join(); text_worker_.join();
 }
 std::map<std::string,std::shared_ptr<const DetectionSource>> Observer::configure(std::vector<DetectorConfig> detectors) {
     std::lock_guard lock(mutex_);
@@ -51,8 +53,8 @@ std::map<std::string,std::shared_ptr<const DetectionSource>> Observer::configure
         if (config.id.empty() || config.id.size()>80 || std::any_of(config.id.begin(),config.id.end(),[](unsigned char c) { return c<32 || c==127; })
             || !ids.insert(config.id).second || !config.detector || !instances.insert(config.detector.get()).second
             || (config.mode!=DetectionMode::pixels && config.mode!=DetectionMode::text)
-            || (config.priority!=DetectionPriority::normal && config.priority!=DetectionPriority::responsive)
-            || (config.priority==DetectionPriority::responsive && config.mode!=DetectionMode::pixels)
+            || (config.priority!=DetectionPriority::normal && config.priority!=DetectionPriority::responsive && config.priority!=DetectionPriority::controls)
+            || (config.priority!=DetectionPriority::normal && config.mode!=DetectionMode::pixels)
             || config.interval<(config.mode==DetectionMode::pixels?pixel_interval:text_interval) || config.interval>Time(60000))
             throw std::invalid_argument("Invalid detector configuration");
         auto channel=std::make_shared<DetectionChannel>(); channel->wake_=wake_; channel->on_demand_=config.on_demand; sources.emplace(config.id,channel);
@@ -160,7 +162,7 @@ void Observer::capture() {
         const Rect entire{0,0,1,1};
         for (const auto& entry:detectors_) if (wanted(entry,now)) {
             const auto region=entry.config.detector->capture_region();
-            if (entry.config.priority==DetectionPriority::responsive) {
+            if (entry.config.priority!=DetectionPriority::normal) {
                 responsive=true;
                 if (region!=entire) {
                     regional_interval=std::min(regional_interval,entry.config.interval);
@@ -217,7 +219,12 @@ void Observer::capture() {
     }
 }
 void Observer::detect(DetectionMode mode,DetectionPriority priority) {
-    const bool responsive=priority==DetectionPriority::responsive;
+    const bool responsive=priority!=DetectionPriority::normal;
+    // Input readiness must keep updating even while a route detector is busy.
+    // Share the captures, but do not queue menus/health behind route matching.
+    const auto accepts=[&](const Entry& entry) {
+        return entry.config.mode==mode && entry.config.priority==priority;
+    };
     std::unique_lock lock(mutex_); std::uint64_t seen{},watch_revision{};
     RecognitionCache recognition,prompt_recognition;
     while (!exiting_) {
@@ -231,7 +238,7 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
         auto due=mode==DetectionMode::text && !text_regions_.empty()?Time{}:Time::max();
         const bool reads_labels=mode==DetectionMode::pixels && priority==DetectionPriority::normal;
         if (reads_labels && !label_queries_.empty()) due=std::min(due,labels_next_);
-        for (const auto& entry : detectors_) if (entry.config.mode==mode && entry.config.priority==priority && wanted(entry,monotonic_now())) due=std::min(due,entry.next);
+        for (const auto& entry : detectors_) if (accepts(entry) && wanted(entry,monotonic_now())) due=std::min(due,entry.next);
         if (due==Time::max()) {
             recognition.clear(); prompt_recognition.clear();
             wake_->changed.wait(lock,[this,revision,text_revision,demand] { return exiting_ || revision!=revision_ || text_revision!=text_revision_ || demand!=wake_->revision; }); continue;
@@ -256,7 +263,7 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
         std::vector<Invocation> entries;
         for (std::size_t index=0;index<detectors_.size();++index) {
             auto& entry=detectors_[index];
-            if (entry.config.mode!=mode || entry.config.priority!=priority || entry.next>began || !wanted(entry,began)) continue;
+            if (!accepts(entry) || entry.next>began || !wanted(entry,began)) continue;
             auto image=frame;
             if (!covers(image->region,entry.config.detector->capture_region())) image=frame_;
             if (!image || image->captured<=entry.captured || !covers(image->region,entry.config.detector->capture_region())) continue;

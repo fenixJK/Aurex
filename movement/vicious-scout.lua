@@ -15,11 +15,11 @@ return function(p)
     end
     local function move(n) assert(#held>0 and #held<=2);m:walk(n,held) end
     local function walk(n,a,b) held=b and {a,b} or {a};move(n);held={} end
-    local function jump(ms) hold(100,"jump");hold(ms) end
+    -- The source uses SendEvent's default 10 ms delay after each down/up.
+    -- Include that delay explicitly; our input runtime adds no implicit sleep.
+    local function jump(ms) hold(110,"jump");hold(ms+10) end
     local function glide(ms)
-        -- Give both Space presses more time to register. Keep the second
-        -- press at 250 ms and the original 350 + ms movement window.
-        hold(120,"jump");hold(130);hold(120,"jump");hold(ms-20)
+        jump(150);jump(ms)
     end
     local function tap_jump(ms) m.steps[#m.steps+1]={keys=held,ms=1,tap="jump"};hold(ms) end
     local function turn(k,n)
@@ -58,7 +58,7 @@ return function(p)
         -- direction check supplies yaw; no hive claim or return walk is needed.
         scout_camera(true)
     elseif p.from=="spawn" then
-        turn("rotate_right");held={F};glide(700);glide(700);move(1.25)
+        turn("rotate_right");held={F};hold(10);glide(700);glide(700);move(1.25)
         turn("rotate_right");move(2.25);held={}
         jump(150);walk(2,F);walk(1.5,F,L);walk(4.5,F);walk(1.5,F,R)
         held={F};move(1.5);glide(650);walk(3,F)

@@ -41,8 +41,11 @@ bool sidebar_visible(const Frame& frame) {
         int start=0,missed=0,matched=0,left_edges=0,right_edges=0; auto reference=color(x,0);
         for (int y=step;y<frame.height;y+=step) {
             const auto c=color(x,y);
-            if (!rail(c) || !rail(reference) || std::abs(c[0]-reference[0])>18
-                || std::abs(c[1]-reference[1])>18 || std::abs(c[2]-reference[2])>18) {
+            // The scroll thumb is brighter than its translucent track. Compare
+            // their tint, not absolute brightness, so it remains one rail.
+            const std::array delta{c[0]-reference[0],c[1]-reference[1],c[2]-reference[2]};
+            if (!rail(c) || !rail(reference)
+                || *std::max_element(delta.begin(),delta.end())-*std::min_element(delta.begin(),delta.end())>24) {
                 missed+=step;
                 if (missed>frame.height*.015) { start=y; reference=c; missed=matched=left_edges=right_edges=0; }
             } else {
@@ -68,14 +71,17 @@ Reading<Point> read_open_menu(const Frame& frame,const HudFeatures& hud,std::uin
     // Seeing the game underneath Roblox's own menu does not make its controls
     // available. Use the reset workflow's reader for this distinction too.
     const bool game=game_hud_visible(hud);
-    if (game && read_respawn_menu(frame,generation).knowledge!=Knowledge::absent) return result;
+    if (read_respawn_menu(frame,generation).knowledge!=Knowledge::absent) return result;
     const bool controls_closed=hud.menus.size()==3 && std::all_of(hud.menus.begin(),hud.menus.end(),
         [](const auto& control) { return control.selected==false; });
     if (controls_closed) { result.knowledge=Knowledge::absent; return result; }
     // These icons are translucent: bright scenery can make an unselected
     // icon look white. Require the actual panel before acting on that color.
     const bool panel=sidebar_visible(frame);
-    if (game && !panel) { result.knowledge=Knowledge::absent; return result; }
+    if (!panel) {
+        if (game) result.knowledge=Knowledge::absent;
+        return result;
+    }
     for (const auto& control:hud.menus) if (control.selected==true) {
         if (result.knowledge==Knowledge::present) return {Knowledge::unknown,{},frame.captured,frame.window,generation};
         result.knowledge=Knowledge::present; result.value=control.center();

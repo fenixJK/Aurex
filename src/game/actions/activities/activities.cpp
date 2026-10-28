@@ -151,6 +151,9 @@ std::optional<game::MenuTab> Runner::movement_menu() const {
 }
 bool Runner::prepares_menu() const {
     if (!step_) return false;
+    // Reset owns the keyboard until it finishes. Never start sidebar clicks
+    // over its menu/confirmation, including from a parent workflow.
+    if (expects_respawn()) return false;
     if (!permissions_.contains(Permission::interact) || checkpoint_ || navigation_ || sprinkler_) return false;
     if (const auto* travel=std::get_if<Navigate>(&*step_); travel && travel->inventory_search) return false;
     const auto* hold=std::get_if<Hold>(&*step_);

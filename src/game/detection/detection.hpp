@@ -42,7 +42,7 @@ public:
     virtual std::optional<DetectionResult> peek() const { return read(); }
 };
 enum class DetectionMode { pixels, text };
-enum class DetectionPriority { normal, responsive };
+enum class DetectionPriority { normal, responsive, controls };
 struct DetectorConfig {
     std::string id;
     std::shared_ptr<const Detector> detector;
