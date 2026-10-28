@@ -341,7 +341,7 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
     extensions::Manifest result;
     result.id=std::move(id); result.provider=std::move(provider); result.name="Gathering"; result.version="0.1.0";
     result.enabled_by_default=true;
-    result.setup_profiles={{"Honey farming",20,{},true,{},"15 min per field; return at 95% bag."},
+    result.setup_profiles={{"Honey farming",50,{},true,{},"Gather 15 min per field or until 95% bag. Convert, collect due rewards, then resume."},
         {"Quest progress",50,{},true,{},"5 min per field; return at 90% bag; yield to quest work."},
         {"Materials",50,{},true,{},"5 min per field; return at 90% bag; gather between item trips."}};
     result.description="Follow the configured field rotation, gather, return to the hive and convert. Active field requests can temporarily change the selected field.";

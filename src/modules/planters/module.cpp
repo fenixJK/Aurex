@@ -378,9 +378,9 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
     result.settings_version=4;
     result.enabled_by_default=true;
     result.setup_profiles={
-        {"Honey farming",10,{{"interrupt-gather",true},{"mode",std::string("Nectar")},{"secondary",false}}, {},{},"Nectar first; harvest when due. Keeps your nectar targets and equipment."},
+        {"Honey farming",10,{{"interrupt-gather",false},{"mode",std::string("Nectar")},{"secondary",false}}, {},{},"Maintain nectar between gathers, using your targets and available planters."},
         {"Quest progress",40,{{"interrupt-gather",true},{"mode",std::string("Nectar")},{"secondary",false}}, {},{},"Maintain your nectar targets alongside quests."},
-        {"Materials",30,{{"interrupt-gather",true},{"mode",std::string("Items")},{"secondary",true}}, {},{},"Your selected item goals first; spare slots maintain nectar. Choose item goals on Planters."}};
+        {"Materials",10,{{"interrupt-gather",true},{"mode",std::string("Items")},{"secondary",true}}, {},{},"Your selected item goals first; spare slots maintain nectar. Choose item goals on Planters."}};
     result.description="Prioritize nectar or item drops, with optional work in spare capacity."; result.permissions=permissions;
     result.settings={{"run-seconds","Run limit (seconds)",static_cast<int>(plan.config.duration.count()/1000),1,28800,{}},
         {"capacity","Slots",static_cast<int>(plan.capacity),0,3,{}},{"max-actions","Actions per run",static_cast<int>(plan.max_actions),1,32,{}}};
@@ -462,8 +462,7 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
     result.page->sections.front().tab="Setup";
     for (auto& section:result.page->sections) {
         section.inline_labels=true;
-        if(!section.order_group.empty()) section.panel="targets";
-        if(section.id=="equipment") { section.panel="equipment"; section.columns=2; }
+        if(section.id=="equipment") section.columns=4;
     }
     for(auto& setting:result.settings) {
         if(setting.id=="run-seconds" || setting.id=="max-actions" || (plan.conversion && plan.conversion->every_return && (setting.id=="convert-after-harvest" || setting.id=="conversion-threshold"))) setting.hidden=true;

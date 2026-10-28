@@ -2,6 +2,7 @@
 #include "core/module_host/settings.hpp"
 #include <QWidget>
 #include <functional>
+class QListWidget;
 
 namespace hive {
 class ChoiceControl : public QWidget {
@@ -28,6 +29,7 @@ CollectionEditor* collection_control(const std::vector<std::string>& choices,con
 ChoiceControl* choice_control(const extensions::Setting& field,const std::string& selected,bool compact=false);
 QWidget* inline_selection(const extensions::Setting& field,const SettingSelection& selected,bool compact,unsigned columns=0);
 QWidget* selection_control(const std::vector<std::string>& choices,const SettingSelection& selected,bool ordered);
+QWidget* list_order_controls(QListWidget* list,bool horizontal,std::function<void()> moved);
 // Schema/value conversion is shared by initial display, defaults, and saved settings.
 extensions::Value read_setting_value(QWidget* control,const extensions::Setting& field);
 void write_setting_value(QWidget* control,const extensions::Setting& field,const extensions::Value& value);

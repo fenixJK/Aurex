@@ -7,5 +7,5 @@
 class QWidget;
 namespace hive {
 void show_presets(QWidget* parent,const QString& folder,std::function<QJsonObject()> capture,
-    std::function<void(const QJsonObject&)> apply,std::function<bool()> busy,std::vector<QJsonObject> starters={});
+    std::function<void(const QJsonObject&)> apply,std::function<bool()> busy,std::function<std::vector<QJsonObject>()> starters={});
 }

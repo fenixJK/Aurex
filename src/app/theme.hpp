@@ -28,6 +28,12 @@ inline void apply_theme(QApplication& app) {
         QWidget#feature-card { background:#19252c; border:1px solid #2b3a42; border-radius:9px; }
         QToolButton { background:transparent; border:none; padding:5px; color:#a8bcb1; }
         QToolButton:hover { color:#d6eedc; }
+        QWidget[ordered-row="true"] { background:#19252c; border-radius:6px; }
+        QWidget[ordered-row="true"] QWidget { background:transparent; }
+        QToolButton#order-rank { color:#b5e6b9; font-weight:600; background:#263e35; border-radius:4px; }
+        QToolButton#order-up,QToolButton#order-down { background:#233238; border:1px solid #3a4d52; border-radius:4px; color:#c8f3cd; font-size:16px; padding:0; }
+        QToolButton#order-up:hover,QToolButton#order-down:hover { background:#30474c; border-radius:4px; }
+        QToolButton#order-up:disabled,QToolButton#order-down:disabled { color:#617074; background:transparent; border-color:#263338; }
         QWidget#card { background:#19252c; border:1px solid #2b3a42; border-radius:9px; }
         QWidget#card > QWidget { background:transparent; }
         QWidget#card QLabel { background:transparent; border:none; }

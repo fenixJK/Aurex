@@ -312,7 +312,7 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     auto manifest=features::visits::manifest(visit_plan(plan),std::move(id),std::move(provider),"Combat",permissions);
     manifest.setup_profiles={{"Honey farming",50,{{"interrupt-gather",false}},false},
         {"Quest progress",20,{{"interrupt-gather",true}},true,{},"Current-server fights for quests and your selected enemies."},
-        {"Materials",10,{{"interrupt-gather",true}},true,{},"Current-server fights for your selected enemies when due. Choose mobs on Combat."}};
+        {"Materials",20,{{"interrupt-gather",true}},true,{},"Prioritize selected enemies in the current server. Keeps your loot choices."}};
     manifest.enabled_by_default=true;
     for(auto& setting:manifest.settings) if(setting.id=="interrupt-gather")
         setting.help="Allow ready Combat work to interrupt gathering. With Hop for night, more servers are almost always ready, so this can leave little gathering time. Turn off to finish active gathering first; due upkeep can run between server visits.";
