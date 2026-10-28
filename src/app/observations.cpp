@@ -70,7 +70,7 @@ std::vector<game::DetectorConfig> game_detectors(std::shared_ptr<game::Inventory
         {"planter-harvest",hive::game::interaction_prompt_detector("Harvest"),hive::Time(100),hive::game::DetectionMode::pixels},
         {"inventory",hive::game::inventory_detector(hive::game::inventory_layout(),inventory_requests)},
         {"blooms",hive::game::bloom_detector(),hive::Time(250),hive::game::DetectionMode::pixels},
-        {"npc-conversation",hive::game::conversation_detector(),hive::Time(100),hive::game::DetectionMode::pixels},
+        {"npc-conversation",hive::game::conversation_detector(),hive::Time(100),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::responsive},
         {"navigation-landmarks",hive::game::landmark_detector(hive::game::interaction_anchors()),hive::Time(750)},
         {"interaction-prompt",hive::game::interaction_prompt_detector(),hive::Time(100),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::responsive},
         {"planter-presence",hive::game::planter_presence_detector(),hive::Time(100),hive::game::DetectionMode::pixels},

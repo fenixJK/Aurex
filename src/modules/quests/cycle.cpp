@@ -102,9 +102,13 @@ public:
         if (!giver_.empty()) {
             status_.status="Visit interrupted; checking quests again after recovery"; results_->publish(giver_,status_);
         }
+        const bool reading_log=stage_==Stage::choose || stage_==Stage::assess || stage_==Stage::action_assess;
+        const bool talking=stage_==Stage::verify;
         resume_after_reconnect(view);
         if (reason==automation::Interruption::lost_observations) {
-            deferred_reason_="Quest log unreadable; retry after other work";
+            deferred_reason_=reading_log?"Quest log unreadable; retry after other work"
+                :talking?"NPC conversation was not confirmed; retry after other work"
+                :"Quest activity could not be confirmed; retry after other work";
             stage_=Stage::done;
         }
         return plan_.return_to_hive;
