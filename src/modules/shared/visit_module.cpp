@@ -91,17 +91,13 @@ std::string status(automation::VisitStage stage) {
 class RecheckSource final : public automation::AvailabilitySource {
     std::shared_ptr<const automation::AvailabilitySource> source_;
     std::map<std::string,Time> ready_;
-    std::uint64_t generation_{};
-    Window window_;
     bool cooling(const std::string& id,const automation::View& view) const {
         const auto it=ready_.find(id);
-        const auto& w=view.context.window;
-        return generation_==view.context.generation && window_.id==w.id && window_.process==w.process && window_.bounds==w.bounds
-            && it!=ready_.end() && view.context.now<it->second;
+        return it!=ready_.end() && view.context.now<it->second;
     }
 public:
-    RecheckSource(std::shared_ptr<const automation::AvailabilitySource> source,std::map<std::string,Time> ready,std::uint64_t generation,Window window)
-        :source_(std::move(source)),ready_(std::move(ready)),generation_(generation),window_(std::move(window)) {}
+    RecheckSource(std::shared_ptr<const automation::AvailabilitySource> source,std::map<std::string,Time> ready)
+        :source_(std::move(source)),ready_(std::move(ready)) {}
     std::vector<Rect> text_regions(const std::string& id) const override { return source_->text_regions(id); }
     Observation<bool> read(const std::string& id,const automation::View& view) const override {
         if (cooling(id,view))
@@ -145,17 +141,21 @@ class VisitModule final : public extensions::Module {
     std::optional<ObservationContext> demand_context_;
     std::set<std::string> selected_;
     mutable std::map<std::string,Time> ready_;
-    mutable std::uint64_t generation_{};
-    mutable Window window_;
+    mutable std::uint64_t session_{};
     mutable std::uint64_t accounted_run_{};
     mutable std::map<std::string,Time> retry_after_;
     std::map<std::string,Time> travel_costs_;
     mutable std::string planned_visit_;
+    void sync_session(const extensions::SessionView& view) const {
+        if (!view.session_id || session_==view.session_id) return;
+        if (session_) { ready_.clear(); retry_after_.clear(); accounted_run_=report_run_; }
+        session_=view.session_id;
+    }
     Time ready_at(const automation::Visit& visit,const ObservationContext& context) const {
         auto ready=context.now;
         if (saved_) ready+=std::max(Time{},saved_->remaining(visit.id,visit.cooldown));
-        else if (generation_==context.generation) if (const auto found=ready_.find(visit.id);found!=ready_.end()) ready=std::max(ready,found->second);
-        if (generation_==context.generation) if (const auto found=retry_after_.find(visit.id);found!=retry_after_.end()) ready=std::max(ready,found->second);
+        else if (const auto found=ready_.find(visit.id);found!=ready_.end()) ready=std::max(ready,found->second);
+        if (const auto found=retry_after_.find(visit.id);found!=retry_after_.end()) ready=std::max(ready,found->second);
         return ready;
     }
     void remember_run(Time now=Time(-1)) const {
@@ -164,9 +164,6 @@ class VisitModule final : public extensions::Module {
         if (report.state==automation::State::ready || report.state==automation::State::running || report.state==automation::State::paused
             || accounted_run_==report_run_) return;
         if (now>=Time{}) accounted_run_=report_run_;
-        if (report.generation!=generation_ || report.window.id!=window_.id || report.window.process!=window_.process) {
-            ready_.clear(); retry_after_.clear(); generation_=report.generation; window_=report.window;
-        }
         const auto requested=now>=Time{} && demand_?demand_({report.window,report.generation,now}):RequestedVisits{};
         for (const auto& visit:report.visits) {
             if (visit.observed_ready_at) ready_[visit.id]=*visit.observed_ready_at;
@@ -223,11 +220,12 @@ public:
         automation::visit_program(plan,network_,availability_);
         if (saved_) saved_->load();
         selected_=std::move(selected); interrupt_=std::get<bool>(values.at("interrupt-gather"));
-        plan_=std::move(plan); results_.reset(); ready_.clear(); retry_after_.clear(); generation_=0; demand_context_.reset(); detail_.clear(); started_=true;
+        plan_=std::move(plan); results_.reset(); ready_.clear(); retry_after_.clear(); session_=0; demand_context_.reset(); detail_.clear(); started_=true;
     }
     void update(const extensions::SessionView& view) override {
         if (!started_) throw std::logic_error("Activity module is stopped");
         detail_=view.feature && view.feature->module_id==id_?view.feature->message:std::string{};
+        sync_session(view);
         remember_run(view.now);
         demand_context_=view.status.state==RunState::running && view.generation?std::optional(ObservationContext{{},view.generation,view.now}):std::nullopt;
     }
@@ -272,8 +270,7 @@ public:
             if (demand_context_) {
                 const auto wait=ready_at(visit,*demand_context_)-demand_context_->now;
                 if (wait>Time{}) {
-                    if (generation_==demand_context_->generation)
-                        if (const auto retry=retry_after_.find(visit.id);retry!=retry_after_.end() && retry->second==demand_context_->now+wait) detail="Retry delay";
+                    if (const auto retry=retry_after_.find(visit.id);retry!=retry_after_.end() && retry->second==demand_context_->now+wait) detail="Retry delay";
                     remaining=wait;
                 }
             }
@@ -293,8 +290,8 @@ public:
     bool executable() const noexcept override { return true; }
     std::optional<extensions::WorkEstimate> next_work(const extensions::SessionView& view) const override {
         if (!started_) return {};
+        sync_session(view);
         remember_run(view.now);
-        if (generation_ && generation_!=view.generation) { ready_.clear(); retry_after_.clear(); }
         const auto requested=demand_?demand_({{},view.generation,view.now}):RequestedVisits{};
         std::optional<extensions::WorkEstimate> next;
         for (const auto& visit:plan_.visits) {
@@ -324,7 +321,7 @@ public:
         if (demand_) source=std::make_shared<Selection>(source,selected_,demand_);
         auto delayed=saved_?std::map<std::string,Time>{}:ready_;
         for (const auto& [id,time]:retry_after_) delayed[id]=std::max(delayed[id],time);
-        if (!delayed.empty()) source=std::make_shared<RecheckSource>(source,std::move(delayed),generation_,window_);
+        if (!delayed.empty()) source=std::make_shared<RecheckSource>(source,std::move(delayed));
         auto plan=plan_;
         auto first=std::find_if(plan.visits.begin(),plan.visits.end(),[&](const auto& visit) { return visit.id==planned_visit_; });
         if (first!=plan.visits.end()) {

@@ -11,6 +11,19 @@ MaterialHistory Account::materials() const { std::lock_guard lock(snapshot_mutex
 std::size_t Account::placement_capacity(std::size_t configured) const {
     std::lock_guard lock(snapshot_mutex_); return planters::placement_capacity(placement_limits_,configured);
 }
+std::size_t Account::configure_capacity(std::size_t configured) {
+    if (configured>3) throw std::invalid_argument("Invalid planter capacity");
+    bool increased;
+    {
+        std::lock_guard lock(snapshot_mutex_);
+        increased=configured_capacity_ && configured>*configured_capacity_;
+    }
+    // Raising Slots explicitly asks to retry the previously rejected capacity.
+    if (increased) retry_placements();
+    std::lock_guard lock(snapshot_mutex_);
+    configured_capacity_=configured;
+    return planters::placement_capacity(placement_limits_,configured);
+}
 void Account::defer_placements(WallTime now) {
     std::lock_guard lock(snapshot_mutex_); placement_retry_=now+std::chrono::minutes(5);
 }

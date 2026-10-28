@@ -56,7 +56,7 @@ struct ExtensionsUi::Page {
     QLabel* warning{};
     QPushButton* enabled{};
     QPushButton* open{};
-    extensions::Settings baseline;
+    extensions::Settings baseline,persisted;
     QLabel* status{};
     ModulePlot* plot{};
     QLabel* plot_status{};
@@ -268,7 +268,7 @@ void ExtensionsUi::reconcile() {
     for (const auto& [id,entry] : host_.entries()) {
         if (extension_pages_.contains(id)) continue;
         const auto& saved_values=drafts.contains(id)?drafts.at(id):entry.settings;
-        auto page=std::make_unique<Page>(); page->active=entry.active(); page->baseline=saved_values;
+        auto page=std::make_unique<Page>(); page->active=entry.active(); page->baseline=saved_values; page->persisted=entry.settings;
         page->row=new QWidget; page->row->setObjectName("feature-card"); page->row->setProperty("feature-id",q(id));
         auto header=new QHBoxLayout(page->row); header->setContentsMargins(8,5,8,5);
         auto description=new QHBoxLayout; description->addWidget(text(q(entry.manifest.name),"title")); description->addStretch(); header->addLayout(description,1);
@@ -823,6 +823,18 @@ void ExtensionsUi::render_page(const std::string& id) {
     auto& page=extension_pages_.at(id);
     const auto& entry=host_.entries().at(id);
     const bool busy=busy_();
+    if (page->persisted!=entry.settings) {
+        for (const auto& field:entry.manifest.settings) {
+            const auto& value=entry.settings.at(field.id);
+            if (const auto old=page->persisted.find(field.id);old!=page->persisted.end() && old->second==value) continue;
+            page->baseline[field.id]=value;
+            if (const auto control=page->controls.find(field.id);control!=page->controls.end()) {
+                const QSignalBlocker block(control->second);
+                write_setting_value(control->second,field,value);
+            }
+        }
+        page->persisted=entry.settings;
+    }
     page->error->setVisible(!page->error->text().isEmpty());
     if (page->plot) page->plot->setPlot(entry.plot());
     if (page->metrics && page->widget->isVisible()) page->metrics->setMetrics(entry.display);

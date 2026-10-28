@@ -340,6 +340,19 @@ void Host::update(const SessionView& view) {
             for (const auto& channel : current.manifest.consumes)
                 if (const auto it=inbox.find(channel); it!=inbox.end()) supplied.requests.emplace(channel,it->second);
             current.instance_->update(supplied);
+            const auto adjustments=current.instance_->setting_adjustments();
+            if (std::any_of(adjustments.begin(),adjustments.end(),[&](const auto& change) {
+                const auto found=current.settings.find(change.first);
+                return found==current.settings.end() || found->second!=change.second;
+            })) {
+                auto settings=current.settings;
+                for (const auto& [id,value]:adjustments) settings[id]=value;
+                validate_settings(current.manifest,settings);
+                std::swap(settings,current.settings);
+                try { persist(); }
+                catch (...) { std::swap(settings,current.settings); throw; }
+                ++configuration_revision_;
+            }
             if (!selective_display_ || display_interest_==key) current.display=current.instance_->checked_metrics();
             if (generation) {
                 const auto batch=current.instance_->request_channels();

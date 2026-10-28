@@ -122,9 +122,13 @@ public:
             preferences.materials.push_back(item->id);
         }
         validate(preferences); plan.preferences=std::move(preferences);
-        planters::program(plan,network_,account_,source_,actions_,clock_); plan_=std::move(plan); results_.reset(); started_=true; check_requested_=true;
+        planters::program(plan,network_,account_,source_,actions_,clock_);
+        plan.capacity=account_->configure_capacity(plan.capacity);
+        plan_=std::move(plan); results_.reset(); started_=true; check_requested_=true;
     }
+    Settings setting_adjustments() const override { return started_?Settings{{"capacity",static_cast<int>(plan_.capacity)}}:Settings{}; }
     void update(const extensions::SessionView& view) override {
+        plan_.capacity=account_->configure_capacity(plan_.capacity);
         account_->connection(view.reconnecting,clock_());
         if (account_->resume_placements(clock_())) check_requested_=true;
         // Plants and their growth timers belong to the account. A planned server
@@ -364,7 +368,7 @@ Settings migrate_settings(int version,const Settings& previous) {
 }
 extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,std::string provider) {
     if (plan.config.duration<Time(1000) || plan.config.duration>std::chrono::hours(8) || plan.config.duration.count()%1000
-        || plan.capacity<1 || plan.capacity>3 || plan.max_actions<1 || plan.max_actions>32) throw std::invalid_argument("Invalid planter module defaults");
+        || plan.capacity>3 || plan.max_actions<1 || plan.max_actions>32) throw std::invalid_argument("Invalid planter module defaults");
     if (plan.conversion && (!plan.return_to || !std::isfinite(plan.conversion->threshold) || plan.conversion->threshold<1
         || plan.conversion->threshold>100 || plan.conversion->threshold!=std::floor(plan.conversion->threshold)))
         throw std::invalid_argument("Invalid planter conversion defaults");
@@ -379,7 +383,11 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
         {"Materials",30,{{"interrupt-gather",true},{"mode",std::string("Items")},{"secondary",true}}, {},{},"Your selected item goals first; spare slots maintain nectar. Choose item goals on Planters."}};
     result.description="Prioritize nectar or item drops, with optional work in spare capacity."; result.permissions=permissions;
     result.settings={{"run-seconds","Run limit (seconds)",static_cast<int>(plan.config.duration.count()/1000),1,28800,{}},
-        {"capacity","Slots",static_cast<int>(plan.capacity),1,3,{}},{"max-actions","Actions per run",static_cast<int>(plan.max_actions),1,32,{}}};
+        {"capacity","Slots",static_cast<int>(plan.capacity),0,3,{}},{"max-actions","Actions per run",static_cast<int>(plan.max_actions),1,32,{}}};
+    for (auto& setting:result.settings) if (setting.id=="capacity") {
+        setting.minimum_label="Harvest only";
+        setting.help="Maximum managed planters. A confirmed in-game limit lowers this value. Raise it after freeing a slot to retry placements.";
+    }
     const auto preferences=plan.preferences.value_or(default_preferences()); validate(preferences);
     result.settings.push_back({"mode","Priority",std::string(preferences.mode==Mode::items?"Items":"Nectar"),0,0,{"Nectar","Items"}});
     result.settings.push_back({"secondary","Also farm items",preferences.secondary});

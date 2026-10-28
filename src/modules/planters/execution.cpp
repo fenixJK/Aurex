@@ -261,7 +261,7 @@ public:
         std::shared_ptr<const Source> source,std::shared_ptr<const Actions> actions,WallClock clock,std::shared_ptr<ExecutionResults> results)
         :plan_(std::move(plan)),account_(std::move(account)),source_(std::move(source)),actions_(std::move(actions)),clock_(std::move(clock)),results_(std::move(results)) {
         if (!network || !account_ || !source_ || !actions_ || !clock_ || plan_.destinations.empty() || plan_.destinations.size()>32
-            || plan_.capacity<1 || plan_.capacity>3 || plan_.max_actions<1 || plan_.max_actions>32 || !plan_.preview_steps || plan_.preview_steps>100000
+            || plan_.capacity>3 || plan_.max_actions<1 || plan_.max_actions>32 || !plan_.preview_steps || plan_.preview_steps>100000
             || !plan_.config.observe || plan_.config.backpack_limit || plan_.config.duration<Time(1000) || plan_.config.duration>std::chrono::hours(8)
             || !std::isfinite(plan_.config.speed) || plan_.config.speed<1 || plan_.config.speed>200) throw std::invalid_argument("Invalid planter execution services or settings");
         for (const auto& [field,destination] : plan_.destinations) if (field.empty() || field.size()>80 || !network->contains(destination))

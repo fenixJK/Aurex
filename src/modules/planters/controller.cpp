@@ -72,7 +72,7 @@ std::string identity(const Stats& stats) {
 }
 std::size_t placement_capacity(const PlacementLimits& limits,std::size_t configured) {
     if (configured>3) throw std::invalid_argument("Invalid planter capacity");
-    const auto available=configured-std::min(configured,limits.occupied_fields.size());
+    const auto available=std::min(configured,3-std::min(std::size_t(3),limits.occupied_fields.size()));
     return std::min(available,limits.capacity.value_or(configured));
 }
 void validate(const Ledger& ledger) {
@@ -130,7 +130,7 @@ void Controller::record_travel(const std::string& field,double seconds) {
     if (samples.size()>3) samples.erase(samples.begin()); commit(std::move(next));
 }
 Controller::Controller(std::shared_ptr<Store> store,std::size_t capacity):store_(std::move(store)),capacity_(capacity) {
-    if (!store_ || capacity_<1 || capacity_>3) throw std::invalid_argument("Invalid planter controller");
+    if (!store_ || capacity_>3) throw std::invalid_argument("Invalid planter controller");
     ledger_=store_->load().value_or(Ledger{}); validate(ledger_);
 }
 void Controller::clock(WallTime wall) {

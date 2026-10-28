@@ -121,6 +121,8 @@ public:
     virtual std::shared_ptr<const Plot> plot() const { return {}; }
     virtual PlotProgress plot_progress() const { return {}; }
     virtual std::map<std::string,std::string> setting_summaries() const { return {}; }
+    // Validated, persisted setting corrections learned during a run.
+    virtual Settings setting_adjustments() const { return {}; }
     virtual bool pending_work(const SessionView&) const { return false; }
     virtual std::optional<WorkEstimate> next_work(const SessionView&) const { return {}; }
     virtual std::optional<WorkWindow> protected_work(const SessionView&) const { return {}; }

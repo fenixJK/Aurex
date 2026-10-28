@@ -62,7 +62,7 @@ local function dispenser_shortcut(name,slot)
         flight:hold({"forward","jump"},300)
         flight:hold({"forward"},50)
         flight:jump()
-        flight:hold({"forward"},1300)
+        flight:hold({"forward"},1000)
         return flight:finish()
     end
     local ramp=h.motion()

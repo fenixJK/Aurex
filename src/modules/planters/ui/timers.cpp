@@ -78,8 +78,6 @@ class Timers final : public QWidget {
             editable_=true; update_controls();
             note_->setText(account_->busy()?"Planters is active. Editing unlocks when its current run finishes.":retry && current<*retry?
                 QString("Placement retry in %1. Capacity is unchanged; known harvests continue.").arg(remaining(*retry,current)):
-                limited_?QString("At most %1 slots can be managed after a confirmed limit or occupied field; your Slots setting still applies. Known planters continue. Add missing timers, or use Retry placements after freeing a slot.")
-                    .arg(placement_capacity(ledger.placement_limits,3)):
                 plants_.empty()?"No saved planters. Placed planters appear here, or use Add for one you placed yourself.":
                 std::any_of(plants_.begin(),plants_.end(),[](const Plant& plant) { return plant.missing; })?"Not found: its slot stays reserved until you correct or remove the timer.":
                 "Saved placements set the timers. Correct a timer after a manual change.");
