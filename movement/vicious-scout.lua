@@ -16,7 +16,11 @@ return function(p)
     local function move(n) assert(#held>0 and #held<=2);m:walk(n,held) end
     local function walk(n,a,b) held=b and {a,b} or {a};move(n);held={} end
     local function jump(ms) hold(100,"jump");hold(ms) end
-    local function glide(ms) jump(150);jump(ms) end
+    local function glide(ms)
+        -- Give both Space presses more time to register. Keep the second
+        -- press at 250 ms and the original 350 + ms movement window.
+        hold(120,"jump");hold(130);hold(120,"jump");hold(ms-20)
+    end
     local function tap_jump(ms) m.steps[#m.steps+1]={keys=held,ms=1,tap="jump"};hold(ms) end
     local function turn(k,n)
         for i=1,n or 1 do
@@ -36,9 +40,10 @@ return function(p)
         camera(down and "pitch_up" or "pitch_down",down and 11-n or n)
     end
     local function zoom(n) camera("zoom_out",n) end
-    local function scout_camera()
+    local function scout_camera(zoomed)
         flush();path[#path+1]={kind="shift_lock",enabled=true}
-        camera("zoom_in",10);pitch(4);zoom(5)
+        if not zoomed then camera("zoom_in",10) end
+        pitch(4);zoom(5)
     end
     if p.from=="hive" then
         assert(p.slot>=1 and p.slot<=6,"Confirmed hive slot required")
@@ -51,7 +56,7 @@ return function(p)
     elseif p.from=="spawn-start" then
         -- Fresh joins already stand at the circuit's start. The shared spawn
         -- direction check supplies yaw; no hive claim or return walk is needed.
-        scout_camera()
+        scout_camera(true)
     elseif p.from=="spawn" then
         turn("rotate_right");held={F};glide(700);glide(700);move(1.25)
         turn("rotate_right");move(2.25);held={}

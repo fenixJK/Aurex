@@ -86,7 +86,10 @@ public:
         scout_from_spawn_=false;
         phase_=Phase::night; sample_since_=since_=view.context.now; sample_=Time(-1); night_.reset(); sky_checked_=false; return true;
     }
-    ActivityStatus activity_status() const override { return (phase_==Phase::result || phase_==Phase::prepared)?ActivityStatus{}:ActivityStatus{"Vic Hop",controller_->read().status}; }
+    ActivityStatus activity_status() const override {
+        return (phase_==Phase::result || (phase_==Phase::prepared && !scout_from_spawn_))
+            ?ActivityStatus{}:ActivityStatus{"Vic Hop",controller_->read().status};
+    }
     automation::Step next(const automation::View& view) override {
         using namespace automation;
         context_=view.context;
@@ -126,7 +129,7 @@ public:
                 // A blocked spawn view will not improve by staring at it.
                 // Only adjust the camera when the initial view is inconclusive;
                 // normal hive setup establishes its own camera after this check.
-                if (!sky_checked_ && (!night_ || view.context.now-sample_>=Time(750)) && view.context.now-since_>=Time(750)) {
+                if (!sky_checked_ && (!night_ || view.context.now-sample_>=Time(300)) && view.context.now-since_>=Time(300)) {
                     sky_checked_=true; phase_=Phase::night_view;
                     controller_->status("Checking the sky for night");
                     return MoveCamera{game::pitch_limit(Key::pitch_down)};
@@ -137,7 +140,7 @@ public:
         }
         if (phase_==Phase::setup) {
             scout_from_spawn_=needs_setup_ && services_.spawn_setup && combat::uses_scout_route(services_.enemy);
-            controller_->status(scout_from_spawn_?"Preparing spawn for scouting":"Preparing hive on night server"); phase_=Phase::prepared;
+            controller_->status(scout_from_spawn_?"Night confirmed · Preparing spawn":"Preparing hive on night server"); phase_=Phase::prepared;
             return RunProgram{scout_from_spawn_?services_.spawn_setup:needs_setup_?services_.joined_setup:services_.prepare,true};
         }
         if (phase_==Phase::hunt) {
