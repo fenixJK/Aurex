@@ -4,7 +4,8 @@
 namespace hive::workflows {
 bool uses_camera(const CheckpointPlan& plan) {
     const auto camera=[](const Action& action) {
-        return std::any_of(action.held.begin(),action.held.end(),camera_key);
+        return (action.tap && camera_key(*action.tap))
+            || std::any_of(action.held.begin(),action.held.end(),camera_key);
     };
     for (const auto* actions:{&plan.approach,&plan.nudge,&plan.launch_prepare})
         if (std::any_of(actions->begin(),actions->end(),camera)) return true;
