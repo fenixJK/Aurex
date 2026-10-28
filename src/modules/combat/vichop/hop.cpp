@@ -42,7 +42,7 @@ class ServerVisit final : public automation::Program {
     enum class Phase { select,joining,night,night_view,setup,prepared,hunt,result,complete };
     Services services_;
     std::shared_ptr<Controller> controller_;
-    Time duration_,since_{},sample_since_{},sample_{Time(-1)};
+    Time duration_,since_{},sample_since_{},sample_{Time(-1)},camera_started_{};
     std::optional<bool> night_;
     std::optional<std::string> hop_reason_;
     Phase phase_{Phase::select};
@@ -136,6 +136,7 @@ public:
                     // between turns instead of always running to the pitch limit.
                     const auto steps=std::min(3u,11-sky_steps_);
                     sky_steps_+=steps; sky_checked_=true; phase_=Phase::night_view;
+                    camera_started_=view.context.now;
                     controller_->status("Checking the sky for night");
                     return MoveCamera{{Key::pitch_down,steps}};
                 }
@@ -159,6 +160,9 @@ public:
     void step_completed(const automation::View& view) override {
         context_=view.context;
         if (phase_==Phase::night_view) {
+            // Sidebar/capture waits and the camera turn do not consume the
+            // budget for observing the newly revealed sky.
+            since_+=view.context.now-camera_started_;
             phase_=Phase::night; sample_since_=view.context.now+Time(1); sample_=Time(-1); night_.reset();
             return;
         }

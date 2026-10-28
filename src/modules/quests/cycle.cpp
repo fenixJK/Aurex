@@ -222,7 +222,7 @@ public:
             if (view.observations && view.observations->menus.has_value(view.context,Time(2000)))
                 for (const auto& menu:view.observations->menus.value)
                     if (menu.tab==game::MenuTab::quests && menu.selected==false)
-                        return UseControl{{Knowledge::present,menu.center(),view.observations->menus.captured,view.context.window,view.context.generation},0,"Opening quest log"};
+                        return UseControl{{Knowledge::present,menu.center(),view.observations->menus.captured,view.context.window,view.context.generation},0,"Opening quest log",{},true};
         }
         if (stage_==Stage::returning) { stage_=Stage::returned; return RunProgram{plan_.return_to_hive}; }
         if (stage_==Stage::returned) {

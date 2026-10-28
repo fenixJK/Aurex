@@ -92,7 +92,9 @@ class AcquireHive final : public Program {
     }
     Step child_step(const View& view) {
         auto local=view; local.completed_steps=child_steps_;
-        local.elapsed=child_running_?view.context.now-*child_running_:Time{};
+        // Nested phases share the runner's active clock. Waiting for a menu
+        // observation must not consume a second, wall-clock timeout here.
+        local.elapsed=child_running_?view.elapsed-*child_running_:Time{};
         issued_=false;
         if (child_guard_) {
             const auto guard=child_guard_->evaluate(local,child_started_);
@@ -105,7 +107,7 @@ class AcquireHive final : public Program {
             }
             if (guard.state!=GuardState::ready) throw std::runtime_error(guard.message);
         }
-        if (!child_running_) child_running_=view.context.now;
+        if (!child_running_) child_running_=view.elapsed;
         if (local.elapsed>=child_->config().duration) {
             if (stage_==Stage::prepare) return options_.recovery?recover(view):Step(Defer{"Hive camera alignment timed out; departure skipped"});
             if (stage_==Stage::recover) throw ClientRejoinRequired("Hive reset timed out; rejoining Bee Swarm");
@@ -366,7 +368,7 @@ public:
         case Stage::prepare:
         case Stage::recover:
             if (issued_) {
-                auto local=view; local.completed_steps=++child_steps_; local.elapsed=view.context.now-*child_running_;
+                auto local=view; local.completed_steps=++child_steps_; local.elapsed=view.elapsed-*child_running_;
                 child_->step_completed(local); issued_=false;
             }
             break;

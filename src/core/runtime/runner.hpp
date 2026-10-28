@@ -4,6 +4,7 @@
 #include "game/actions/travel/services.hpp"
 #include "tasks.hpp"
 #include "pointer_tasks.hpp"
+#include "sidebar_state.hpp"
 #include "game/detection/state.hpp"
 #include "game/actions/interaction/interaction.hpp"
 #include "game/actions/hive/conversion.hpp"
@@ -84,9 +85,9 @@ private:
     Time step_started_{},confirmation_frame_{Time(-1)};
     bool baseline_clear_{};
     std::string pending_,menu_pending_;
-    Time menu_after_{};
-    std::optional<Time> menu_wait_started_;
-    unsigned menu_attempts_{};
+    Time menu_after_{},menu_retry_at_{},menu_retry_delay_{};
+    bool menu_waiting_{};
+    std::shared_ptr<SidebarState> sidebar_{std::make_shared<SidebarState>()};
     std::optional<game::MenuTab> closing_menu_;
     std::function<std::optional<game::MenuTab>()> parent_menu_;
     std::optional<game::MenuTab> movement_menu() const;
@@ -100,6 +101,7 @@ private:
     bool same_context(const ObservationContext& context) const;
     bool prepare_menu(const ObservationContext& context,const game::State& observations);
     bool prepares_menu() const;
+    bool waiting_for_menu() const;
     bool activity(const ObservationContext& context,const game::State& observations);
     void complete_step(const ObservationContext& context,const game::State& observations);
     void check_scope(ModuleScope scope) const;

@@ -50,9 +50,9 @@ class Browser final : public automation::Program {
     automation::Step wait(const std::string& reason) {
         report_.status=reason; results_->publish(report_); return automation::Wait{Time(100),reason};
     }
-    automation::Step use(const Observation<BrowserScene>& scene,Point point,int scroll,const std::string& reason) {
+    automation::Step use(const Observation<BrowserScene>& scene,Point point,int scroll,const std::string& reason,bool changes_menu=false) {
         action_=true; report_.status=reason; results_->publish(report_);
-        return automation::UseControl{{Knowledge::present,point,scene.captured,scene.window,scene.generation},scroll,reason};
+        return automation::UseControl{{Knowledge::present,point,scene.captured,scene.window,scene.generation},scroll,reason,{},changes_menu};
     }
     void remember(const Observation<BrowserScene>& scene) {
         names_complete_=names_complete_ && scene.value.names_complete;
@@ -80,7 +80,7 @@ class Browser final : public automation::Program {
         if (close_when_finished_ && opened_ && (scene.value.panel_visible || scene.value.scroll)) {
             if (!scene.value.toggle) throw automation::ObservationUnavailable("Quest scan could not locate the control to close the log");
             stage_=Stage::closing; ++close_attempts_;
-            return use(scene,*scene.value.toggle,0,"Closing quest log");
+            return use(scene,*scene.value.toggle,0,"Closing quest log",true);
         }
         stage_=Stage::done; report_.finished=true; report_.status="Quest scan finished; only observed rows are included";
         publish_cards({scene.window,scene.generation,scene.captured});
@@ -91,7 +91,7 @@ class Browser final : public automation::Program {
         if (scene.value.panel_visible || scene.value.scroll) {
             if (!scene.value.toggle) throw automation::ObservationUnavailable("Quest log cannot be closed from the current reading");
             deferred_reason_=std::move(reason); opened_=true; stage_=Stage::closing; ++close_attempts_;
-            return use(scene,*scene.value.toggle,0,"Closing unreadable quest log");
+            return use(scene,*scene.value.toggle,0,"Closing unreadable quest log",true);
         }
         report_.finished=false; report_.status=std::move(reason); results_->publish(report_);
         return automation::Defer{report_.status};
@@ -123,7 +123,7 @@ public:
                 if (view.context.now<deadline_) return wait("Confirming quest log closed");
                 if (scene.value.toggle && close_attempts_<2) {
                     ++close_attempts_;
-                    return use(scene,*scene.value.toggle,0,"Retrying quest log close");
+                    return use(scene,*scene.value.toggle,0,"Retrying quest log close",true);
                 }
                 if (view.context.now>=deadline_) throw automation::ObservationUnavailable("Quest log did not confirm closing");
                 return wait("Confirming quest log closed");
@@ -135,13 +135,13 @@ public:
         if (!scene.value.scroll || scene.value.fingerprint.empty()) {
             if (stage_==Stage::initial && scene.value.toggle && !scene.value.panel_visible) {
                 stage_=Stage::opening; opened_=true; ++open_attempts_;
-                return use(scene,*scene.value.toggle,0,"Opening quest log");
+                return use(scene,*scene.value.toggle,0,"Opening quest log",true);
             }
             if (stage_==Stage::opening && scene.value.toggle && !scene.value.panel_visible && !scene.value.scroll) {
                 if (view.context.now<deadline_) return wait("Confirming quest log opened");
                 if (open_attempts_>=2) return defer(scene,"Quest scan deferred: the log did not open");
                 ++open_attempts_;
-                return use(scene,*scene.value.toggle,0,"Retrying quest log");
+                return use(scene,*scene.value.toggle,0,"Retrying quest log",true);
             }
             if (view.context.now>=deadline_) return defer(scene,"Quest scan deferred: the log could not be read");
             return wait("Confirming quest log contents");

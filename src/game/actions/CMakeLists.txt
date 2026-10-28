@@ -24,6 +24,7 @@ add_library(hive_automation
   hive/hive_setup.cpp
   travel/travel_preparation.cpp
   travel/localization.cpp
+  activities/menus.cpp
   activities/activities.cpp
   activities/visits.cpp
   travel/recenter.cpp

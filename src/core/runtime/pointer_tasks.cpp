@@ -1,4 +1,5 @@
 #include "pointer_tasks.hpp"
+#include "input_clock.hpp"
 #include <utility>
 
 namespace hive {
@@ -26,12 +27,14 @@ std::string PointerTasks::submit(ModuleScope scope,TaskClass kind,std::vector<Ac
         duration+=action.duration;
     }
     if (duration>=lifetime || duration>Time(500)) throw std::invalid_argument("Concurrent pointer task is too long");
+    changes_menu_=std::any_of(actions.begin(),actions.end(),[](const auto& action) { return action.changes_menu; });
     id_="pointer/"+std::to_string(++next_id_); actions_=std::move(actions); index_=0;
     started_=begun_=false; expires_=lifetime;
     return id_;
 }
 std::vector<TaskResult> PointerTasks::results(ModuleScope scope) { check(scope); return std::exchange(results_,{}); }
 void PointerTasks::finish(TaskOutcome outcome) {
+    if (started_ && changes_menu_) menu_changed_=std::max(menu_changed_,now_);
     if (!id_.empty()) results_.push_back({id_,scope_.id,outcome,now_,index_,started_});
     id_.clear(); actions_.clear(); index_=0; started_=begun_=false;
 }
@@ -41,6 +44,7 @@ void PointerTasks::release(Input& input) {
 }
 void PointerTasks::stop(Input& input,Time now) { now_=now; release(input); finish(TaskOutcome::cancelled); }
 void PointerTasks::tick(Input& input,const Window& window,Time now,bool can_start) {
+    const InputClock input_clock(now);
     now_=now;
     if (id_.empty()) { release(input); return; }
     if (!started_) {
@@ -51,17 +55,15 @@ void PointerTasks::tick(Input& input,const Window& window,Time now,bool can_star
     if (now>=expires_) { release(input); finish(TaskOutcome::expired); return; }
     if (begun_) {
         if (now<until_) return;
-        release(input); begun_=false;
+        release(input); now_=now=input_clock.now(); begun_=false;
         if (++index_==actions_.size()) { finish(TaskOutcome::executed); return; }
     }
     const auto& action=actions_.at(index_);
-    const auto began=std::chrono::steady_clock::now();
     if (action.pointer)
         input.pointer({window.bounds.x+action.pointer->x*window.bounds.width,window.bounds.y+action.pointer->y*window.bounds.height});
-    now+=std::chrono::duration_cast<Time>(std::chrono::steady_clock::now()-began);
-    now_=now;
     if (!action.held.empty()) { pressed_=true; input.key(Key::primary,true); }
     if (action.scroll) input.scroll(action.scroll);
+    now_=now=input_clock.now();
     started_=begun_=true; until_=now+action.duration;
 }
 }

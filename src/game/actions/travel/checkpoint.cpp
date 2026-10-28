@@ -2,6 +2,16 @@
 #include <algorithm>
 
 namespace hive::workflows {
+bool uses_camera(const CheckpointPlan& plan) {
+    const auto camera=[](const Action& action) {
+        return std::any_of(action.held.begin(),action.held.end(),camera_key);
+    };
+    for (const auto* actions:{&plan.approach,&plan.nudge,&plan.launch_prepare})
+        if (std::any_of(actions->begin(),actions->end(),camera)) return true;
+    return std::any_of(plan.sequence.begin(),plan.sequence.end(),[&](const auto& step) {
+        const auto* action=std::get_if<Action>(&step); return action && camera(*action);
+    });
+}
 void validate(const CheckpointPlan& p) {
     if (p.observation_scope.size()>80 || std::any_of(p.observation_scope.begin(),p.observation_scope.end(),[](unsigned char c) { return c<32 || c==127; }))
         throw std::invalid_argument("Invalid route observation scope");

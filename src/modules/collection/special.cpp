@@ -104,7 +104,7 @@ public:
         if (phase_==2 && view.observations) {
             const auto inventory=inventory_->read(view.context,*view.observations);
             if (inventory.has_value(view.context,Time(2000)) && inventory.value.open && inventory.value.toggle)
-                return UseControl{{Knowledge::present,*inventory.value.toggle,inventory.captured,inventory.window,inventory.generation},0,"Close inventory",Point{.85,.15}};
+                return UseControl{{Knowledge::present,*inventory.value.toggle,inventory.captured,inventory.window,inventory.generation},0,"Close inventory",Point{.85,.15},true};
         }
         if (phase_<=3) { phase_=3; return FollowPath{movement_->path("gummy-entry",{},speed_).at(0)}; }
         if (phase_==4) return UseStation{"Glue Dispenser"};

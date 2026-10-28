@@ -35,6 +35,7 @@ Progress Runner::progress() const {
     else result.status=program_->activity_status();
     if (result.status.empty() && child) result.status=child->status;
     if (result.activity==WorkActivity::recovering && result.status.empty()) result.status={"Recovering",{}};
+    if (waiting_for_menu()) result.status={"Waiting for game view",result.message};
     result.activity_label=result.status.text();
     result.field=program_->field();
     if (result.field.empty() && child) result.field=child->field;
@@ -63,13 +64,18 @@ std::string Runner::submit(ModuleScope scope,TaskClass kind,std::vector<Action> 
     if (navigation_ && travel_pointer_) for (auto& action:actions)
         if (allows_concurrent_pointer(action))
             action.concurrent_pointer=travel_pointer_;
+    const bool changes_ui=SidebarState::affects_ui(actions);
     auto id=tasks_.submit(scope_,kind,std::move(actions),lifetime);
+    if (changes_ui) sidebar_->submitted(id);
     if (navigation_) navigation_input_=id;
     return id;
 }
 std::vector<TaskResult> Runner::results(ModuleScope scope) {
     check_scope(scope); auto results=tasks_.results(scope_);
-    for (const auto& result:results) if (result.id==navigation_input_) navigation_input_.clear();
+    for (const auto& result:results) {
+        sidebar_->completed(result);
+        if (result.id==navigation_input_) navigation_input_.clear();
+    }
     return results;
 }
 void Runner::cancel(ModuleScope scope) {
@@ -105,6 +111,7 @@ void Runner::start(const ObservationContext& c,bool joining) {
     if (progress_.state!=State::ready || !c.window.id || !c.window.bounds.valid() || c.generation!=scope_.generation)
         throw std::logic_error("Feature needs a new program and valid session");
     startup_joining_=startup_joining_ || joining;
+    if (!depth_) sidebar_->start(c.now);
     context_=c; speed_->start(c); last_=prerequisites_started_=c.now; clock_started_=!guard_; progress_.state=State::running; progress_.message="Running feature";
 }
 void Runner::clear_operations() {
@@ -113,12 +120,17 @@ void Runner::clear_operations() {
     if (recovery_) { recovery_->stop(); recovery_.reset(); }
     replacement_={}; awaiting_window_=false; rejoin_requested_=false;
     navigation_.reset();
+    if (travel_pointer_) {
+        travel_pointer_->cancel(scope_);
+        sidebar_->changed(travel_pointer_->menu_changed());
+    }
     travel_inventory_.reset(); travel_pointer_.reset(); navigation_input_.clear();
     progress_.route_execution.reset();
     std::exception_ptr error;
-    try { tasks_.cancel(scope_); tasks_.results(scope_); tasks_.release(scope_); }
+    try { tasks_.cancel(scope_); results(scope_); tasks_.release(scope_); }
     catch (...) { error=std::current_exception(); }
-    owned_=false; pending_.clear(); menu_pending_.clear(); menu_after_={}; menu_wait_started_.reset(); menu_attempts_=0; closing_menu_.reset(); step_.reset(); interaction_.reset(); conversion_.reset(); checkpoint_.reset(); sprinkler_.reset(); inventory_.reset(); dialog_.reset();
+    sidebar_->cancelled(last_);
+    owned_=false; pending_.clear(); menu_pending_.clear(); menu_after_=menu_retry_at_=menu_retry_delay_={}; menu_waiting_=false; closing_menu_.reset(); step_.reset(); interaction_.reset(); conversion_.reset(); checkpoint_.reset(); sprinkler_.reset(); inventory_.reset(); dialog_.reset();
     progress_.estimated_heading.reset(); pending_heading_.reset();
     if (error) std::rethrow_exception(error);
 }
@@ -184,6 +196,7 @@ bool Runner::recover(Interruption interruption,const ObservationContext& c,const
         connection_recovering_=true; resume_connected_=resume; ++connection_attempts_;
     }
     recovery_=std::make_unique<Runner>(factory(),permissions_,static_cast<TaskPort&>(*this),scope_,navigation_services_,depth_+1); recovery_->configure_conversion(hive_conversion_); recovery_->configure_statistics(recovery_counts_); recovery_->configure_reporting(activity_sink_);
+    recovery_->sidebar_=sidebar_;
     recovery_->start(c); progress_.message=connection?"Recovering game connection":"Recovering at hive";
     return true;
 }
@@ -249,6 +262,7 @@ void Runner::replace_window(const ObservationContext& c,ModuleScope scope) {
     guard_=program_->guard(); if (!guard_) guard_=observation_guard(config_);
     clock_started_=true;
     recovery_=std::make_unique<Runner>(replacement_(),permissions_,static_cast<TaskPort&>(*this),scope_,navigation_services_,depth_+1); recovery_->configure_conversion(hive_conversion_); recovery_->configure_statistics(recovery_counts_); recovery_->configure_reporting(activity_sink_);
+    recovery_->sidebar_=sidebar_;
     recovery_->startup_pending_=recovery_->startup_joining_=true;
     recovery_->start(c); awaiting_window_=false; rejoin_requested_=false; window_replaced_=true;
     progress_.message="Confirming the replacement game window";
@@ -289,7 +303,10 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
     if (progress_.state!=State::running) return;
     if (awaiting_window_) { wait_window(c.now); return; }
     if (!same_context(c) || c.now<last_) { finish(State::failed,"Session or window changed"); return; }
-    if (clock_started_ && !waiting_for_game_view()) progress_.elapsed+=c.now-last_;
+    // A delayed UI observation pauses this step, not the entire game session.
+    // Preserve parent deadlines too when a nested camera step is waiting.
+    if (waiting_for_menu()) step_started_+=c.now-last_;
+    else if (clock_started_ && !waiting_for_game_view()) progress_.elapsed+=c.now-last_;
     last_=c.now;
     progress_.backpack_percent=backpack_reading(c,observations,context_.now);
     try {
@@ -404,7 +421,7 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
             // sample before notifying the program that this leg has ended.
             if (!pending_.empty()) {
                 tasks_.cancel(scope_);
-                for (const auto& result:tasks_.results(scope_)) if (result.id==pending_
+                for (const auto& result:results(scope_)) if (result.id==pending_
                     && result.outcome!=TaskOutcome::cancelled && result.outcome!=TaskOutcome::executed) {
                     finish(State::failed,"Could not stop observed movement: "+result.reason); return;
                 }
@@ -413,7 +430,7 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
             complete_step(c,observations);
             return;
         }
-        if (!pending_.empty()) for (const auto& result : tasks_.results(scope_)) if (result.id==pending_) {
+        if (!pending_.empty()) for (const auto& result : results(scope_)) if (result.id==pending_) {
             pending_.clear();
             if (result.outcome!=TaskOutcome::executed) {
                 if (result.outcome==TaskOutcome::expired)
@@ -480,7 +497,7 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
                 part.continue_movement=continuous && left>Time{}; actions.push_back(std::move(part));
             }
         }
-        pending_=tasks_.submit(scope_,TaskClass::activity,std::move(actions),lifetime);
+        pending_=submit(scope_,TaskClass::activity,std::move(actions),lifetime);
     } catch (const ClientRejoinRequired& e) { interrupt(Interruption::client_rejoin,c,observations,e.what()); }
     catch (const ObservationUnavailable& e) { interrupt(Interruption::lost_observations,c,observations,e.what()); }
     catch (const std::exception& e) { finish(State::failed,e.what()); }

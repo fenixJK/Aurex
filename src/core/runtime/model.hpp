@@ -114,6 +114,7 @@ struct Action {
     std::shared_ptr<PointerTasks> concurrent_pointer;
     unsigned tap_count{1};
     Time tap_duration{};
+    bool changes_menu{}; // An explicit sidebar/overlay control, not a generic click.
 };
 inline bool allows_concurrent_pointer(const Action& action) {
     if (action.pointer || action.pointer_to || action.scroll || action.tap) return false;

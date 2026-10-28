@@ -10,6 +10,7 @@
 namespace hive::features::combat {
 namespace {
 constexpr std::array<std::string_view,5> circuit{"pepper","mountaintop","spider","cactus","rose"};
+constexpr Time search_budget=std::chrono::minutes(5);
 class Hunt final : public automation::Program {
     enum class Phase { choose,route,scan,travel,search,result,home,prepare,aligned };
     Enemy enemy_;
@@ -38,6 +39,7 @@ class Hunt final : public automation::Program {
     Time reported_at_{Time(-1)};
     Time travelled_{};
     std::optional<Time> began_;
+    Time active_began_{};
     unsigned retries_{};
     bool retrying_{},chat_ready_{},chat_opening_{},defeat_seen_{};
     void choose(const automation::View& view) {
@@ -89,7 +91,7 @@ public:
     }
     automation::ProgramFactory recovery(automation::Interruption reason,const automation::View& view) override {
         if (reason==automation::Interruption::disconnected || reason==automation::Interruption::client_rejoin
-            || field_.empty() || retries_>=2 || (began_ && view.context.now-*began_>=std::chrono::minutes(5))) return {};
+            || field_.empty() || retries_>=2 || (began_ && view.elapsed-active_began_>=search_budget)) return {};
         const auto progress=enemy_.progress->read();
         if (progress.defeated || progress.unavailable || defeat_seen_) { phase_=Phase::result; return home_; }
         ++retries_; retrying_=true; circuit_used_=true; field_entry_=true; phase_=Phase::prepare;
@@ -97,7 +99,9 @@ public:
     }
     automation::Step next(const automation::View& view) override {
         using namespace automation;
-        if (!began_) { began_=view.context.now; choose(view); }
+        // Capture time identifies this hunt's notifications; the runner's
+        // active clock budgets work without charging paused menu/capture waits.
+        if (!began_) { began_=view.context.now; active_began_=view.elapsed; choose(view); }
         const auto progress=enemy_.progress->read();
         if (progress.defeated) return Done{"Defeated "+enemy_.species};
         if (progress.unavailable || defeat_seen_) {
@@ -112,10 +116,10 @@ public:
         }
         if (enemy_.vicious && phase_==Phase::choose
             && !game::read_vicious(*enemy_.vicious,view.context).has_value(view.context,Time(2000))) {
-            if (view.context.now-*began_>=Time(5000)) throw ObservationUnavailable("Combat notifications could not be captured");
+            if (view.elapsed-active_began_>=Time(5000)) throw ObservationUnavailable("Combat notifications could not be captured");
             return Wait{Time(100),"Preparing combat notifications"};
         }
-        const bool expired=view.context.now-*began_>=std::chrono::minutes(5);
+        const bool expired=view.elapsed-active_began_>=search_budget;
         if (phase_==Phase::result) {
             std::erase(remaining_,field_);
             if (remaining_.empty() || expired) {

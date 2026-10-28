@@ -31,7 +31,7 @@ public:
         if (!closing_ && !unread_.empty() && view.observations && view.observations->menus.has_value(view.context,Time(2000))) {
             closing_=true;
             for (const auto& menu:view.observations->menus.value) if (menu.tab==game::MenuTab::inventory && menu.selected==true)
-                return UseControl{{Knowledge::present,menu.center(),view.observations->menus.captured,view.context.window,view.context.generation},0,"Close inventory",{}};
+                return UseControl{{Knowledge::present,menu.center(),view.observations->menus.captured,view.context.window,view.context.generation},0,"Close inventory",{},true};
         }
         if (!issue_.empty()) return Defer{issue_};
         if (const auto blocked=stock_->blocked(cost_)) return Defer{"Keeping the reserved "+*blocked};

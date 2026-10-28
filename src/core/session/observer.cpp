@@ -389,12 +389,19 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
             lock.unlock();
         }
         if (!label_queries.empty() && !cancelled()) {
+            // Fixed labels are pixel observations too. A preceding route
+            // detector may have occupied this worker while newer full frames
+            // arrived; use their actual capture time, not the queued frame.
+            lock.lock();
+            if (cancelled() || exiting_ || label_revision!=label_revision_) continue;
+            const auto label_frame=frame_ && frame_->captured>frame->captured?frame_:frame;
+            lock.unlock();
             Reading<TextSnapshot> labels;
             std::string error;
             try {
-                labels={Knowledge::present,{frame->width,frame->height,{}},frame->captured,frame->window,generation};
+                labels={Knowledge::present,{label_frame->width,label_frame->height,{}},label_frame->captured,label_frame->window,generation};
                 for (const auto& query:label_queries) {
-                    auto found=fixed_ui_labels(*frame,query,labels.value.lines);
+                    auto found=fixed_ui_labels(*label_frame,query,labels.value.lines);
                     for (auto& line:found) if (std::none_of(labels.value.lines.begin(),labels.value.lines.end(),[&](const auto& prior) {
                         return prior.text==line.text && prior.pixels==line.pixels;
                     })) labels.value.lines.push_back(std::move(line));

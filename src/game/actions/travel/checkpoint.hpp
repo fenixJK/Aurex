@@ -25,6 +25,7 @@ struct CheckpointPlan {
     std::vector<Action> launch_prepare;
 };
 void validate(const CheckpointPlan& plan);
+bool uses_camera(const CheckpointPlan& plan);
 class Checkpoint {
 public:
     explicit Checkpoint(CheckpointPlan plan);

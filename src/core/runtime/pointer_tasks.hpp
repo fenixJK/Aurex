@@ -10,6 +10,8 @@ class PointerTasks final : public TaskPort {
     Time now_{},expires_{},until_{};
     std::size_t index_{},next_id_{};
     bool started_{},begun_{},pressed_{};
+    bool changes_menu_{};
+    Time menu_changed_{Time(-1)};
     void check(ModuleScope scope) const;
     void finish(TaskOutcome outcome);
     void release(Input& input);
@@ -18,6 +20,7 @@ public:
     ModuleScope scope() const { return scope_; }
     void clock(Time now) { now_=now; }
     bool engaged() const { return started_ || pressed_; }
+    Time menu_changed() const { return menu_changed_; }
     void tick(Input& input,const Window& window,Time now,bool can_start);
     void stop(Input& input,Time now);
     bool acquire(ModuleScope scope) override;

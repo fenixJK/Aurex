@@ -84,8 +84,9 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
             if (open_attempts_>=3) { fail("Inventory did not open after three clicks"); return; }
             if (!view.toggle) { reason_="Waiting for inventory control"; return; }
             const auto rest=game::pointer_rest(c,state);
+            Action toggle{"Open inventory",{Key::primary},Time(50),view.toggle}; toggle.changes_menu=true;
             pending_=tasks.submit(scope,TaskClass::interaction,
-                {{"Move to inventory",{},Time(50),view.toggle},{"Open inventory",{Key::primary},Time(50),view.toggle},
+                {{"Move to inventory",{},Time(50),view.toggle},std::move(toggle),
                     {"Move off inventory",{},Time(100),rest}},Time(2000));
             ++open_attempts_; stage_=InventoryStage::opening; reason_="Opening inventory"; return;
         }

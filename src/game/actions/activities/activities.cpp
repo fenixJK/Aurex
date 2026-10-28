@@ -130,7 +130,11 @@ void Runner::complete_step(const ObservationContext& c,const game::State& s) {
     const auto completed=child_?std::optional(child_->progress()):pattern_?std::optional(pattern_->progress()):std::nullopt;
     child_.reset();
     pattern_.reset(); interaction_.reset(); conversion_.reset(); checkpoint_.reset(); navigation_.reset(); sprinkler_.reset(); inventory_.reset(); dialog_.reset();
-    if (travel_pointer_) { travel_pointer_->cancel(scope_); tasks_.cancel(scope_); }
+    if (travel_pointer_) {
+        travel_pointer_->cancel(scope_); tasks_.cancel(scope_);
+        sidebar_->changed(travel_pointer_->menu_changed());
+        results(scope_); sidebar_->cancelled(c.now);
+    }
     travel_inventory_.reset(); travel_pointer_.reset(); navigation_input_.clear();
     step_.reset();
     progress_.route_execution.reset();
@@ -145,106 +149,6 @@ void Runner::checkpoint_failed(const ObservationContext& c,const game::State& s)
         interrupt(Interruption::lost_route,c,s,message);
     else finish(State::failed,message);
 }
-std::optional<game::MenuTab> Runner::movement_menu() const {
-    if (auto menu=program_->movement_menu()) return menu;
-    return parent_menu_?parent_menu_():std::nullopt;
-}
-bool Runner::prepares_menu() const {
-    if (!step_) return false;
-    // Reset owns the keyboard until it finishes. Never start sidebar clicks
-    // over its menu/confirmation, including from a parent workflow.
-    if (expects_respawn()) return false;
-    if (!permissions_.contains(Permission::interact) || checkpoint_ || navigation_ || sprinkler_) return false;
-    if (const auto* travel=std::get_if<Navigate>(&*step_); travel && travel->inventory_search) return false;
-    const auto* hold=std::get_if<Hold>(&*step_);
-    const bool walking_hold=hold && std::any_of(hold->keys.begin(),hold->keys.end(),[](auto key) {
-        return key==Key::forward || key==Key::backward || key==Key::left || key==Key::right;
-    });
-    const bool moving=walking_hold || std::holds_alternative<Walk>(*step_) || std::holds_alternative<Navigate>(*step_)
-        || std::holds_alternative<MoveCamera>(*step_) || std::holds_alternative<SetHeading>(*step_)
-        || std::holds_alternative<FollowPath>(*step_)
-        || std::holds_alternative<ApproachLandmark>(*step_) || std::holds_alternative<ApproachPrompt>(*step_);
-    return moving;
-}
-bool Runner::prepare_menu(const ObservationContext& c,const game::State& s) {
-    if (!prepares_menu()) return false;
-    if (!menu_pending_.empty()) {
-        for (const auto& result:tasks_.results(scope_)) if (result.id==menu_pending_) {
-            menu_pending_.clear();
-            if (result.outcome!=TaskOutcome::executed) throw std::runtime_error("Menu cleanup interrupted");
-            menu_after_=result.finished+Time(250);
-        }
-        if (!menu_pending_.empty()) return true;
-    }
-    if (c.now<menu_after_) return true;
-    std::optional<Point> target;
-    // Camera keys such as Page Up can scroll an open quest/inventory panel.
-    // Tracking menus may reopen for movement after the camera adjustment.
-    const auto* path=std::get_if<FollowPath>(&*step_);
-    const bool route_camera=path && std::any_of(path->movement.approach.begin(),path->movement.approach.end(),[](const auto& action) {
-        return std::any_of(action.held.begin(),action.held.end(),camera_key);
-    });
-    const bool camera=route_camera || std::holds_alternative<MoveCamera>(*step_) || std::holds_alternative<SetHeading>(*step_);
-    const auto required=camera?std::optional<game::MenuTab>{}:movement_menu();
-    // Confirm the tab we closed directly; another unreadable icon does not
-    // undo a fresh observation that this panel is no longer selected.
-    bool closed=false;
-    if (!required && closing_menu_ && s.menus.has_value(c,Time(1500),menu_after_))
-        for (const auto& menu:s.menus.value) if (menu.tab==*closing_menu_ && menu.selected==false) {
-            menu_attempts_=0; closing_menu_.reset(); closed=true; break;
-        }
-    const bool fresh=required?s.menus.has_value(c,Time(1500),menu_after_):s.open_menu.usable(c,Time(1500),menu_after_);
-    if (!fresh && menu_attempts_) {
-        if (c.now>=menu_after_+Time(5000)) throw ObservationUnavailable("Game menu change could not be confirmed");
-        return true;
-    }
-    // An unreadable initial sidebar is not confirmation that camera shortcuts
-    // will reach the game. Wait for the same shared menu evidence used above.
-    if (camera && !fresh && !closed) {
-        if (!menu_wait_started_) menu_wait_started_=c.now;
-        if (c.now-*menu_wait_started_>=Time(5000)) {
-            auto detail=s.observation_error;
-            if (detail.empty()) {
-                const auto& reading=s.open_menu;
-                if (!reading.window.id) detail="no sidebar frame received";
-                else if (reading.generation!=c.generation) detail="sidebar frame belongs to an earlier game session";
-                else if (reading.window.id!=c.window.id || reading.window.process!=c.window.process || reading.window.bounds!=c.window.bounds)
-                    detail="sidebar frame belongs to a different game window or window size";
-                else if (reading.captured>c.now) detail="sidebar frame timestamp is ahead of the current update";
-                else if (reading.captured<menu_after_) detail="sidebar frame predates the last menu change";
-                else if (c.now-reading.captured>Time(1500)) detail="sidebar frame is "+std::to_string((c.now-reading.captured).count())+" ms old";
-                else detail="sidebar unreadable in the captured frame";
-            }
-            throw ObservationUnavailable("Could not confirm the sidebar is closed before adjusting the camera: "+detail);
-        }
-        progress_.message="Checking sidebar before adjusting camera";
-        return true;
-    }
-    menu_wait_started_.reset();
-    if (required) {
-        if (!fresh) return false;
-        for (const auto& menu:s.menus.value) if (menu.tab==*required) {
-            if (menu.selected==true) { menu_attempts_=0; return false; }
-            if (menu.selected==false) target=menu.center();
-            break;
-        }
-    } else if (fresh && s.open_menu.knowledge==Knowledge::present) target=s.open_menu.value;
-    else if (fresh && s.open_menu.knowledge==Knowledge::absent) { menu_attempts_=0; closing_menu_.reset(); }
-    if (!target) return false;
-    const auto point=*target;
-    if (!std::isfinite(point.x) || !std::isfinite(point.y) || point.x<0 || point.y<0 || point.x>=1 || point.y>=1)
-        throw std::runtime_error("Invalid menu control position");
-    if (menu_attempts_>=3) throw ObservationUnavailable("Game menu did not respond after three clicks");
-    if (!owned_) { if (!tasks_.acquire(scope_)) return true; owned_=true; }
-    if (!required && s.menus.has_value(c,Time(1500)))
-        for (const auto& menu:s.menus.value) if (menu.selected==true
-            && menu.center().x==point.x && menu.center().y==point.y) { closing_menu_=menu.tab; break; }
-    ++menu_attempts_; progress_.message=required?"Opening tracking menu":"Closing game menu";
-    const auto rest=game::pointer_rest(c,s);
-    menu_pending_=tasks_.submit(scope_,TaskClass::interaction,
-        {{progress_.message,{Key::primary},Time(50),point},{"Move off menu",{},Time(50),rest}},Time(2000));
-    return true;
-}
 bool Runner::activity(const ObservationContext& c,const game::State& s) {
     if (const auto* report=std::get_if<ReportActivity>(&*step_)) {
         if (activity_sink_) { try { activity_sink_(*report); } catch (...) {} }
@@ -257,6 +161,7 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         if (!child_) {
             if (depth_>=8) throw std::invalid_argument("Workflow nesting exceeds eight levels");
             child_=std::make_unique<Runner>(operation->create(),permissions_,static_cast<TaskPort&>(*this),scope_,navigation_services_,depth_+1); child_->configure_conversion(hive_conversion_); child_->configure_statistics(recovery_counts_); child_->configure_reporting(activity_sink_);
+            child_->sidebar_=sidebar_;
             child_->parent_menu_=[this] { return movement_menu(); };
             child_->start(c);
             child_->progress_.route_position=std::move(progress_.route_position); progress_.route_position.reset();
@@ -317,7 +222,7 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         hold_left_=Time::zero();
         for (const auto& action : actions) hold_left_+=action.duration;
         const auto lifetime=input_lifetime(actions);
-        pending_=tasks_.submit(scope_,TaskClass::activity,std::move(actions),lifetime);
+        pending_=submit(scope_,TaskClass::activity,std::move(actions),lifetime);
         return true;
     }
     if (const auto* key=std::get_if<TapMenuKey>(&*step_)) {
@@ -332,7 +237,7 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         // stays instantaneous, and Escape is never held (it is also Stop).
         Action action{key->label,{},std::max(Time(50),key->press),{}};
         action.tap=key->key; action.tap_duration=key->press;
-        pending_=tasks_.submit(scope_,TaskClass::interaction,{action},Time(1000));
+        pending_=submit(scope_,TaskClass::interaction,{action},Time(1000));
         return true;
     }
     if (const auto* number=std::get_if<EnterNumber>(&*step_)) {
@@ -350,7 +255,7 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         }
         hold_left_=Time(actions.size()*100);
         const auto lifetime=input_lifetime(actions);
-        pending_=tasks_.submit(scope_,TaskClass::interaction,std::move(actions),lifetime); return true;
+        pending_=submit(scope_,TaskClass::interaction,std::move(actions),lifetime); return true;
     }
     if (const auto* control=std::get_if<UseControl>(&*step_)) {
         const auto point=control->target.value;
@@ -363,12 +268,13 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
         owned_=true; progress_.message=control->label;
         Action move{control->label,{},Time(40),point};
         Action input{control->label,control->scroll?std::vector<Key>{}:std::vector<Key>{Key::primary},Time(60),control->scroll?std::optional(point):std::nullopt,control->scroll};
+        input.changes_menu=control->changes_menu;
         hold_left_=Time(100);
         std::vector<Action> actions{move,input};
         if (control->rest || !control->scroll) {
             actions.push_back({control->label,{},Time(40),control->rest.value_or(game::pointer_rest(c,s))}); hold_left_+=Time(40);
         }
-        pending_=tasks_.submit(scope_,TaskClass::interaction,std::move(actions),Time(1000));
+        pending_=submit(scope_,TaskClass::interaction,std::move(actions),Time(1000));
         return true;
     }
     if (const auto* answer=std::get_if<AnswerDialog>(&*step_)) {
@@ -586,10 +492,10 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
             }
         }
         if (!pattern_) {
-            pattern_=std::make_unique<Runner>(std::make_unique<PatternProgram>(*pattern,config_.speed),permissions_,tasks_,scope_,navigation_services_,depth_+1); pattern_->configure_conversion(hive_conversion_); pattern_->configure_statistics(recovery_counts_); pattern_->configure_reporting(activity_sink_); pattern_->start(c);
+            pattern_=std::make_unique<Runner>(std::make_unique<PatternProgram>(*pattern,config_.speed),permissions_,tasks_,scope_,navigation_services_,depth_+1); pattern_->sidebar_=sidebar_; pattern_->configure_conversion(hive_conversion_); pattern_->configure_statistics(recovery_counts_); pattern_->configure_reporting(activity_sink_); pattern_->start(c);
             pattern_->parent_menu_=[this] { return movement_menu(); };
         }
-        pattern_->update(c,s); const auto result=pattern_->progress(); progress_.message=pattern->label;
+        pattern_->update(c,s); const auto result=pattern_->progress(); progress_.message=pattern_->waiting_for_menu()?result.message:pattern->label;
         if (result.state==State::completed) {
             if (pattern->until || pattern->outcome) interrupt(Interruption::lost_observations,c,s,"Activity ended without a confirmed result");
             else complete_step(c,s);

@@ -92,7 +92,7 @@ public:
             const auto inventory=plan_.inventory->read(c,*view.observations);
             if (!inventory.has_value(c,Time(2000),minimum_)) return wait(view,"Reading inventory after feeding");
             stage_=Stage::done;
-            if (inventory.value.open && inventory.value.toggle) return UseControl{{Knowledge::present,*inventory.value.toggle,inventory.captured,c.window,c.generation},0,"Close inventory"};
+            if (inventory.value.open && inventory.value.toggle) return UseControl{{Knowledge::present,*inventory.value.toggle,inventory.captured,c.window,c.generation},0,"Close inventory",{},true};
             return Done{"Feeding finished; quest progress must be checked"};
         }
         const auto dialog=game::read_feeding_dialog(c,*view.observations);
