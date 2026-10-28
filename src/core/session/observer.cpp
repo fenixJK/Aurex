@@ -252,13 +252,15 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
         const auto generation=target_->generation; const auto began=monotonic_now();
         std::vector<Rect> regions;
         if (mode==DetectionMode::text) regions=text_regions_;
-        struct Invocation { Entry entry; std::shared_ptr<const Frame> frame; };
+        struct Invocation { Entry entry; std::shared_ptr<const Frame> frame; std::size_t index; };
         std::vector<Invocation> entries;
-        for (auto& entry : detectors_) if (entry.config.mode==mode && entry.config.priority==priority && entry.next<=began && wanted(entry,began)) {
+        for (std::size_t index=0;index<detectors_.size();++index) {
+            auto& entry=detectors_[index];
+            if (entry.config.mode!=mode || entry.config.priority!=priority || entry.next>began || !wanted(entry,began)) continue;
             auto image=frame;
             if (!covers(image->region,entry.config.detector->capture_region())) image=frame_;
             if (!image || image->captured<=entry.captured || !covers(image->region,entry.config.detector->capture_region())) continue;
-            entries.push_back({entry,std::move(image)}); entry.next=began+entry.config.interval; entry.captured=entries.back().frame->captured;
+            entries.push_back({entry,std::move(image),index}); entry.next=began+entry.config.interval; entry.captured=entries.back().frame->captured;
         }
         if (mode==DetectionMode::pixels) std::stable_sort(entries.begin(),entries.end(),[](const auto& a,const auto& b) { return a.entry.config.interval<b.entry.config.interval; });
         if (mode==DetectionMode::text) ocr_next_=began+text_interval;
@@ -342,9 +344,24 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
         for (const auto& call : entries) {
             if (!readable || cancelled()) break;
             const auto& entry=call.entry;
-            const auto& frame=call.frame;
+            auto frame=call.frame;
             std::unique_lock invocation(entry.config.detector->invocation_,std::try_to_lock);
             if (!invocation.owns_lock() || cancelled()) continue;
+            if (mode==DetectionMode::pixels) {
+                // Earlier detectors may have taken longer than a frame's
+                // freshness budget. Use the latest suitable capture at dispatch,
+                // retaining its real timestamp. OCR stays tied to its text frame.
+                lock.lock();
+                if (cancelled() || exiting_) { lock.unlock(); break; }
+                if (!wanted(entry,monotonic_now())) { lock.unlock(); continue; }
+                auto latest=responsive?responsive_frame_:frame_;
+                const auto region=entry.config.detector->capture_region();
+                if (!latest || !covers(latest->region,region)) latest=frame_;
+                if (latest && latest->captured>frame->captured && covers(latest->region,region)) frame=std::move(latest);
+                detectors_[call.index].captured=frame->captured;
+                detectors_[call.index].next=monotonic_now()+entry.config.interval;
+                lock.unlock();
+            }
             DetectionResult reading{{frame->window,generation,frame->captured},{},{}};
             try {
                 auto recognize=[&](const Frame& crop) {
