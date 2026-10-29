@@ -383,7 +383,8 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
         result.settings.push_back({"whirligig-slot","Slot",1,1,7,{}});
         result.settings.back().enabled_by="use-whirligig";
         result.settings.back().help="The hotbar slot containing Whirligigs.";
-        result.page->sections.push_back({"return-item","Use Whirligig",{},{"use-whirligig","whirligig-slot"},false,2});
+        if (!controls || defaults.fields.empty())
+            result.page->sections.push_back({"return-item","Use Whirligig",{},{"use-whirligig","whirligig-slot"},false,2});
     }
     if (sprinklers && !sprinklers->equipment) result.page->sections.push_back({"sprinklers","Sprinklers",{},
         {"sprinkler-type","sprinkler-slot"},false,2,true});
@@ -426,6 +427,10 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
             extensions::PageSection limits{id+"-limits","When to return",{},{prefix+"gather-minutes",prefix+"backpack-percent"},false,2};
             limits.collection="fields"; limits.choice=field.preference.field;
             if (defaults.route_recovery) limits.settings.push_back(prefix+"return-method");
+            if (defaults.whirligig_return) {
+                limits.columns=3;
+                limits.settings.insert(limits.settings.end(),{"use-whirligig","whirligig-slot"});
+            }
             result.page->sections.push_back(std::move(limits));
             extensions::PageSection extend{id+"-extend","Extend gathering",{},
                 {prefix+"extend-while",prefix+"extend-minutes"},false,1};

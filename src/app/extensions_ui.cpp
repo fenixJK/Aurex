@@ -389,6 +389,10 @@ void ExtensionsUi::build_page(const std::string& id) {
                 for(const auto& key:section.settings) {
                     const auto& field=*std::find_if(manifest.settings.begin(),manifest.settings.end(),[&](const auto& f) { return f.id==key; });
                     if(field.hidden) continue;
+                    if(std::any_of(manifest.page->sections.begin(),manifest.page->sections.end(),[&](const auto& other) {
+                        return other.collection==collection && other.choice!=choice
+                            && std::find(other.settings.begin(),other.settings.end(),key)!=other.settings.end();
+                    })) continue; // Reset this field without changing shared controls.
                     if(!controls.contains(key)) {extension_pages_.at(id)->baseline[key]=field.initial;continue;}
                     write_setting_value(controls.at(key),field,field.initial);
                 }

@@ -7,6 +7,7 @@
 #include <QRegularExpression>
 #include <QFileInfo>
 #include <QDir>
+#include <map>
 #include <set>
 #include <algorithm>
 #include <limits>
@@ -362,6 +363,7 @@ void validate_page(const Manifest& manifest) {
     const auto& sections=manifest.page->sections;
     require(!sections.empty() && sections.size()<=maximum_page_sections,"Page section count is outside the supported range");
     std::set<std::string> ids,settings,known;
+    std::map<std::string,std::set<std::pair<std::string,std::string>>> placements;
     for (const auto& setting : manifest.settings) known.insert(setting.id);
     unsigned metrics=0;
     for (const auto& section : sections) {
@@ -389,8 +391,16 @@ void validate_page(const Manifest& manifest) {
         }
         metrics+=section.metrics;
         require(metrics<=1,"Page can contain one live metrics section");
-        for (const auto& id : section.settings)
-            require(known.contains(id) && settings.insert(id).second,"Unknown or repeated setting on module page");
+        for (const auto& id : section.settings) {
+            auto& locations=placements[id];
+            // A shared setting may appear in mutually exclusive collection tabs.
+            // Only the selected tab creates its control; simultaneous duplicates remain invalid.
+            require(known.contains(id) && (locations.empty() || (!section.collection.empty()
+                && std::all_of(locations.begin(),locations.end(),[&](const auto& location) {
+                    return location.first==section.collection && location.second!=section.choice;
+                }))),"Unknown or repeated setting on module page");
+            locations.emplace(section.collection,section.choice); settings.insert(id);
+        }
     }
     require(settings==known,"Module page must expose every declared setting");
 }
