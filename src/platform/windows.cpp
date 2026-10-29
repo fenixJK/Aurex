@@ -66,11 +66,17 @@ public:
     bool client_lifecycle_available() const override { return true; }
     std::vector<std::int64_t> client_processes() override {
         std::vector<std::int64_t> result;
+        DWORD session{};
+        if (!ProcessIdToSessionId(GetCurrentProcessId(),&session))
+            throw std::runtime_error("Could not identify the current Windows session");
         HANDLE snapshot=CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS,0);
         if (snapshot==INVALID_HANDLE_VALUE) throw std::runtime_error("Could not inspect Roblox processes");
         PROCESSENTRY32W entry{}; entry.dwSize=sizeof(entry);
         if (Process32FirstW(snapshot,&entry)) do {
-            if (_wcsicmp(entry.szExeFile,L"RobloxPlayerBeta.exe")==0) result.push_back(entry.th32ProcessID);
+            DWORD process_session{};
+            if (_wcsicmp(entry.szExeFile,L"RobloxPlayerBeta.exe")==0
+                && ProcessIdToSessionId(entry.th32ProcessID,&process_session) && process_session==session)
+                result.push_back(entry.th32ProcessID);
         } while (Process32NextW(snapshot,&entry));
         CloseHandle(snapshot); return result;
     }
@@ -139,7 +145,9 @@ public:
     }
     Snapshot inspect(std::uint64_t id) override {
         HWND hwnd=reinterpret_cast<HWND>(id);
-        return {describe(hwnd),GetForegroundWindow()==hwnd,true,(GetAsyncKeyState(VK_ESCAPE)&0x8000)!=0,(GetAsyncKeyState(VK_F2)&0x8000)!=0};
+        auto window=describe(hwnd);
+        const bool focused=window.id && GetForegroundWindow()==hwnd;
+        return {std::move(window),focused,true,(GetAsyncKeyState(VK_ESCAPE)&0x8000)!=0,(GetAsyncKeyState(VK_F2)&0x8000)!=0};
     }
     Frame capture(std::uint64_t id) override { return capture(id,{0,0,1,1}); }
     Frame capture(std::uint64_t id,Rect region) override {
@@ -173,7 +181,9 @@ public:
         if (memory) DeleteDC(memory);
         if (screen) ReleaseDC(nullptr,screen);
         if (!ok) throw std::runtime_error("Window capture failed");
-        if (describe(reinterpret_cast<HWND>(id)).bounds != r) throw std::runtime_error("Window geometry changed during capture");
+        const auto after=inspect(id);
+        if (!after.focused || after.window.id!=snapshot.window.id || after.window.process!=snapshot.window.process
+            || after.window.bounds!=r) throw std::runtime_error("Game focus or window changed during capture");
         return frame;
     }
     std::vector<TextLine> recognize(const Frame& frame) override { return recognize(frame,{}); }
@@ -252,6 +262,8 @@ public:
         if (point.x==from.x && point.y==from.y) return;
         if (!pointer_timer_) {
             pointer_timer_=winrt::handle{CreateWaitableTimerExW(nullptr,nullptr,CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,TIMER_MODIFY_STATE | SYNCHRONIZE)};
+            if (!pointer_timer_ && GetLastError()==ERROR_INVALID_PARAMETER)
+                pointer_timer_=winrt::handle{CreateWaitableTimerExW(nullptr,nullptr,0,TIMER_MODIFY_STATE | SYNCHRONIZE)};
             if (!pointer_timer_) throw std::runtime_error("Could not create pointer timer");
         }
         using Clock=std::chrono::steady_clock;

@@ -134,6 +134,10 @@ class Window final : public QMainWindow {
         permissions_ready_=p.capture && p.input;
         permission_->setText(QString("Screen capture: %1   ·   Input: %2\n%3").arg(p.capture?"Allowed":"Permission needed",p.input?"Allowed":"Permission needed",q(p.detail)));
     }
+    void start_failed(const QString& reason) {
+        start_timer_.stop(); initial_join_.reset(); routine_.reset(); pending_feature_.reset();
+        launch_error_=reason; log(launch_error_,true);
+    }
     void prepare_start() {
         if (updates_ && updates_->installing()) throw std::runtime_error("Wait for the app update to finish before starting.");
         hive_setup_->clear_join();
@@ -143,10 +147,12 @@ class Window final : public QMainWindow {
         initial_join_.reset(); focus_attempts_=0;
         QTimer::singleShot(100,this,[this] {
             if (!start_timer_.isActive()) return;
-            refresh();
-            if (selected()) desktop_->focus_client(desktop_->inspect(selected()).window);
-            else for (const auto pid:desktop_->client_processes())
-                if (desktop_->focus_client_process(pid)) break;
+            try {
+                refresh();
+                if (selected()) desktop_->focus_client(desktop_->inspect(selected()).window);
+                else for (const auto pid:desktop_->client_processes())
+                    if (desktop_->focus_client_process(pid)) break;
+            } catch (const std::exception& error) { start_failed(q(error.what())); }
         });
     }
     QString start_run() {
@@ -638,7 +644,7 @@ public:
                 else if (routine_) { if (resuming_) routine_->resume(); else routine_->start(snapshot.window); }
                 else if (resuming_) session_.resume();
                 else throw std::logic_error("No session work was prepared");
-            } catch (const std::exception& e) { start_timer_.stop(); initial_join_.reset(); routine_.reset(); pending_feature_.reset(); launch_error_=q(e.what()); log(launch_error_,true); }
+            } catch (const std::exception& e) { start_failed(q(e.what())); }
         });
         auto timer=new QTimer(this); timer->setInterval(150);
         connect(timer,&QTimer::timeout,this,[this,data,stop,run_routine,start_macro,player_speed,equipment,existing_hive,reconnect_hours,reconnect_minute] {
