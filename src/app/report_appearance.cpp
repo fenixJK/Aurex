@@ -87,11 +87,11 @@ void show_report_appearance(QWidget* parent,reporting::ReportAppearance& appeara
     for(auto check:{activity,nectar,modules,totals})QObject::connect(check,&QCheckBox::toggled,dialog,changed);
     QObject::connect(fade,&QSlider::valueChanged,dialog,changed);
     QObject::connect(pick,&QPushButton::clicked,dialog,[dialog,&appearance,directory,save,render,error] {
-        const auto file=QFileDialog::getOpenFileName(dialog,"Choose report background",{},"Images (*.png *.jpg *.jpeg)");if(file.isEmpty())return;
-        QImageReader reader(file);reader.setAutoTransform(true);
-        if(!reader.size().isValid()){error->setText("That image could not be opened.");return;}
+        const auto file=QFileDialog::getOpenFileName(dialog,"Choose report background",{},"Images (*.png *.jpg *.jpeg *.webp)");if(file.isEmpty())return;
+        QImageReader reader(file);reader.setAutoTransform(true);reader.setDecideFormatFromContent(true);
+        if(!reader.size().isValid()){error->setText("That image could not be opened: "+reader.errorString());return;}
         reader.setScaledSize(reader.size().scaled(2048,2048,Qt::KeepAspectRatio));
-        const auto image=reader.read();if(image.isNull()){error->setText("That image could not be opened.");return;}
+        const auto image=reader.read();if(image.isNull()){error->setText("That image could not be opened: "+reader.errorString());return;}
         const auto target=QDir(directory).filePath("report-background.png");QSaveFile output(target);
         if(!output.open(QIODevice::WriteOnly) || !image.save(&output,"PNG") || !output.commit()){error->setText("Could not save the background image.");return;}
         const auto previous=appearance.background_image;appearance.background_image=target;
