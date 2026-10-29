@@ -58,7 +58,12 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
         }
         for (const auto& result : tasks.results(scope)) if (result.id==pending_) {
             pending_.clear();
-            if (result.outcome!=TaskOutcome::executed) { fail("Inventory input interrupted; check the game before retrying"); return; }
+            if (result.outcome==TaskOutcome::cancelled && plan_.inspect_only) {
+                // A route checkpoint can stop shared input while this search
+                // is hovering or scrolling. Reread and continue the read-only
+                // search; a cancelled drag must still require confirmation.
+                scrolled_=false; stalled_=0; before_rows_.clear();
+            } else if (result.outcome!=TaskOutcome::executed) { fail("Inventory input interrupted; check the game before retrying"); return; }
             if (stage_==InventoryStage::dragging) { finish(InventoryStage::completed,"Item drag finished; game outcome still needs confirmation",tasks,scope); return; }
             minimum_=result.finished+Time(1); frame_=Time(-1); stage_=InventoryStage::searching;
         }
