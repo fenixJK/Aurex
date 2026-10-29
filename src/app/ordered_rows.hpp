@@ -1,122 +1,131 @@
 #pragma once
 #include <QApplication>
-#include <QDrag>
-#include <QDragEnterEvent>
-#include <QDropEvent>
-#include <QMimeData>
-#include <QMouseEvent>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <QSpinBox>
+#include <QStyle>
 #include <QToolButton>
-#include <QFrame>
 #include <QVBoxLayout>
 #include <algorithm>
 #include <map>
+#include <vector>
 
 namespace hive {
 class OrderedRows final : public QWidget {
     struct Row { QWidget* widget; QSpinBox* priority; };
-    std::vector<Row> rows_;
+    std::vector<Row> rows_, original_;
     QVBoxLayout* layout_;
-    struct Controls { QToolButton *rank{},*up{},*down{}; };
-    std::map<QWidget*,Controls> controls_;
-    QFrame* insertion_;
+    std::map<QObject*,QWidget*> grips_;
+    QWidget *pressed_{}, *grip_{}, *placeholder_{};
+    QPoint start_, offset_;
+
     void refresh() {
-        for (std::size_t i=0;i<rows_.size();++i) {
-            auto& row=rows_[i]; layout_->removeWidget(row.widget); layout_->insertWidget(int(i),row.widget);
-            auto& controls=controls_.at(row.widget);
-            controls.rank->setText(QString::number(i+1));
-            controls.rank->setAccessibleName(QString("Priority %1: %2. Drag to reorder").arg(i+1).arg(row.widget->accessibleName()));
-            controls.up->setEnabled(i>0); controls.down->setEnabled(i+1<rows_.size());
-        }
+        while (auto item=layout_->takeAt(0)) delete item;
+        for (const auto& row:rows_) layout_->addWidget(placeholder_ && row.widget==pressed_ ? placeholder_ : row.widget);
+        layout_->activate();
     }
-    void move(QWidget* widget,int target) {
-        if(!isEnabled() || target<0 || target>=int(rows_.size())) return;
+    void save_order() {
+        for (std::size_t i=0;i<rows_.size();++i) rows_[i].priority->setValue(int(i)+1);
+    }
+    void shift(QWidget* widget,int direction) {
         const auto found=std::find_if(rows_.begin(),rows_.end(),[&](const auto& row) { return row.widget==widget; });
-        if(found==rows_.end() || found-rows_.begin()==target) return;
-        const auto row=*found; rows_.erase(found); rows_.insert(rows_.begin()+target,row);
-        for(std::size_t i=0;i<rows_.size();++i) rows_[i].priority->setValue(int(i)+1);
-        refresh();
+        if (!isEnabled() || placeholder_ || found==rows_.end()) return;
+        const auto target=found-rows_.begin()+direction;
+        if (target<0 || target>=int(rows_.size())) return;
+        std::iter_swap(found,rows_.begin()+target); refresh(); save_order();
     }
-    void shift(QWidget* row,int direction) {
-        const auto found=std::find_if(rows_.begin(),rows_.end(),[&](const auto& item) { return item.widget==row; });
-        if (found!=rows_.end()) move(row,int(found-rows_.begin())+direction);
+    void begin_drag() {
+        original_=rows_;
+        offset_=pressed_->mapFromGlobal(start_);
+        placeholder_=new QWidget(this); placeholder_->setObjectName("order-placeholder");
+        placeholder_->setAttribute(Qt::WA_StyledBackground); placeholder_->setFixedSize(pressed_->size());
+        placeholder_->show();
+        pressed_->setAttribute(Qt::WA_StyledBackground); pressed_->setProperty("dragging-row",true);
+        pressed_->style()->unpolish(pressed_); pressed_->style()->polish(pressed_);
+        grip_->setCursor(Qt::ClosedHandCursor);
+        refresh(); pressed_->raise();
+        // Escape cancels the drag before the application's global stop shortcut.
+        qApp->installEventFilter(this);
     }
-    int target(QWidget* moving,qreal y) const {
-        int index=0;
-        for (const auto& row:rows_) if (row.widget!=moving && y>=row.widget->geometry().center().y()) ++index;
-        return index;
-    }
-    class Handle final : public QToolButton {
-        OrderedRows* owner_;
-        QWidget* row_;
-        QPoint start_;
-        void mousePressEvent(QMouseEvent* event) override {
-            start_=event->pos(); QToolButton::mousePressEvent(event);
+    void drag_to(const QPoint& global) {
+        const auto y=mapFromGlobal(global).y()-offset_.y();
+        const auto center=y+pressed_->height()/2;
+        int target=0;
+        for (const auto& row:rows_) if (row.widget!=pressed_ && center>row.widget->geometry().center().y()) ++target;
+        const auto found=std::find_if(rows_.begin(),rows_.end(),[&](const auto& row) { return row.widget==pressed_; });
+        if (target!=found-rows_.begin()) {
+            const auto row=*found; rows_.erase(found); rows_.insert(rows_.begin()+target,row); refresh();
         }
-        void mouseMoveEvent(QMouseEvent* event) override {
-            if(!(event->buttons()&Qt::LeftButton) || (event->pos()-start_).manhattanLength()<QApplication::startDragDistance()) return;
-            auto drag=new QDrag(owner_); auto data=new QMimeData;
-            data->setData("application/x-aurex-setting-row",row_->objectName().toUtf8()); drag->setMimeData(data);
-            drag->setPixmap(row_->grab()); drag->setHotSpot(mapTo(row_,event->pos()));
-            drag->exec(Qt::MoveAction); owner_->insertion_->hide(); drag->deleteLater(); setDown(false);
+        pressed_->move(0,y); pressed_->raise();
+    }
+    void finish_drag(bool commit) {
+        if (placeholder_) {
+            qApp->removeEventFilter(this);
+            const bool changed=!std::equal(rows_.begin(),rows_.end(),original_.begin(),[](const auto& a,const auto& b) { return a.widget==b.widget; });
+            if (!commit) rows_=original_;
+            delete placeholder_; placeholder_=nullptr;
+            pressed_->setProperty("dragging-row",false);
+            pressed_->style()->unpolish(pressed_); pressed_->style()->polish(pressed_);
+            refresh();
+            if (commit && changed) save_order();
+            original_.clear();
         }
-        void keyPressEvent(QKeyEvent* event) override {
-            if(event->modifiers()==Qt::ControlModifier && (event->key()==Qt::Key_Up || event->key()==Qt::Key_Down)) {
-                owner_->shift(row_,event->key()==Qt::Key_Up?-1:1); event->accept(); return;
+        if (grip_) grip_->setCursor(Qt::OpenHandCursor);
+        pressed_=nullptr; grip_=nullptr;
+    }
+    bool eventFilter(QObject* watched,QEvent* event) override {
+        if (placeholder_) {
+            if ((event->type()==QEvent::ShortcutOverride || event->type()==QEvent::KeyPress) && static_cast<QKeyEvent*>(event)->key()==Qt::Key_Escape) {
+                if (event->type()==QEvent::KeyPress) finish_drag(false);
+                event->accept(); return true;
             }
-            QToolButton::keyPressEvent(event);
+            if (watched==window() && event->type()==QEvent::WindowDeactivate) finish_drag(false);
         }
-    public:
-        Handle(OrderedRows* owner,QWidget* row):owner_(owner),row_(row) {
-            setFocusPolicy(Qt::StrongFocus); setObjectName("order-rank"); setCursor(Qt::OpenHandCursor);
-            setToolTip("Drag to change priority, or use the arrow buttons. Ctrl+Up/Down also moves this row."); setFixedSize(26,28);
+        const auto found=grips_.find(watched);
+        if (found==grips_.end() || !isEnabled()) return QWidget::eventFilter(watched,event);
+        if (event->type()==QEvent::KeyPress) {
+            const auto key=static_cast<QKeyEvent*>(event);
+            if (key->modifiers()==Qt::ControlModifier && (key->key()==Qt::Key_Up || key->key()==Qt::Key_Down)) {
+                shift(found->second,key->key()==Qt::Key_Up?-1:1); return true;
+            }
+        } else if (event->type()==QEvent::MouseButtonPress) {
+            const auto mouse=static_cast<QMouseEvent*>(event);
+            if (mouse->button()==Qt::LeftButton) {
+                pressed_=found->second; grip_=static_cast<QWidget*>(watched); start_=mouse->globalPosition().toPoint();
+                grip_->setFocus(Qt::MouseFocusReason); return true;
+            }
+        } else if (pressed_ && event->type()==QEvent::MouseMove) {
+            const auto mouse=static_cast<QMouseEvent*>(event);
+            if (!(mouse->buttons()&Qt::LeftButton)) { finish_drag(false); return true; }
+            const auto global=mouse->globalPosition().toPoint();
+            if (!placeholder_ && (global-start_).manhattanLength()>=QApplication::startDragDistance()) begin_drag();
+            if (placeholder_) drag_to(global);
+            return true;
+        } else if (pressed_ && event->type()==QEvent::MouseButtonRelease && static_cast<QMouseEvent*>(event)->button()==Qt::LeftButton) {
+            finish_drag(rect().contains(mapFromGlobal(static_cast<QMouseEvent*>(event)->globalPosition().toPoint()))); return true;
         }
-    };
-    void dragEnterEvent(QDragEnterEvent* event) override {
-        if(event->source()==this && event->mimeData()->hasFormat("application/x-aurex-setting-row")) event->acceptProposedAction();
+        return QWidget::eventFilter(watched,event);
     }
-    void dragMoveEvent(QDragMoveEvent* event) override {
-        if(event->source()!=this) return;
-        const auto name=QString::fromUtf8(event->mimeData()->data("application/x-aurex-setting-row"));
-        const auto found=std::find_if(rows_.begin(),rows_.end(),[&](const auto& row) { return row.widget->objectName()==name; });
-        if (found==rows_.end()) return;
-        const auto index=target(found->widget,event->position().y()); int current=0,y=height()-3;
-        for (const auto& row:rows_) if (row.widget!=found->widget && current++==index) { y=row.widget->y()-3; break; }
-        insertion_->setGeometry(0,std::max(0,y),width(),3); insertion_->raise(); insertion_->show(); event->acceptProposedAction();
-    }
-    void dragLeaveEvent(QDragLeaveEvent* event) override { insertion_->hide(); event->accept(); }
-    void dropEvent(QDropEvent* event) override {
-        insertion_->hide();
-        if(event->source()!=this) return;
-        const auto name=QString::fromUtf8(event->mimeData()->data("application/x-aurex-setting-row"));
-        auto found=std::find_if(rows_.begin(),rows_.end(),[&](const auto& row) { return row.widget->objectName()==name; });
-        if(found==rows_.end()) return;
-        const auto moving=found->widget;
-        move(moving,target(moving,event->position().y()));
-        event->acceptProposedAction();
+    bool event(QEvent* event) override {
+        if (pressed_ && (event->type()==QEvent::Hide || (event->type()==QEvent::EnabledChange && !isEnabled()))) finish_drag(false);
+        return QWidget::event(event);
     }
 public:
     explicit OrderedRows(QWidget* parent=nullptr):QWidget(parent),layout_(new QVBoxLayout(this)) {
-        setAcceptDrops(true); setObjectName("ordered-setting-rows"); layout_->setContentsMargins(0,0,0,0); layout_->setSpacing(6);
-        insertion_=new QFrame(this); insertion_->setStyleSheet("background:#b5e6b9;border:none;"); insertion_->setAttribute(Qt::WA_TransparentForMouseEvents); insertion_->hide();
+        setObjectName("ordered-setting-rows"); layout_->setContentsMargins(0,0,0,0); layout_->setSpacing(3);
     }
-    QToolButton* handle(QWidget* row) { auto rank=new Handle(this,row); controls_[row].rank=rank; return rank; }
-    QWidget* buttons(QWidget* row) {
-        auto widget=new QWidget; auto layout=new QHBoxLayout(widget); layout->setContentsMargins(0,0,0,0); layout->setSpacing(2);
-        auto& controls=controls_.at(row); controls.up=new QToolButton; controls.down=new QToolButton;
-        for (const auto direction:{-1,1}) {
-            auto button=direction<0?controls.up:controls.down;
-            button->setObjectName(direction<0?"order-up":"order-down"); button->setText(direction<0?"↑":"↓"); button->setFixedSize(28,28);
-            button->setAccessibleName("Move "+row->accessibleName()+(direction<0?" up":" down")); button->setToolTip(button->accessibleName());
-            connect(button,&QToolButton::clicked,this,[this,row,direction] { shift(row,direction); }); layout->addWidget(button);
-        }
-        return widget;
+    void bind(QWidget* grip,QWidget* row) {
+        grips_[grip]=row; grip->installEventFilter(this); grip->setCursor(Qt::OpenHandCursor); grip->setFocusPolicy(Qt::StrongFocus);
+        grip->setAccessibleName("Reorder "+row->accessibleName());
+        grip->setToolTip("Drag to change priority. Ctrl+Up/Down also moves this row.");
     }
-    void add(QWidget* row,QSpinBox* priority) { rows_.push_back({row,priority}); layout_->addWidget(row); sort(); }
+    QToolButton* handle(QWidget* row) {
+        auto grip=new QToolButton; grip->setObjectName("order-handle"); grip->setText("≡"); grip->setFixedSize(24,26); bind(grip,row); return grip;
+    }
+    void add(QWidget* row,QSpinBox* priority) { rows_.push_back({row,priority}); sort(); }
     void sort() {
-        std::stable_sort(rows_.begin(),rows_.end(),[](const auto& a,const auto& b) { return a.priority->value()<b.priority->value(); });
-        refresh();
+        if (pressed_) finish_drag(false);
+        std::stable_sort(rows_.begin(),rows_.end(),[](const auto& a,const auto& b) { return a.priority->value()<b.priority->value(); }); refresh();
     }
 };
 }

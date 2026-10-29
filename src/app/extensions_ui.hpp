@@ -8,7 +8,7 @@ class QWidget;
 class QVBoxLayout;
 class QLabel;
 class QPushButton;
-class QListWidget;
+class QTabBar;
 class QTimer;
 namespace hive {
 class Navigation;
@@ -59,7 +59,7 @@ private:
     TargetPicker picker_;
     QString order_file_;
     std::vector<std::string> order_;
-    QListWidget* order_list_{};
+    QTabBar* order_list_{};
     QWidget* manager_{};
     QVBoxLayout* list_{};
     QLabel* message_{};

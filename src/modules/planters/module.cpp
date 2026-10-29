@@ -462,7 +462,8 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
     result.page->sections.front().tab="Setup";
     for (auto& section:result.page->sections) {
         section.inline_labels=true;
-        if(section.id=="equipment") section.columns=4;
+        if(!section.order_group.empty()) section.panel="targets";
+        if(section.id=="equipment") { section.panel="equipment"; section.columns=2; }
     }
     for(auto& setting:result.settings) {
         if(setting.id=="run-seconds" || setting.id=="max-actions" || (plan.conversion && plan.conversion->every_return && (setting.id=="convert-after-harvest" || setting.id=="conversion-threshold"))) setting.hidden=true;

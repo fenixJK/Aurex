@@ -1,6 +1,5 @@
 #include "setting_widgets.hpp"
 #include <QTabBar>
-#include <QEvent>
 #include <QPushButton>
 #include <QMenu>
 #include <QStackedWidget>
@@ -242,7 +241,16 @@ public:
                 auto item=new QListWidgetItem(q(choice),ordered_); item->setCheckState(Qt::Unchecked);
             }
             layout->addWidget(ordered_);
-            layout->addWidget(list_order_controls(ordered_,false,[this] { refresh(); }));
+            auto moves=new QHBoxLayout;
+            for (const auto direction : {-1,1}) {
+                auto move=new QPushButton(direction<0?"Move up":"Move down"); moves->addWidget(move);
+                connect(move,&QPushButton::clicked,this,[this,direction] {
+                    const auto row=ordered_->currentRow(),next=row+direction;
+                    if (row<0 || next<0 || next>=ordered_->count()) return;
+                    auto item=ordered_->takeItem(row); ordered_->insertItem(next,item); ordered_->setCurrentItem(item); refresh();
+                });
+            }
+            layout->addLayout(moves);
             connect(ordered_,&QListWidget::itemChanged,this,[this] { refresh(); });
             connect(ordered_->model(),&QAbstractItemModel::rowsMoved,this,[this] { refresh(); });
         } else {
@@ -286,44 +294,7 @@ public:
         refresh();
     }
 };
-class ListOrderControls final : public QWidget {
-    QListWidget* list_;
-    QToolButton *earlier_,*later_;
-    void refresh() {
-        const int row=list_->currentRow();
-        earlier_->setEnabled(list_->isEnabled() && row>0);
-        later_->setEnabled(list_->isEnabled() && row>=0 && row+1<list_->count());
-    }
-    bool eventFilter(QObject* watched,QEvent* event) override {
-        if (watched==list_ && event->type()==QEvent::EnabledChange) refresh();
-        return QWidget::eventFilter(watched,event);
-    }
-public:
-    ListOrderControls(QListWidget* list,bool horizontal,std::function<void()> moved):list_(list),earlier_(new QToolButton),later_(new QToolButton) {
-        auto layout=new QHBoxLayout(this); layout->setContentsMargins(0,0,0,0); layout->setSpacing(6);
-        for (const auto direction:{-1,1}) {
-            auto button=direction<0?earlier_:later_;
-            button->setObjectName(direction<0?"move-earlier":"move-later");
-            button->setText(horizontal?(direction<0?"Earlier":"Later"):(direction<0?"Move up":"Move down"));
-            button->setArrowType(horizontal?(direction<0?Qt::LeftArrow:Qt::RightArrow):(direction<0?Qt::UpArrow:Qt::DownArrow));
-            button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon); layout->addWidget(button);
-            connect(button,&QToolButton::clicked,this,[this,direction,moved] {
-                const int from=list_->currentRow(),to=from+direction;
-                if (!list_->isEnabled() || from<0 || to<0 || to>=list_->count()) return;
-                auto item=list_->takeItem(from); list_->insertItem(to,item); list_->setCurrentItem(item);
-                if (moved) moved(); refresh();
-            });
-        }
-        layout->addStretch(); list_->installEventFilter(this);
-        connect(list_,&QListWidget::currentRowChanged,this,[this] { refresh(); });
-        connect(list_->model(),&QAbstractItemModel::rowsMoved,this,[this] { refresh(); });
-        for (auto signal:{&QAbstractItemModel::rowsInserted,&QAbstractItemModel::rowsRemoved})
-            connect(list_->model(),signal,this,[this] { refresh(); });
-        refresh();
-    }
-};
 }
-QWidget* list_order_controls(QListWidget* list,bool horizontal,std::function<void()> moved) { return new ListOrderControls(list,horizontal,std::move(moved)); }
 CollectionEditor* collection_control(const std::vector<std::string>& choices,const SettingSelection& selected,const std::string& label) { return new CollectionControl(choices,selected,label); }
 ChoiceControl* choice_control(const extensions::Setting& field,const std::string& selected,bool compact) { return new ChoiceEditor(field,selected,compact); }
 QWidget* inline_selection(const extensions::Setting& field,const SettingSelection& selected,bool compact,unsigned columns) { return new InlineSelection(field,selected,compact,columns); }

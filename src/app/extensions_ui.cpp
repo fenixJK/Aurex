@@ -133,20 +133,15 @@ ExtensionsUi::ExtensionsUi(Navigation* navigation,QStackedWidget* pages,QString 
     layout->addLayout(heading);
     layout->addWidget(text("Enabled modules appear in the sidebar and run together.","muted"));
     message_=text({},"muted"); layout->addWidget(message_);
-    auto order_label=text("Run order · select a module to move it, or drag","muted"); layout->addWidget(order_label);
-    order_list_=new QListWidget; order_list_->setObjectName("module-run-order");
-    order_list_->setFlow(QListView::LeftToRight); order_list_->setWrapping(true); order_list_->setGridSize(QSize(122,30)); order_list_->setFixedHeight(66);
-    order_list_->setDragDropMode(QAbstractItemView::InternalMove); order_list_->setDefaultDropAction(Qt::MoveAction); order_list_->setDragEnabled(true);
-    order_list_->setFrameShape(QFrame::NoFrame); order_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    order_list_->setToolTip("Higher modules run first when multiple are ready. Gather interrupt overrides this order and can stop active gathering."); layout->addWidget(order_list_);
-    const auto reordered=[this] {
-        if (busy_()) return;
-        std::vector<std::string> moved;
-        for (int i=0;i<order_list_->count();++i) moved.push_back(order_list_->item(i)->data(Qt::UserRole).toString().toStdString());
-        perform([&] { set_run_order(std::move(moved)); });
-    };
-    connect(order_list_->model(),&QAbstractItemModel::rowsMoved,this,reordered);
-    layout->addWidget(list_order_controls(order_list_,true,reordered));
+    auto order_label=text("Run order · drag to rearrange","muted"); layout->addWidget(order_label);
+    order_list_=new QTabBar; order_list_->setObjectName("module-run-order");
+    order_list_->setMovable(true); order_list_->setExpanding(false); order_list_->setDrawBase(false);
+    order_list_->setUsesScrollButtons(true); order_list_->setElideMode(Qt::ElideNone); order_list_->setFixedHeight(34);
+    order_list_->setCursor(Qt::OpenHandCursor); order_list_->setAccessibleName("Module run order");
+    order_list_->setToolTip("Drag a module left or right. Earlier modules run first when several are ready; gather interrupt still applies."); layout->addWidget(order_list_);
+    connect(order_list_,&QTabBar::tabMoved,this,[this] {
+        if (!busy_()) perform([&] { set_run_order(run_order()); });
+    });
     auto sections=new QWidget; list_=new QVBoxLayout(sections); list_->setContentsMargins(0,0,0,0); list_->setSpacing(6); list_->addStretch(); layout->addWidget(sections);
     auto tools=new QWidget; auto toolbar=new QHBoxLayout(tools); toolbar->setContentsMargins(0,0,0,0);
     install_=new QPushButton("Install module"); reload_=new QPushButton("Reload modules");
@@ -243,19 +238,16 @@ void ExtensionsUi::refresh_list() {
         });
         for (const auto& entry:entries) if (std::find(order_.begin(),order_.end(),entry.id)==order_.end()) order_.push_back(entry.id);
         bool changed=order_list_->count()!=static_cast<int>(entries.size());
-        for (int i=0;!changed && i<order_list_->count();++i) changed=order_list_->item(i)->data(Qt::UserRole).toString()!=q(entries[i].id);
+        for (int i=0;!changed && i<order_list_->count();++i) changed=order_list_->tabData(i).toString()!=q(entries[i].id);
         if (changed) {
-            const auto selected=order_list_->currentItem()?order_list_->currentItem()->data(Qt::UserRole).toString():QString{};
-            order_list_->clear();
+            const auto selected=order_list_->tabData(order_list_->currentIndex()).toString();
+            QSignalBlocker block(order_list_);
+            while (order_list_->count()) order_list_->removeTab(0);
             for (const auto& entry:entries) {
-                auto* item=new QListWidgetItem(q(host_.entries().at(entry.id).manifest.name),order_list_);
-                item->setData(Qt::UserRole,q(entry.id)); item->setFlags(item->flags() & ~Qt::ItemIsDropEnabled);
-                if (q(entry.id)==selected) order_list_->setCurrentItem(item);
+                const auto index=order_list_->addTab(q(host_.entries().at(entry.id).manifest.name));
+                order_list_->setTabData(index,q(entry.id));
+                if (q(entry.id)==selected) order_list_->setCurrentIndex(index);
             }
-        }
-        for (int i=0;i<order_list_->count();++i) {
-            auto item=order_list_->item(i); const auto& entry=host_.entries().at(item->data(Qt::UserRole).toString().toStdString());
-            item->setText(QString::number(i+1)+". "+q(entry.manifest.name));
         }
         order_list_->setVisible(order_list_->count()>1);
     } catch (const std::exception&) { order_list_->hide(); }
@@ -485,9 +477,9 @@ void ExtensionsUi::build_page(const std::string& id) {
                 headings->setContentsMargins(0,0,0,0); headings->setHorizontalSpacing(8);
                 auto& widths=ordered_widths[key]; widths.push_back(0);
                 for(const auto& row:sections) if(row.order_group==section.order_group && row.tab==section.tab)
-                    widths[0]=std::max(widths[0],font_metrics.horizontalAdvance(q(row.title))+96);
+                    widths[0]=std::max(widths[0],font_metrics.horizontalAdvance(q(row.title))+32);
                 auto label=q(section.order_group); label[0]=label[0].toUpper();
-                headings->addWidget(text("Priority · "+label,"muted"),0,0);
+                headings->addWidget(text(label,"muted"),0,0);
                 for(std::size_t i=0;i<section.settings.size();++i) {
                     const auto& field=*std::find_if(entry.manifest.settings.begin(),entry.manifest.settings.end(),[&](const auto& f) { return f.id==section.settings[i]; });
                     widths.push_back(std::max(80,font_metrics.horizontalAdvance(q(field.label))));
@@ -495,16 +487,14 @@ void ExtensionsUi::build_page(const std::string& id) {
                 }
                 int width=8*(int(widths.size())-1);
                 for(std::size_t i=0;i<widths.size();++i) { headings->setColumnMinimumWidth(int(i),widths[i]); width+=widths[i]; }
-                header->setMinimumWidth(width); headings->setColumnStretch(0,1); ordered->setMinimumWidth(width);
-                target->addWidget(text("Higher rows are preferred. Use the arrows or drag a number to reorder.","muted"));
+                header->setFixedWidth(width); ordered->setFixedWidth(width);
                 target->addWidget(header); target->addWidget(ordered);
             } else ordered=ordered_groups.at(key);
             const auto& field=*std::find_if(entry.manifest.settings.begin(),entry.manifest.settings.end(),[&](const auto& f) { return f.id==section.order_setting; });
             priority=new QSpinBox(group); priority->setObjectName(q(field.id)); priority->setRange(field.minimum,field.maximum); priority->setValue(std::get<int>(saved_values.at(field.id))); priority->hide();
             page->controls[field.id]=priority;
         }
-        auto section_layout=new QVBoxLayout(group); section_layout->setContentsMargins(0,ordered?7:0,0,ordered?7:0); section_layout->setSpacing(ordered?1:5);
-        if (ordered) group->setProperty("ordered-row",true);
+        auto section_layout=new QVBoxLayout(group); section_layout->setContentsMargins(0,0,0,0); section_layout->setSpacing(ordered?1:5);
         if (section.collapsed) {
             auto toggle=new QToolButton;
             toggle->setObjectName("module-toggle-"+q(section.id)); toggle->setText(q(section.title));
@@ -535,7 +525,6 @@ void ExtensionsUi::build_page(const std::string& id) {
             if (ordered) {
                 const auto& widths=ordered_widths.at(section.tab+"/"+section.order_group);
                 for(std::size_t i=0;i<widths.size();++i) form->setColumnMinimumWidth(int(i),widths[i]);
-                form->setColumnStretch(0,1);
             } else if(packed) form->setColumnStretch(columns,1);
             else for (unsigned column=0;column<(section.row?section.settings.size()+1:columns);++column)
                 form->setColumnStretch(column,1);
@@ -544,8 +533,8 @@ void ExtensionsUi::build_page(const std::string& id) {
             if(section.row) {
                 auto title=new QHBoxLayout; title->setContentsMargins(0,0,0,0); title->setSpacing(4);
                 if(ordered) title->addWidget(ordered->handle(group));
-                title->addWidget(text(q(section.title)),1);
-                if(ordered) title->addWidget(ordered->buttons(group));
+                auto name=text(q(section.title)); title->addWidget(name,1);
+                if (ordered) { name->setObjectName("order-label"); ordered->bind(name,group); }
                 form->addLayout(title,first_row,0);
             }
             for (const auto& id : section.settings) {
@@ -793,7 +782,7 @@ extensions::CommandResult ExtensionsUi::invoke_module(const std::string& id,cons
 }
 std::vector<std::string> ExtensionsUi::run_order() const {
     std::vector<std::string> result;
-    for (int i=0;i<order_list_->count();++i) result.push_back(order_list_->item(i)->data(Qt::UserRole).toString().toStdString());
+    for (int i=0;i<order_list_->count();++i) result.push_back(order_list_->tabData(i).toString().toStdString());
     return result;
 }
 void ExtensionsUi::set_run_order(std::vector<std::string> order) {
