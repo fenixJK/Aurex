@@ -90,7 +90,7 @@ public:
     bool pending_work(const extensions::SessionView& view) const override { return needs_supplies(view.now) || controller_->next_booster(view.now,boosters_,requested_).has_value(); }
     std::optional<extensions::WorkWindow> protected_work(const extensions::SessionView& view) const override { return controller_->protected_work(view.now); }
     std::optional<extensions::WorkEstimate> next_work(const extensions::SessionView& view) const override {
-        if (needs_supplies(view.now)) return extensions::WorkEstimate{"Check boost supplies",{},Time{},view.now,view.now};
+        if (needs_supplies(view.now)) return extensions::WorkEstimate{"Check boost supplies",{},Time{},view.now,{}};
         if (auto name=controller_->next_booster(view.now,boosters_,requested_)) return extensions::WorkEstimate{*name,{},Time{},view.now,{}};
         return {};
     }

@@ -98,7 +98,7 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
             // the panel. Moving and scrolling in the same instant can zoom
             // the world instead of moving the inventory.
             pending_=tasks.submit(scope,TaskClass::interaction,
-                {{"Move to inventory",{},Time(50),hover},{"Scroll inventory",{},Time(150),{},amount}},Time(2000));
+                {{"Move to inventory",{},Time(50),hover},{"Scroll inventory",{},Time(150),hover,amount}},Time(2000));
             before_rows_.clear(); for (const auto& item:view.items) before_rows_.emplace(game::inventory_name(item.name),item.bounds.y);
             ++scrolls_; before_scroll_=current; stage_=InventoryStage::scrolling; reason_="Searching inventory";
         };

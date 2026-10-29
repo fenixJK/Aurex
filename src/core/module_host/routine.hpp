@@ -11,6 +11,7 @@ class Routine {
     std::uint64_t completed_work_{};
     std::unique_ptr<automation::ActivityPolicy> policy_;
     std::optional<std::size_t> active_;
+    bool continuous_{};
     Time last_{};
     std::uint64_t generation_{};
     std::uint64_t session_id_{};

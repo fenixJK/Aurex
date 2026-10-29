@@ -274,13 +274,14 @@ public:
             hunting.kills?Time(std::chrono::hours(22)):Time{}):Time{};
         if(daily>Time{})return work;
         hop_next_=true;
-        return extensions::WorkEstimate{"Vicious Bee · next server",{},std::chrono::minutes(5),view.now,{}};
+        return extensions::WorkEstimate{"Vicious Bee · next server",{},std::chrono::minutes(5),view.now,{},{},true};
     }
     std::unique_ptr<automation::Program> program() const override {
         if(trip_->active())return trip_->program([delegate=delegate_] { return delegate->program(); });
         if(hop_enabled_ && hop_next_) {
             // Each server visit remains bounded; Forever removes the session cap,
-            // without bypassing normal recovery or scheduler handoffs.
+            // without bypassing recovery or higher-priority work. The scheduler
+            // treats successive visits as one continuous hunt.
             const auto remaining=hop_limit_>Time{}?std::max(Time(1000),hop_limit_-hunt_->read().elapsed):Time(std::chrono::hours(8));
             auto services=*hopping_;
             services.enemy.hunt_fields=hunt_fields_;

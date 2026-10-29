@@ -78,6 +78,7 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
     auto appearance=new QPushButton("Report layout…"); appearance->setObjectName("report-appearance"); fields->addRow(appearance);
     form->addLayout(fields);
     auto mention=new QCheckBox("Ping me on error");mention->setObjectName("discord-ping");
+    mention->setToolTip("Recoverable interruptions are reported without a ping. Failures that need attention can still ping you.");
     auto notifications=new QGridLayout;
     auto errors=new QCheckBox("Error alerts"); errors->setObjectName("discord-errors");
     notifications->addWidget(errors,0,0);notifications->addWidget(mention,1,0);
@@ -229,7 +230,7 @@ void StatusPage::use_bot(std::optional<reporting::BotDestination> destination) {
     discord_->set_bot(std::move(destination));
 }
 void StatusPage::activity(const ActivityStatus& status) {
-    if (status.empty() || status==activity_) return;
+    if (status.empty() || status.kind==ActivityKind::diagnostic || status==activity_) return;
     activity_=status;
     log(QString::fromStdString(status.text()));
     if (discord_) discord_->activity_status(status);
@@ -239,7 +240,6 @@ void StatusPage::clear_activity() {
 }
 void StatusPage::event(const ActivityStatus& status,const QImage& screenshot) {
     if (status.empty()) return;
-    activity_=status;
     log(QString::fromStdString(status.text()));
     if (discord_) discord_->activity_event(status,screenshot);
 }

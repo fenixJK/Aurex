@@ -200,7 +200,7 @@ public:
         reset_at_spawn_=options_.confirmed_spawn && stage_!=Stage::claim && stage_!=Stage::prepare;
         if (options_.result) options_.result->begin_preparation(view.context);
         begin(Stage::recover,view);
-        if (resets_>1) return ReportActivity{{"Retrying reset","Hive position was not confirmed after respawn"}};
+        if (resets_>1) return ReportActivity{{"Retrying reset","Hive position was not confirmed after respawn",ActivityKind::diagnostic}};
         return child_step(view);
     }
     Step prepare_owned(const View& view,const Observation<bool>& owned) {

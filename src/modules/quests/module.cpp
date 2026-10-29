@@ -214,7 +214,7 @@ public:
     }
     std::optional<extensions::WorkEstimate> next_work(const extensions::SessionView& view) const override {
         if (!pending_work(view)) return {};
-        if (needs_scan(view.now)) return extensions::WorkEstimate{"Read quests",{},Time{},view.now,view.now};
+        if (needs_scan(view.now)) return extensions::WorkEstimate{"Read quests",{},Time{},view.now,{}};
         return extensions::WorkEstimate{pending_action()?"Complete quest objective":"Talk to quest giver",{},Time{},view.now,{}};
     }
     bool pending_action() const {

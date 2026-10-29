@@ -10,6 +10,9 @@ struct WorkEstimate {
     Time duration{},ready{};
     std::optional<Time> finish_by;
     std::set<std::string> requested_by;
+    // A logical activity spanning several programs. Between successful parts,
+    // reconsider priority instead of advancing the round to lower-priority work.
+    bool continuous{};
 };
 struct WorkWindow { std::string label; Time until{}; };
 struct WorkOffer { std::string owner; WorkEstimate work; };

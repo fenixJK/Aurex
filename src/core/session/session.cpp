@@ -290,7 +290,7 @@ void Session::launch_feature(Window window,automation::Launch launch,Time now) {
         feature_->configure_reporting([this](const automation::ReportActivity& event) {
             if (activity_events_.size()>=8) activity_events_.erase(activity_events_.begin());
             std::shared_ptr<const Frame> frame;
-            if (event.image_region || event.status.kind==ActivityKind::failure) {
+            if (event.image_region || event.status.is_alert()) {
                 frame=observer_.latest_frame();
                 const auto now=monotonic_now();
                 if (frame && (!frame->valid() || frame->window.id!=active_window_.id || frame->window.process!=active_window_.process

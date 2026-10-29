@@ -81,7 +81,8 @@ std::optional<automation::Launch> Routine::next(Host& host,const SessionView& vi
         after_work_[*active_]=e.participation.demand_only && view.feature->state==automation::State::deferred?completed_work_+1:0;
         due_[*active_]=view.now+(failed?std::max(e.participation.recheck,Time(30000)):e.participation.recheck);
         deferred_until_[*active_]=failed || view.feature->state==automation::State::deferred?due_[*active_]:Time{};
-        policy_->completed(e.participation.fallback && !e.participation.priority?std::nullopt:std::optional(e.id));
+        const bool continuing=continuous_ && view.feature->state==automation::State::completed;
+        policy_->completed(continuing || (e.participation.fallback && !e.participation.priority)?std::nullopt:std::optional(e.id));
         active_.reset();
     } else if (view.feature && view.feature->state==automation::State::running) throw std::runtime_error("Another feature owns the session");
     if (!allow_launch) return {};
@@ -138,6 +139,8 @@ std::optional<automation::Launch> Routine::next(Host& host,const SessionView& vi
     try {
         auto launch=host.prepare_routine(entries_[*selected]);
         active_=selected;
+        const auto* work=schedule.find(entries_[*selected].id);
+        continuous_=work && work->continuous;
         return launch;
     } catch (const std::exception& e) { host.fail_module(entries_[*selected].id,e.what()); }
     catch (...) { host.fail_module(entries_[*selected].id,"Module could not start"); }

@@ -651,7 +651,9 @@ public:
                     skipped?" deferred · ":" · ")+q(snapshot.feature->message);
                 if (name!=q(snapshot.feature->module_id) && outcome!=last_outcome_) {
                     log(outcome);
-                    if (snapshot.feature->state==hive::automation::State::failed) discord_->error(outcome);
+                    if (snapshot.feature->state==hive::automation::State::failed && routine_)
+                        discord_->activity_event({(name+" interrupted").toStdString(),snapshot.feature->message+"\nContinuing with other work.",hive::ActivityKind::recovery});
+                    else if (snapshot.feature->state==hive::automation::State::failed) discord_->error(outcome);
                     else if (skipped) discord_->notice(outcome);
                     last_outcome_=outcome;
                 }
@@ -708,10 +710,10 @@ public:
             for (const auto& event:session_.take_activity_events()) {
                 // Keep one original game frame for diagnosing failures that a
                 // resized Discord JPEG cannot reproduce. No desktop recapture.
-                if (event.status.kind==hive::ActivityKind::failure && event.frame)
+                if (event.status.is_alert() && event.frame)
                     hive::app::save_failure_frame(QDir(data).filePath("last-action-failure.png"),event.frame,q(event.status.text()));
                 const auto& reporting=discord_->settings();
-                const bool photo=event.image_region.has_value() || (event.status.kind==hive::ActivityKind::failure && reporting.errors && reporting.error_screenshots);
+                const bool photo=event.image_region.has_value() || (event.status.is_alert() && reporting.errors && reporting.error_screenshots);
                 status_page_->event(event.status,reporting.enabled && photo?hive::app::game_image(event.frame,event.image_region):QImage{});
             }
             if (status.state==hive::RunState::running && view.feature && view.feature->state==hive::automation::State::running) {

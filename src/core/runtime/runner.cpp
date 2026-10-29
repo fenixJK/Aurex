@@ -35,7 +35,9 @@ Progress Runner::progress() const {
     else result.status=program_->activity_status();
     if (result.status.empty() && child) result.status=child->status;
     if (result.activity==WorkActivity::recovering && result.status.empty()) result.status={"Recovering",{}};
-    if (waiting_for_menu()) result.status={"Waiting for game view",result.message};
+    // A local observation wait is still part of the current activity. Keep its
+    // technical reason in message instead of alternating public status updates.
+    if (waiting_for_menu() && result.status.empty()) result.status={"Preparing game",{},ActivityKind::diagnostic};
     result.activity_label=result.status.text();
     result.field=program_->field();
     if (result.field.empty() && child) result.field=child->field;
@@ -277,7 +279,7 @@ void Runner::interrupt(Interruption interruption,const ObservationContext& c,con
                 activity_sink_({{"Rejoining Bee Swarm",message}});
             else {
                 const auto action=failed.status.empty()?failed.activity_label:failed.status.text();
-                activity_sink_({{action.empty()?"Action failed":action,message+" — recovering",ActivityKind::failure}});
+                activity_sink_({{"Recovering",action.empty()?message:action+" · "+message,ActivityKind::recovery}});
             }
         }
         if (!recovered) finish(State::failed,std::move(message),interruption);

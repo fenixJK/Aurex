@@ -191,7 +191,8 @@ void Discord::activity(const QString& message) {
     activity_status({message.toStdString(),{}});
 }
 void Discord::activity_status(const ActivityStatus& activity) {
-    if (!settings_.enabled || activity.empty() || activity==last_activity_) return;
+    if (!settings_.enabled || activity.empty() || activity.kind==ActivityKind::diagnostic || activity==last_activity_) return;
+    if (activity.is_alert()) { activity_event(activity); return; }
     last_activity_=activity;
     QJsonObject content{{"color",0x8abea1}};
     if (activity.detail.empty()) content["description"]=text(QString::fromStdString(activity.title),256);
@@ -203,11 +204,17 @@ void Discord::activity_status(const ActivityStatus& activity) {
     enqueue(std::move(message));
 }
 void Discord::activity_event(const ActivityStatus& activity,const QImage& screenshot) {
+    if (!settings_.enabled || activity.empty() || activity.kind==ActivityKind::diagnostic) return;
     if (activity.kind==ActivityKind::failure) { error(QString::fromStdString(activity.text()),screenshot); return; }
-    if (!settings_.enabled || activity.empty()) return;
+    const bool recovering=activity.kind==ActivityKind::recovery;
+    const auto key=recovering?"recovery:"+text(QString::fromStdString(activity.text()),1800):QString{};
+    if (recovering && (!settings_.errors || !record_alert(key))) return;
     Message message{payload({{"title",text(QString::fromStdString(activity.title),256)},
-        {"description",text(QString::fromStdString(activity.detail),1800)},{"color",0x8abea1}}),{}};
-    message.game=screenshot;
+        {"description",text(QString::fromStdString(activity.detail),1800)},{"color",recovering?0xe0b86e:0x8abea1}}),key};
+    if (!recovering || settings_.error_screenshots) {
+        message.game=screenshot;
+        if (recovering && screenshot.isNull() && image_) try { message.game=image_(); } catch (...) {}
+    }
     enqueue(std::move(message));
 }
 void Discord::notice(const QString& message) {

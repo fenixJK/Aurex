@@ -325,7 +325,7 @@ public:
         const auto retry=account_->placement_retry();
         const auto wall=clock_();
         if ((!retry || wall>=*retry) && (check_requested_ || timer_revision_!=account_->edit_revision()))
-            return extensions::WorkEstimate{"Check planter slots",{},Time{},view.now,view.now};
+            return extensions::WorkEstimate{"Check planter slots",{},Time{},view.now,{}};
         auto plants=account_->plants();
         auto material=material_ready(plants.size());
         if (retry && plants.size()<account_->placement_capacity(plan_.capacity)) material=retry->time_since_epoch();
@@ -338,7 +338,7 @@ public:
         auto name=next->stats.planter;
         for (const auto& item:equipment()) if (item.id==name) { name=item.label; break; }
         const auto destination=plan_.destinations.find(next->stats.field);
-        return extensions::WorkEstimate{"Harvest "+name+" in "+next->stats.field,destination!=plan_.destinations.end()?destination->second:std::string{},Time{},ready,ready};
+        return extensions::WorkEstimate{"Harvest "+name+" in "+next->stats.field,destination!=plan_.destinations.end()?destination->second:std::string{},Time{},ready,{}};
     }
     bool executable() const noexcept override { return true; }
     std::unique_ptr<automation::Program> program() const override {
