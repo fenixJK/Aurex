@@ -337,6 +337,20 @@ Frame interaction_text_image(const Frame& frame,Rect region) {
         const auto value=brightness>180 && contrast<50?0:brightness>150 && contrast<100?128:255;
         crop.rgba[to]=crop.rgba[to+1]=crop.rgba[to+2]=value;crop.rgba[to+3]=255;
     }
+    // The banner crop can include a thin scenery edge beside it. Remove that
+    // edge before finding text lines, including the faint strokes used for
+    // prefix matching; otherwise it can join two wrapped lines into one.
+    cv::Mat pixels(crop.height,crop.width,CV_8UC4,crop.rgba.data()),ink;
+    cv::inRange(pixels,cv::Scalar(0,0,0,255),cv::Scalar(128,128,128,255),ink);
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(ink,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
+    for (const auto& contour:contours) {
+        const auto box=cv::boundingRect(contour);
+        const bool edge=box.x<=interaction_text_padding || box.y<=interaction_text_padding
+            || box.br().x>=crop.width-interaction_text_padding || box.br().y>=crop.height-interaction_text_padding;
+        if (edge && box.width<box.height*.25)
+            cv::drawContours(pixels,std::vector{contour},0,cv::Scalar(255,255,255,255),cv::FILLED);
+    }
     return crop;
 }
 std::optional<TextLine> interaction_label(const Frame& image,const std::string& target) {
@@ -352,9 +366,7 @@ std::optional<TextLine> interaction_label(const Frame& image,const std::string& 
     for (const auto& contour:contours) height=std::max(height,cv::boundingRect(contour).height);
     for (const auto& contour:contours) {
         const auto box=cv::boundingRect(contour);
-        const bool edge=box.x<=interaction_text_padding || box.y<=interaction_text_padding
-            || box.x+box.width>=image.width-interaction_text_padding || box.y+box.height>=image.height-interaction_text_padding;
-        if (box.height<height*.45 || (edge && box.width<box.height*.25))
+        if (box.height<height*.45)
             cv::drawContours(ink,std::vector{contour},0,cv::Scalar(0),cv::FILLED);
     }
     const auto bounds=cv::boundingRect(ink);
