@@ -9,7 +9,7 @@ namespace hive::automation {
 namespace {
 double distance(Point a,Point b) { return std::hypot(a.x-b.x,a.y-b.y); }
 class Petals final : public Program {
-    enum class Stage { lock,prepare,travel,point,camera,settle,select,forward,right,approach,gather,loot,recenter,home,convert,done };
+    enum class Stage { lock,prepare,travel,point,zoom_in,camera,zoom_out,settle,select,forward,right,approach,gather,loot,recenter,home,convert,done };
     PetalPlan plan_;
     std::vector<game::WalkLeg> loot_;
     Stage stage_{Stage::lock};
@@ -106,16 +106,20 @@ public:
         if (stage_==Stage::prepare) { stage_=Stage::travel; return RunProgram{plan_.prepare}; }
         if (stage_==Stage::travel) { stage_=Stage::point; return Navigate{plan_.field}; }
         if (stage_==Stage::point) {
-            stage_=Stage::camera; return Hold{{},Time(1),game::pointer_rest(c,view.observations?*view.observations:game::State{})};
+            stage_=Stage::zoom_in; return Hold{{},Time(1),game::pointer_rest(c,view.observations?*view.observations:game::State{})};
         }
+        // Use the same zoom baseline as hive setup before applying pitch.
+        // Routes can leave the third-person camera against nearby scenery.
+        if (stage_==Stage::zoom_in) { stage_=Stage::camera; return MoveCamera{{Key::zoom_in,10}}; }
         if (stage_==Stage::camera) {
-            stage_=Stage::settle;
+            stage_=Stage::zoom_out;
             auto move=game::pitch_limit(Key::pitch_up);
             // Bloom geometry needs the full overhead view. Keep its original
             // longer key holds independently of faster hive/transport turns.
             move.press=Time(100);
             return MoveCamera{move};
         }
+        if (stage_==Stage::zoom_out) { stage_=Stage::settle; return MoveCamera{{Key::zoom_out,5}}; }
         if (stage_==Stage::settle) {
             stage_=Stage::select;
             // Never calibrate movement from a frame captured during the turn
