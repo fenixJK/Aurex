@@ -24,23 +24,33 @@ std::size_t Account::configure_capacity(std::size_t configured) {
     configured_capacity_=configured;
     return planters::placement_capacity(placement_limits_,configured);
 }
-void Account::defer_placements(WallTime now) {
-    std::lock_guard lock(snapshot_mutex_); placement_retry_=now+std::chrono::minutes(5);
+void Account::defer_placement(const std::string& planter,WallTime now) {
+    if (std::none_of(equipment().begin(),equipment().end(),[&](const auto& item) { return item.id==planter; }))
+        throw std::invalid_argument("Unknown planter retry");
+    std::lock_guard lock(snapshot_mutex_);
+    placement_retries_[planter]=now+std::chrono::minutes(5);
+    ++edit_revision_; // Reconsider the remaining equipment at the next routine turn.
 }
-std::optional<WallTime> Account::placement_retry() const {
-    std::lock_guard lock(snapshot_mutex_); return placement_retry_;
+std::optional<WallTime> Account::placement_retry(const std::string& planter) const {
+    std::lock_guard lock(snapshot_mutex_);
+    if (!planter.empty()) {
+        const auto found=placement_retries_.find(planter);
+        return found==placement_retries_.end()?std::optional<WallTime>{}:found->second;
+    }
+    std::optional<WallTime> next;
+    for (const auto& [_,retry]:placement_retries_) if (!next || retry<*next) next=retry;
+    return next;
 }
 bool Account::resume_placements(WallTime now) {
     std::lock_guard lock(snapshot_mutex_);
-    if (!placement_retry_ || now<*placement_retry_) return false;
-    placement_retry_.reset(); return true;
+    return std::erase_if(placement_retries_,[&](const auto& entry) { return entry.second<=now; })>0;
 }
 void Account::retry_placements() {
     if (busy_.exchange(true)) throw std::runtime_error("Planters is using these timers. Try again after its current run.");
     try {
         auto ledger=saved(); ledger.placement_limits={}; validate(ledger); store_->save(ledger);
         publish(ledger); ++edit_revision_;
-        std::lock_guard lock(snapshot_mutex_); placement_retry_.reset();
+        std::lock_guard lock(snapshot_mutex_); placement_retries_.clear();
     } catch (...) { busy_=false; throw; }
     busy_=false;
 }
@@ -138,7 +148,7 @@ void Account::set_saved(std::optional<std::uint64_t> id,const Stats& stats,doubl
 void Account::publish(const Ledger& ledger) {
     std::lock_guard lock(snapshot_mutex_); plants_=ledger.plants; materials_=ledger.materials; placement_limits_=ledger.placement_limits;
 }
-void Account::prepare_groups(std::vector<Group>& groups,const std::optional<Preferences>& preferences) {
+void Account::prepare_groups(std::vector<Group>& groups,const std::optional<Preferences>& preferences,WallTime now) {
     std::lock_guard lock(snapshot_mutex_);
     for (auto& group:groups) {
         const auto remembered=nectar_phases_.at(static_cast<std::size_t>(group.nectar));
@@ -146,6 +156,10 @@ void Account::prepare_groups(std::vector<Group>& groups,const std::optional<Pref
     }
     if (preferences) apply_preferences(groups,*preferences);
     for (auto& group:groups) {
+        std::erase_if(group.candidates,[&](const auto& candidate) {
+            const auto retry=placement_retries_.find(candidate.stats.planter);
+            return retry!=placement_retries_.end() && now<retry->second;
+        });
         group.phase=group.current_known?planters::phase(group.phase,group.current,group.target):Phase::build;
         if (group.current_known) nectar_phases_.at(static_cast<std::size_t>(group.nectar))=group.phase;
     }

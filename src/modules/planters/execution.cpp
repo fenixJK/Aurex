@@ -103,8 +103,8 @@ class Execution final : public automation::Program {
         return next(view);
     }
     Step failed_placement(const View& view,const std::string& reason) {
-        account_->defer_placements(wall());
-        return defer_result(view,reason+"; placements deferred for five minutes. Capacity unchanged.");
+        account_->defer_placement(selected_.planter,wall());
+        return defer_result(view,planter_target()+" · "+reason+"; this planter will retry in five minutes. Other planters can continue.");
     }
     void observe_capacity(const View& view) {
         if (harvest_ || (phase_!=Phase::baseline && phase_!=Phase::acting && phase_!=Phase::confirming)) return;
@@ -446,9 +446,6 @@ public:
             if (controller_->ledger().plants.size()>=placement_capacity(controller_->ledger().placement_limits,plan_.capacity)) {
                 phase_=Phase::done; publish(ExecutionStage::finished); return Done{"No planter visit is due"};
             }
-            if (const auto retry=account_->placement_retry();retry && now<*retry) {
-                phase_=Phase::done; publish(ExecutionStage::finished); return Done{"Placement retry is deferred; known harvests remain available"};
-            }
             account_->resume_placements(now);
         }
         if (phase_==Phase::planning) {
@@ -469,7 +466,7 @@ public:
         if (!groups.empty()) {
             if (!planning) for (auto& group : groups) group.candidates.clear();
             validate_configuration(groups,{},plan_.capacity);
-            account_->prepare_groups(groups,plan_.preferences);
+            account_->prepare_groups(groups,plan_.preferences,now);
             for (auto& group:groups) std::erase_if(group.candidates,[&](const auto& candidate) {
                 return failed_fields_.contains(candidate.stats.field) || !plan_.destinations.contains(candidate.stats.field);
             });
@@ -616,10 +613,10 @@ public:
     }
     void finished(State state) override {
         // An inventory search can fail before the placement dialog is opened.
-        // Keep its slot free, but use the same backoff as other failed placements.
+        // Keep its slot free and defer only this equipment, not every placement.
         if (state==State::failed && !harvest_ && phase_==Phase::acting && action_step_==1
             && !steps_.empty() && std::holds_alternative<DragInventoryItem>(steps_.front()))
-            account_->defer_placements(wall());
+            account_->defer_placement(selected_.planter,wall());
         settle_action();
         release(); std::lock_guard lock(results_->mutex_); auto& report=results_->report_; report.state=state;
         if (controller_) { report.pending=controller_->ledger().pending;

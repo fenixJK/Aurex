@@ -1,7 +1,6 @@
 #include "inventory.hpp"
 #include "game/detection/menus.hpp"
 #include <algorithm>
-#include <sstream>
 
 namespace hive::workflows {
 void validate(const InventoryDragPlan& plan) {
@@ -12,20 +11,17 @@ void validate(const InventoryDragPlan& plan) {
         throw std::invalid_argument("Invalid or duplicate inventory item name");
 }
 namespace {
-std::string signature(const game::InventoryView& view,const game::InventoryItem* selected=nullptr) {
-    std::ostringstream out;
-    out<<view.open<<':'<<view.target;
-    if (!selected) out<<':'<<view.readable<<':'<<view.at_top<<':'<<view.at_bottom<<':'<<view.viewport.x<<':'<<view.viewport.y<<':'<<view.viewport.width<<':'<<view.viewport.height;
-    if (view.drop) out<<':'<<view.drop->x<<':'<<view.drop->y; else out<<":none";
+bool rows_moved(const game::InventoryView& view,const std::map<std::string,double>& before) {
+    unsigned shared=0,moved=0;
     for (const auto& item : view.items) {
-        if (selected && &item!=selected) continue;
-        out<<':'<<game::inventory_name(item.name)<<':'<<item.bounds.x<<':'<<item.bounds.y<<':'<<item.bounds.width<<':'<<item.bounds.height<<':'<<item.grab.x<<':'<<item.grab.y;
-        if (selected && item.quantity) {
-            out<<":count="<<item.quantity->count;
-            if (item.quantity->capacity) out<<'/'<<*item.quantity->capacity;
-        } else out<<":count=unknown";
+        const auto previous=before.find(game::inventory_name(item.name));
+        if (previous==before.end()) continue;
+        ++shared;
+        moved+=std::abs(item.bounds.y-previous->second)>std::max(.002,item.bounds.height*.05);
     }
-    return out.str();
+    // A missed OCR title or a slightly different panel boundary is not a scroll.
+    // Compare the positions of shared rows; a completely new page also moved.
+    return !shared || moved*2>shared;
 }
 }
 InventoryDrag::InventoryDrag(InventoryDragPlan plan):plan_(std::move(plan)) { validate(plan_); }
@@ -77,7 +73,7 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
             if (selected) { fail("Inventory item name is ambiguous"); return; } selected=&item;
         }
         if (reading.captured<=frame_) return;
-        frame_=reading.captured; const auto current=signature(view,seek_bottom_ && scrolls_?nullptr:selected);
+        frame_=reading.captured;
         first_seen_=reading.captured;
         if (!view.open) {
             if (open_attempts_ && reading.captured<minimum_+Time(750)) { reason_="Waiting for inventory to open"; return; }
@@ -100,17 +96,18 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
             pending_=tasks.submit(scope,TaskClass::interaction,
                 {{"Move to inventory",{},Time(50),hover},{"Scroll inventory",{},Time(150),hover,amount}},Time(2000));
             before_rows_.clear(); for (const auto& item:view.items) before_rows_.emplace(game::inventory_name(item.name),item.bounds.y);
-            ++scrolls_; before_scroll_=current; stage_=InventoryStage::scrolling; reason_="Searching inventory";
+            ++scrolls_; scrolled_=true; stage_=InventoryStage::scrolling; reason_="Searching inventory";
+        };
+        const auto observe_scroll=[&] {
+            stalled_=rows_moved(view,before_rows_)?0:stalled_+1;
+            if (!stalled_ && last_scroll_>0) moved_up_=true;
+            scrolled_=false;
         };
         if (seek_bottom_ && !selected) {
-            if (!before_scroll_.empty()) {
-                stalled_=current==before_scroll_?stalled_+1:0; before_scroll_.clear();
-                moved_down_=moved_down_ || !stalled_;
-            }
-            if ((view.at_bottom && stalled_>0) || (stalled_>=2 && moved_down_)) {
+            if (scrolled_) observe_scroll();
+            if (view.at_bottom || stalled_>=2) {
                 seek_bottom_=down_=false; stalled_=0; last_scroll_=0; before_rows_.clear();
             } else {
-                if (stalled_>=2) { fail("Inventory did not move after scrolling"); return; }
                 scroll(-8); return;
             }
         }
@@ -152,12 +149,8 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
         }
         unreadable_since_=Time(-1);
         int correction=0;
-        if (!before_scroll_.empty()) {
-            stalled_=current==before_scroll_?stalled_+1:0; before_scroll_.clear();
-            if (!stalled_) {
-                if (last_scroll_<0) moved_down_=true;
-                else if (last_scroll_>0) moved_up_=true;
-            }
+        if (scrolled_) {
+            observe_scroll();
             const bool overlap=std::any_of(view.items.begin(),view.items.end(),[&](const auto& item) { return before_rows_.contains(game::inventory_name(item.name)); });
             if (!overlap && !backtracking_) {
                 if (scroll_size_==1) { fail("Inventory scrolling skipped unread rows"); return; }
@@ -179,7 +172,8 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
             }
         }
         if (down_ && last_scroll_<0 && stalled_>=2) {
-            if (!moved_down_ && !view.at_bottom) { fail("Inventory did not move after scrolling"); return; }
+            // The inventory may already have been left at its bottom. Probe
+            // upward even when the scrollbar thumb could not be identified.
             down_=false; incomplete_scan_=false; stalled_=0;
         } else if (view.at_bottom && last_scroll_<0 && stalled_>0) { down_=false; incomplete_scan_=false; stalled_=0; }
         if (!down_ && !view.readable) incomplete_scan_=true;
@@ -190,6 +184,9 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
                 finish(InventoryStage::completed,"Item was not found in the readable inventory",tasks,scope);
             } else fail("Item was not found in the readable inventory");
             return;
+        }
+        if (!down_ && last_scroll_>0 && stalled_>=2 && !moved_up_) {
+            fail("Inventory did not respond to scrolling in either direction"); return;
         }
         if (!view.readable) scroll_size_=1;
         backtracking_=correction!=0;

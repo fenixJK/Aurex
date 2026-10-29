@@ -58,10 +58,11 @@ class PlanterModule final : public extensions::Module {
     std::shared_ptr<const extensions::Plot> plot_;
     std::string preview_status_;
     std::optional<Time> material_ready(std::size_t growing) const {
-        if (const auto retry=account_->placement_retry();retry && clock_()<*retry) return {};
         if (!plan_.preferences || plan_.preferences->materials.empty() || growing>=account_->placement_capacity(plan_.capacity)) return {};
         MaterialPlan materials; materials.history=account_->materials();
         apply_preferences(materials,*plan_.preferences);
+        for (const auto& route:material_routes())
+            if (const auto retry=account_->placement_retry(route.planter);retry && clock_()<*retry) materials.excluded_routes.insert(route.id);
         return next_material_ready(materials,material_checked_);
     }
 public:
@@ -139,8 +140,7 @@ public:
         if (view.feature && view.feature->module_id!=id_) {
             if (view.feature->state==automation::State::running) other_running_=true;
             else if (other_running_ && automation::can_handoff(view.feature->state)) {
-                const auto retry=account_->placement_retry();
-                if (view.feature->state==automation::State::completed && view.feature->steps>0 && (!retry || clock_()>=*retry)
+                if (view.feature->state==automation::State::completed && view.feature->steps>0
                     && account_->plants().size()<account_->placement_capacity(plan_.capacity)) check_requested_=true;
                 other_running_=false;
             }
@@ -313,8 +313,7 @@ public:
     bool pending_work(const extensions::SessionView&) const override {
         if (!started_) return false;
         const auto now=clock_();
-        const auto retry=account_->placement_retry();
-        if ((!retry || now>=*retry) && (check_requested_ || timer_revision_!=account_->edit_revision())) return true;
+        if (check_requested_ || timer_revision_!=account_->edit_revision()) return true;
         const auto plants=account_->plants();
         if (const auto ready=material_ready(plants.size());ready && *ready<=now.time_since_epoch()) return true;
         if (plants.empty()) return false;
@@ -324,14 +323,17 @@ public:
         if (!started_) return {};
         const auto retry=account_->placement_retry();
         const auto wall=clock_();
-        if ((!retry || wall>=*retry) && (check_requested_ || timer_revision_!=account_->edit_revision()))
-            return extensions::WorkEstimate{"Check planter slots",{},Time{},view.now,{}};
         auto plants=account_->plants();
+        const bool harvest_due=std::any_of(plants.begin(),plants.end(),[&](const auto& plant) { return !plant.missing && ready_at(plant)<=wall; });
+        if (!harvest_due && (check_requested_ || timer_revision_!=account_->edit_revision()))
+            return extensions::WorkEstimate{"Check planter slots",{},Time{},view.now,{}};
         auto material=material_ready(plants.size());
-        if (retry && plants.size()<account_->placement_capacity(plan_.capacity)) material=retry->time_since_epoch();
+        const bool retry_next=retry && plants.size()<account_->placement_capacity(plan_.capacity)
+            && (!material || retry->time_since_epoch()<=*material);
+        if (retry_next) material=retry->time_since_epoch();
         std::erase_if(plants,[](const Plant& plant) { return plant.missing; });
         if (material && (plants.empty() || std::all_of(plants.begin(),plants.end(),[&](const auto& plant) { return *material<ready_at(plant).time_since_epoch(); })))
-            return extensions::WorkEstimate{retry?"Retry planter placement":"Planter bonus ready",{},Time{},view.now+std::max(Time{},*material-wall.time_since_epoch()),{}};
+            return extensions::WorkEstimate{retry_next?"Retry planter placement":"Planter bonus ready",{},Time{},view.now+std::max(Time{},*material-wall.time_since_epoch()),{}};
         if (plants.empty()) return {};
         const auto next=std::min_element(plants.begin(),plants.end(),[](const auto& a,const auto& b) { return ready_at(a)<ready_at(b); });
         const auto ready=view.now+std::max(Time{},ready_at(*next)-clock_());

@@ -21,11 +21,11 @@ class InventoryDrag {
     ObservationContext started_;
     InventoryStage stage_{InventoryStage::idle};
     Time last_{},minimum_{},frame_{Time(-1)},unreadable_since_{Time(-1)};
-    std::string pending_,reason_,before_scroll_;
+    std::string pending_,reason_;
     std::map<std::string,double> before_rows_;
     unsigned scrolls_{},stalled_{},open_attempts_{};
     int scroll_size_{1},last_scroll_{};
-    bool owned_{},down_{true},backtracking_{},incomplete_scan_{},moved_down_{},moved_up_{},seek_bottom_{};
+    bool owned_{},down_{true},backtracking_{},incomplete_scan_{},scrolled_{},moved_up_{},seek_bottom_{};
     Time first_seen_{};
     Observation<InventoryMatch> match_;
     void finish(InventoryStage stage,std::string reason,TaskPort& tasks,ModuleScope scope);
