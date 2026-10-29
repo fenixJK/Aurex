@@ -189,7 +189,23 @@ QList<CounterResult> summarize(const Report& report,const Section& section) {
     }
     return result;
 }
-QImage render_report(const Report& report) {
+QImage load_report_background(const QString& path) {
+    if (path.isEmpty()) return {};
+    QImageReader reader(path); reader.setAutoTransform(true);
+    if (reader.size().width()>2048 || reader.size().height()>2048)
+        reader.setScaledSize(reader.size().scaled(2048,2048,Qt::KeepAspectRatio));
+    return reader.read();
+}
+QRectF report_background_crop(QSize image,QSize report,const ReportAppearance& style) {
+    if (image.isEmpty() || report.isEmpty()) return {};
+    const double scale=std::max(double(report.width())/image.width(),double(report.height())/image.height())
+        *std::clamp(style.background_zoom,100,300)/100.;
+    const QSizeF crop(report.width()/scale,report.height()/scale);
+    const auto position=[](double value) { return std::isfinite(value)?std::clamp(value,0.,1.):.5; };
+    return {(image.width()-crop.width())*position(style.background_x),
+        (image.height()-crop.height())*position(style.background_y),crop.width(),crop.height()};
+}
+QImage render_report(const Report& report,const QImage* cached_background) {
     constexpr int width=1000,margin=24,content=952,buffs_y=276;
     const auto& snapshot=report.snapshot;
     const auto end=report.created.addMSecs(-report.window_age_ms);
@@ -235,14 +251,9 @@ QImage render_report(const Report& report) {
     QImage image(width,bottom+18+(notes.empty()?0:20),QImage::Format_RGB32); image.fill(colors.background);
     QPainter p(&image); p.setRenderHints(QPainter::Antialiasing|QPainter::TextAntialiasing|QPainter::SmoothPixmapTransform);
     if (!style.background_image.isEmpty()) {
-        QImageReader reader(style.background_image); reader.setAutoTransform(true);
-        if (reader.size().isValid()) reader.setScaledSize(reader.size().scaled(2048,2048,Qt::KeepAspectRatio));
-        const auto background=reader.read();
+        const auto background=cached_background?*cached_background:load_report_background(style.background_image);
         if (!background.isNull()) {
-            const double scale=std::max(double(image.width())/background.width(),double(image.height())/background.height());
-            const QSizeF crop(image.width()/scale,image.height()/scale);
-            p.drawImage(image.rect(),background,QRectF((background.width()-crop.width())/2,
-                (background.height()-crop.height())/2,crop.width(),crop.height()));
+            p.drawImage(image.rect(),background,report_background_crop(background.size(),image.size(),style));
             auto shade=colors.background; shade.setAlpha(std::clamp(style.background_fade,0,100)*255/100); p.fillRect(image.rect(),shade);
             colors.panel.setAlpha(175+std::clamp(style.background_fade,0,100)*80/100);
         }

@@ -60,7 +60,10 @@ QString validate(const DiscordSettings& settings,bool webhook_required) {
         return "The alert user ID must contain 16–22 digits.";
     if (settings.appearance.theme<ReportTheme::forest || settings.appearance.theme>ReportTheme::graphite
         || settings.appearance.chart_height<75 || settings.appearance.chart_height>150
-        || settings.appearance.background_fade<0 || settings.appearance.background_fade>100) return "Choose a supported report layout.";
+        || settings.appearance.background_fade<0 || settings.appearance.background_fade>100
+        || settings.appearance.background_zoom<100 || settings.appearance.background_zoom>300
+        || !std::isfinite(settings.appearance.background_x) || settings.appearance.background_x<0 || settings.appearance.background_x>1
+        || !std::isfinite(settings.appearance.background_y) || settings.appearance.background_y<0 || settings.appearance.background_y>1) return "Choose a supported report layout.";
     if (settings.report_minutes<1 || settings.report_minutes>720) return "Choose a report interval up to 12 hours.";
     return {};
 }

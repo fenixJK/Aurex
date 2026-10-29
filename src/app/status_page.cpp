@@ -112,6 +112,9 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
     appearance_.modules=settings.value("discord/showModules",true).toBool(); appearance_.totals=settings.value("discord/showTotals",true).toBool();
     appearance_.background_image=settings.value("discord/backgroundImage").toString();
     appearance_.background_fade=std::clamp(settings.value("discord/backgroundFade",75).toInt(),0,100);
+    appearance_.background_zoom=std::clamp(settings.value("discord/backgroundZoom",100).toInt(),100,300);
+    appearance_.background_x=std::clamp(settings.value("discord/backgroundX",.5).toDouble(),0.,1.);
+    appearance_.background_y=std::clamp(settings.value("discord/backgroundY",.5).toDouble(),0.,1.);
     initial.appearance=appearance_;
     initial.buff_ids=buff_ids_; settings.setValue("discord/buffs",buff_ids_);
     buff_count->setText(QString("%1 selected").arg(buff_ids_.size()));
@@ -149,6 +152,8 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
         settings.setValue("discord/showActivity",appearance_.activity); settings.setValue("discord/showNectar",appearance_.nectar);
         settings.setValue("discord/showModules",appearance_.modules); settings.setValue("discord/showTotals",appearance_.totals);
         settings.setValue("discord/backgroundImage",appearance_.background_image); settings.setValue("discord/backgroundFade",appearance_.background_fade);
+        settings.setValue("discord/backgroundZoom",appearance_.background_zoom);
+        settings.setValue("discord/backgroundX",appearance_.background_x); settings.setValue("discord/backgroundY",appearance_.background_y);
         return true;
     };
     connect(enabled,&QCheckBox::toggled,this,[save] { save(); });
@@ -160,7 +165,9 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
     connect(mention,&QCheckBox::toggled,this,[save] { save(); });
     connect(interval,&QComboBox::currentIndexChanged,this,[save] { save(); });
     connect(appearance,&QPushButton::clicked,this,[this,save,&settings] {
-        show_report_appearance(this,appearance_,QFileInfo(settings.fileName()).absolutePath(),save);
+        auto selected=discord_->available_buffs();
+        selected.removeIf([this](const auto& buff) { return !buff_ids_.contains(buff.id.isEmpty()?buff.name:buff.id); });
+        show_report_appearance(this,appearance_,QFileInfo(settings.fileName()).absolutePath(),save,selected);
     });
     connect(buffs,&QPushButton::clicked,this,[this,save,buff_count] {
         auto dialog=new QDialog(this); dialog->setObjectName("report-buffs"); dialog->setAttribute(Qt::WA_DeleteOnClose);

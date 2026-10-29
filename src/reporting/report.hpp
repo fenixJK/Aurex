@@ -5,6 +5,7 @@
 #include <QImage>
 #include <QList>
 #include <QMap>
+#include <QRectF>
 #include <QString>
 #include <deque>
 #include <optional>
@@ -43,6 +44,8 @@ struct ReportAppearance {
     bool activity{true},nectar{true},modules{true},totals{true};
     QString background_image;
     int background_fade{75};
+    int background_zoom{100};
+    double background_x{.5},background_y{.5};
     bool operator==(const ReportAppearance&) const = default;
 };
 struct Report {
@@ -62,7 +65,9 @@ QString redact(QString text);
 QString duration(qint64 milliseconds);
 QString amount(double value);
 QList<CounterResult> summarize(const Report& report,const Section& section);
-QImage render_report(const Report& report);
+QImage load_report_background(const QString& path);
+QRectF report_background_crop(QSize image,QSize report,const ReportAppearance& appearance);
+QImage render_report(const Report& report,const QImage* background=nullptr);
 class History {
 public:
     void reset(qint64 now);
