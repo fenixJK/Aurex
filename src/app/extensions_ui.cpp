@@ -513,7 +513,8 @@ void ExtensionsUi::build_page(const std::string& id) {
             auto form=new QGridLayout; form->setVerticalSpacing(dense?4:6); form->setHorizontalSpacing(8);
             const bool inline_labels=section.inline_labels && !section.row && !selection_only;
             const auto columns=selection_only?1:section.columns;
-            const bool packed=inline_labels && std::none_of(section.settings.begin(),section.settings.end(),[&](const auto& key) { return collections.contains(key); });
+            const bool packed=inline_labels && section.collection.empty()
+                && std::none_of(section.settings.begin(),section.settings.end(),[&](const auto& key) { return collections.contains(key); });
             if(packed) form->setHorizontalSpacing(24);
             std::vector<int> label_widths(columns);
             for(std::size_t i=0;i<section.settings.size();++i) {

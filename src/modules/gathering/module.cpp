@@ -419,23 +419,21 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
             const auto heading=field.rotation?game::turned_heading(0,*field.rotation):0;
             result.settings.push_back({prefix+"shift-lock","Shift Lock",field.shift_lock.value_or(defaults.shift_lock)});
             result.settings.push_back({prefix+"facing","Camera turn",facings.at(heading),0,0,facings});
-            extensions::PageSection basic{id,"Pattern",{},{prefix+"pattern",prefix+"pattern-width"},false,2};
+            extensions::PageSection basic{id,"Pattern",{},
+                {prefix+"pattern",prefix+"pattern-width",prefix+"pattern-scale",prefix+"pattern-repetitions",prefix+"invert-fb",prefix+"invert-lr"},false,2};
             basic.collection="fields"; basic.choice=field.preference.field;
             result.page->sections.push_back(std::move(basic));
-            extensions::PageSection options{id+"-shape","Pattern options",{},{prefix+"pattern-scale",prefix+"pattern-repetitions",prefix+"invert-fb",prefix+"invert-lr"},false,2,true};
-            options.collection="fields"; options.choice=field.preference.field;
-            result.page->sections.push_back(std::move(options));
             extensions::PageSection limits{id+"-limits","When to return",{},{prefix+"gather-minutes",prefix+"backpack-percent"},false,2};
             limits.collection="fields"; limits.choice=field.preference.field;
             if (defaults.route_recovery) limits.settings.push_back(prefix+"return-method");
             result.page->sections.push_back(std::move(limits));
             extensions::PageSection extend{id+"-extend","Extend gathering",{},
-                {prefix+"extend-while",prefix+"extend-minutes"},false,1,true};
+                {prefix+"extend-while",prefix+"extend-minutes"},false,1};
             extend.collection="fields"; extend.choice=field.preference.field;
             result.page->sections.push_back(std::move(extend));
             extensions::PageSection layout{id+"-layout","Position",{},
-                {prefix+"facing",prefix+"start-forward",prefix+"start-side",prefix+"shift-lock"},false,2};
-            layout.collapsed=true; layout.collection="fields"; layout.choice=field.preference.field;
+                {prefix+"start-forward",prefix+"start-side",prefix+"facing",prefix+"shift-lock"},false,2};
+            layout.collection="fields"; layout.choice=field.preference.field;
             if (sprinklers && sprinklers->recenter) layout.settings.push_back(prefix+"recenter");
             result.page->sections.push_back(std::move(layout));
         }
