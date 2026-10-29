@@ -341,9 +341,6 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
     extensions::Manifest result;
     result.id=std::move(id); result.provider=std::move(provider); result.name="Gathering"; result.version="0.1.0";
     result.enabled_by_default=true;
-    result.setup_profiles={{"Honey farming",50,{},true,{},"Gather 15 min per field or until 95% bag. Convert, collect due rewards, then resume."},
-        {"Quest progress",50,{},true,{},"5 min per field; return at 90% bag; yield to quest work."},
-        {"Materials",50,{},true,{},"5 min per field; return at 90% bag; gather between item trips."}};
     result.description="Follow the configured field rotation, gather, return to the hive and convert. Active field requests can temporarily change the selected field.";
     result.consumes.insert(extensions::RequestService::fields);
     result.permissions=permissions; result.settings_version=9;
@@ -450,15 +447,6 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
         if(setting.id.ends_with("pattern-scale")) setting.help="Movement size passed to Lua as scale. 100% is the pattern's normal size.";
         if(setting.id.ends_with("pattern-width")) setting.help="Passed to Lua as width; the pattern controls how it uses this value.";
         if(setting.id.ends_with("pattern-repetitions")) setting.help="Passed to Lua as repetitions. Its effect depends on the pattern.";
-    }
-    for (auto& profile:result.setup_profiles) for (const auto& setting:result.settings) {
-        const bool honey=profile.name=="Honey farming";
-        if (setting.id.ends_with("gather-minutes")) profile.settings[setting.id]=honey?15:5;
-        if (setting.id.ends_with("backpack-percent")) profile.settings[setting.id]=honey?95:90;
-        if (setting.id=="fields" && !setting.choices.empty()) {
-            const auto sunflower=std::find(setting.choices.begin(),setting.choices.end(),"Sunflower");
-            profile.if_empty[setting.id]=SettingSelection{sunflower==setting.choices.end()?setting.choices.front():*sunflower};
-        }
     }
     return result;
 }

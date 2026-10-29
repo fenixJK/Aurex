@@ -1,6 +1,7 @@
 #include "strategy.hpp"
 #include "core/runtime/guards.hpp"
 #include <algorithm>
+#include <utility>
 
 namespace hive::features::gathering {
 namespace {
@@ -9,6 +10,7 @@ struct Control {
     bool stopping{};
     std::string reason;
     unsigned heading{};
+    int pitch{};
     std::optional<game::CameraMove> turning;
     std::function<bool()> yield;
 };
@@ -32,7 +34,7 @@ public:
             }
             control_->stopping=!control_->reason.empty();
         }
-        if (control_->stopping && !control_->turning) return {GuardState::completed,control_->reason};
+        if (control_->stopping && !control_->turning && !control_->pitch) return {GuardState::completed,control_->reason};
         return {};
     }
 };
@@ -44,7 +46,7 @@ class PatternStrategy final : public Program {
     std::function<void(unsigned)> completed_;
     ProgramFactory between_cycles_;
     Time corrected_{};
-    bool correcting_{},using_slot_{};
+    bool correcting_{},using_slot_{},restoring_{};
     Time used_slot_{Time(-2000)};
     std::size_t source_steps_{};
     std::shared_ptr<const game::DetectionSource> buffs_;
@@ -54,6 +56,12 @@ class PatternStrategy final : public Program {
         return view;
     }
     std::function<unsigned(const View&)> hotbar_;
+    Step finish() {
+        if (!control_->pitch) return Done{control_->reason};
+        restoring_=true;
+        control_->turning=game::CameraMove{control_->pitch>0?Key::pitch_down:Key::pitch_up,std::size_t(std::abs(control_->pitch))};
+        return MoveCamera{*control_->turning};
+    }
 public:
     PatternStrategy(ProgramFactory create,RunConfig limits,std::function<void(unsigned)> completed,ProgramFactory between_cycles,std::function<bool()> yield,std::function<unsigned(const automation::View&)> hotbar,TimeExtension extension,std::shared_ptr<const game::DetectionSource> buffs)
         :limits_(limits),extension_(std::move(extension)),completed_(std::move(completed)),between_cycles_(std::move(between_cycles)),buffs_(std::move(buffs)),hotbar_(std::move(hotbar)) {
@@ -70,13 +78,18 @@ public:
     WorkActivity activity() const noexcept override { return WorkActivity::gathering; }
     RunConfig config() const override {
         auto result=limits_; result.require_done=false;
-        result.duration=std::min(limits_.duration+extension_.limit+Time(2500),Time(std::chrono::hours(8)));
+        // Allow an in-flight camera operation (32 taps at the accepted maximum
+        // 200/250 ms timing) to finish, then restore pitch with normal taps.
+        // This is only a deadline allowance; the guard stops gathering on time.
+        const game::CameraMove restore;
+        const auto cleanup=(Time(200)+Time(250)+restore.press+restore.release)*32;
+        result.duration=std::min(limits_.duration+extension_.limit+Time(2500)+cleanup,Time(std::chrono::hours(8)));
         return result;
     }
     std::unique_ptr<RunGuard> guard() const override { return std::make_unique<PatternGuard>(limits_,control_,extension_); }
     void observe(const View& view) override { source_->observe(source_view(view)); }
     Step next(const View& view) override {
-        if (control_->stopping) return Done{control_->reason};
+        if (control_->stopping) return finish();
         if (hotbar_ && view.elapsed-used_slot_>=Time(2000)) {
             const auto slot=hotbar_(view);
             if (slot>7) throw std::invalid_argument("Invalid requested hotbar slot");
@@ -90,8 +103,10 @@ public:
             if (between_cycles_ && view.elapsed-corrected_>=Time(5000)) {
                 correcting_=true; return RunProgram{between_cycles_};
             }
-        } else if (const auto* walk=std::get_if<Walk>(&step)) {
+        } else if (auto* walk=std::get_if<Walk>(&step)) {
             game::movement_slice(walk->leg,walk->leg.tiles,limits_.speed);
+            const auto until=std::move(walk->until);
+            walk->until=[control=control_,until] { return control->stopping || (until && until()); };
         } else if (const auto* hold=std::get_if<Hold>(&step)) {
             if (hold->duration<Time(1) || hold->duration>Time(10000) || hold->keys.size()>3)
                 throw std::invalid_argument("Invalid pattern key hold");
@@ -101,13 +116,20 @@ public:
             if (wait->duration<Time(1) || wait->duration>Time(1000)) throw std::invalid_argument("Invalid pattern wait");
         } else if (const auto* camera=std::get_if<MoveCamera>(&step)) {
             game::camera_actions(camera->movement);
+            if (camera->movement.key==Key::pitch_up || camera->movement.key==Key::pitch_down) {
+                const int pitch=control_->pitch+(camera->movement.key==Key::pitch_up?1:-1)*int(camera->movement.steps);
+                if (std::abs(pitch)>32) throw std::invalid_argument("Pattern pitch must stay within 32 taps of its starting view");
+                control_->turning=camera->movement; return step;
+            }
             if (camera->movement.key!=Key::rotate_left && camera->movement.key!=Key::rotate_right)
-                throw std::invalid_argument("Patterns can turn facing but cannot change zoom or pitch");
+                throw std::invalid_argument("Patterns can turn facing or pitch but cannot change zoom");
             auto turn=game::heading_move(0,game::turned_heading(0,camera->movement));
             if (!turn) return Wait{Time(1),"Facing unchanged"};
             turn->press=camera->movement.press; turn->release=camera->movement.release;
             control_->turning=*turn; return MoveCamera{*turn};
-        } else if (!std::holds_alternative<Done>(step)) {
+        } else if (const auto* done=std::get_if<Done>(&step)) {
+            control_->stopping=true; control_->reason=done->reason; return finish();
+        } else {
             throw std::invalid_argument("Gathering patterns can only move, turn, wait, end a cycle or finish");
         }
         return step;
@@ -116,14 +138,18 @@ public:
         if (using_slot_) { using_slot_=false; return; }
         if (correcting_) { corrected_=view.elapsed; correcting_=false; }
         if (control_->turning) {
+            const auto& turn=*control_->turning;
+            if (turn.key==Key::pitch_up) control_->pitch+=int(turn.steps);
+            if (turn.key==Key::pitch_down) control_->pitch-=int(turn.steps);
             control_->heading=game::turned_heading(control_->heading,*control_->turning); control_->turning.reset();
         }
+        if (std::exchange(restoring_,false)) return;
         ++source_steps_; source_->step_completed(source_view(view));
     }
     void finished(State state) override {
         source_->finished(state);
         if (state==State::completed) {
-            if (control_->turning) throw std::runtime_error("Pattern stopped during an unconfirmed camera turn");
+            if (control_->turning || control_->pitch) throw std::runtime_error("Pattern stopped before its camera was restored");
             completed_(control_->heading);
         }
     }

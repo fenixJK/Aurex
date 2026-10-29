@@ -139,9 +139,6 @@ Settings migrate_item_settings(Settings values) {
 }
 extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string provider,bool requests) {
     auto manifest=features::visits::manifest(visit_plan(plan),std::move(id),std::move(provider),"Collection",permissions);
-    manifest.setup_profiles={{"Honey farming",20,{{"interrupt-gather",false}},true,{},"Collect selected rewards between gathers."},
-        {"Quest progress",30,{{"interrupt-gather",true}},true,{},"Handle requested quest visits and your selected pickups."},
-        {"Materials",30,{{"interrupt-gather",true}},true,{},"Prioritize your selected pickups and crafting orders."}};
     manifest.enabled_by_default=true;
     if (requests) manifest.consumes.insert(extensions::RequestService::stations);
     for (const auto& station : plan.stations) for (auto& setting : manifest.settings)

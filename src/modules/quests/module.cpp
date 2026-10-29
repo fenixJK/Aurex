@@ -266,9 +266,6 @@ extensions::Manifest module_manifest(std::string id,std::string provider,bool br
     result.requests={extensions::RequestService::fields,extensions::RequestService::enemies,extensions::RequestService::stations};
     if (browser) result.permissions={automation::Permission::interact};
     if (cycle) {
-        result.setup_profiles={{"Honey farming",30,{{"interrupt-gather",false}},false},
-            {"Quest progress",10,{{"interrupt-gather",true}},true,{{"givers",SettingSelection{"Polar Bear"}}},"Your selected givers first; uses Polar Bear if none are selected."},
-            {"Materials",40,{{"interrupt-gather",false}},false}};
         result.permissions.insert(automation::Permission::tool); result.permissions.insert(automation::Permission::movement); result.permissions.insert(automation::Permission::interact);
         result.settings_version=4;
         extensions::Setting givers{"givers","Quest givers",SettingSelection{"Polar Bear"}};

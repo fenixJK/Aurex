@@ -17,12 +17,38 @@
 #include <QComboBox>
 #include <QSpinBox>
 #include <QDoubleSpinBox>
+#include <QLineEdit>
+#include <QKeyEvent>
 #include <cmath>
 #include <algorithm>
 
 namespace hive {
 namespace {
 QString q(const std::string& value) { return QString::fromStdString(value); }
+// Labels such as Forever behave like a single value when the user starts typing.
+// Check the displayed text: keyboard tracking can leave value() at the minimum
+// while the user is already editing a multi-digit number.
+class SpecialValueEditor final : public QObject {
+    QAbstractSpinBox* number_;
+    QLineEdit* edit_;
+    bool eventFilter(QObject* object,QEvent* event) override {
+        if (object==edit_ && !number_->specialValueText().isEmpty() && edit_->text()==number_->specialValueText()) {
+            if (event->type()==QEvent::KeyPress) {
+                const auto* key=static_cast<QKeyEvent*>(event);
+                if ((!key->text().isEmpty() && key->text().front().isDigit())
+                    || key->key()==Qt::Key_Backspace || key->key()==Qt::Key_Delete
+                    || key->matches(QKeySequence::Paste)) edit_->selectAll();
+            } else if (event->type()==QEvent::InputMethod) edit_->selectAll();
+        }
+        return QObject::eventFilter(object,event);
+    }
+public:
+    explicit SpecialValueEditor(QAbstractSpinBox* number)
+        :QObject(number),number_(number),edit_(number->findChild<QLineEdit*>()) {
+        setObjectName("special-value-editor");
+        edit_->installEventFilter(this);
+    }
+};
 void set_number(QWidget* control,int value,const extensions::Setting& field) {
     if (auto* number=qobject_cast<QDoubleSpinBox*>(control)) number->setValue(value/std::pow(10.,field.decimals));
     else static_cast<QSpinBox*>(control)->setValue(value);
@@ -315,6 +341,8 @@ void write_setting_value(QWidget* control,const extensions::Setting& field,const
             auto* integer=static_cast<QSpinBox*>(control); integer->setRange(field.minimum,field.maximum);
             integer->setSpecialValueText(q(field.minimum_label));
         }
+        if (!field.minimum_label.empty() && !control->findChild<QObject*>("special-value-editor"))
+            new SpecialValueEditor(static_cast<QAbstractSpinBox*>(control));
         set_number(control,*v,field);
     } else if (const auto* v=std::get_if<std::string>(&value)) static_cast<ChoiceControl*>(control)->setValue(*v);
     else dynamic_cast<SelectionValue*>(control)->setValue(std::get<SettingSelection>(value));
