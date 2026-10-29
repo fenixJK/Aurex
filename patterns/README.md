@@ -9,8 +9,12 @@ captured for each launch, so edits do not change an active run.
 `configure(settings)` receives `width`, `scale` (percent), `repetitions`,
 `invert-fb`, `invert-lr`, and `facing` (0–7). Scripts choose how to use these values.
 `configure` initializes movement and returns an empty table. It does not supply
-speed or run limits. The Natro-derived patterns use scale/repetitions; Square, Lines and Cross also
+speed or run limits. The Natro-derived patterns use scale/repetitions; Square, Rows and Cross also
 use width. Facing is already applied by Gathering before execution.
+
+Rows is Aurex's row-by-row zigzag, stored in `Lines.lua` for compatibility with
+edited installations. Natro Lines uses long passes and one-tile sideways steps;
+Slimline is a narrow side-to-side sweep. These are different movement patterns.
 
 `next(view)` returns one movement or key operation. `camera` operations accept
 `rotate-left`, `rotate-right`, `pitch-up` or `pitch-down` and a `steps` count.

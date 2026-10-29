@@ -19,7 +19,8 @@ std::string read_source(const std::filesystem::path& file) {
     return std::string(buffer.data(),size);
 }
 PatternPreset script_preset(std::string name,const std::string& source,std::filesystem::path file={}) {
-    PatternPreset preset; preset.name=std::move(name);
+    // Keep the established filename so edited Lines.lua files stay in use.
+    PatternPreset preset; preset.name=name=="Lines"?"Rows":std::move(name);
     auto bundled=file.empty()?std::make_shared<const std::string>(source):nullptr;
     preset.configured=[bundled=std::move(bundled),file=std::move(file)](const Settings& parameters) -> automation::ProgramFactory {
         return [bundled,file,parameters] { return scripting::script_pattern({{"main",bundled?*bundled:read_source(file)}},parameters); };

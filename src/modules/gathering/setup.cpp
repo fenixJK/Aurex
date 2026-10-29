@@ -30,11 +30,12 @@ Services field_services(const game::RouteNetwork& routes,double speed,const std:
         if (!walking_return || !added.insert(definition->id).second) continue;
         const auto id=definition->id;
         FieldPlan field;
-        field.preference={definition->name,definition->location(),service.plan.fields.empty()};
+        field.preference={definition->name,definition->location(),definition->name==initial_field};
         field.pattern={{},std::chrono::minutes(10),95,{},"Gathering"};
         if (const auto* defaults=defaults_for(definition->name)) {
             field.rotation=game::heading_move(0,defaults->heading);
             field.start_offset=defaults->start; field.shift_lock=false;
+            if (defaults->minutes) field.pattern.duration=std::chrono::minutes(defaults->minutes);
         }
         if (service.controls) {
             const auto& presets=service.controls->presets;
@@ -44,6 +45,8 @@ Services field_services(const game::RouteNetwork& routes,double speed,const std:
         field.return_setup=[id,speed,returns] { return automation::return_from_field(id,speed,0,returns); };
         service.plan.fields.push_back(std::move(field));
     }
+    if (!service.plan.fields.empty() && std::none_of(service.plan.fields.begin(),service.plan.fields.end(),[](const auto& field) { return field.preference.enabled; }))
+        service.plan.fields.front().preference.enabled=true;
     return service;
 }
 }

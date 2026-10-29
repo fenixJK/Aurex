@@ -3,15 +3,17 @@
 #include <string_view>
 
 namespace hive::features::gathering {
+inline constexpr std::string_view initial_field="Sunflower";
 struct FieldDefaults {
     std::string_view name,pattern;
     int width,scale;
     Point start;
     unsigned heading;
     bool invert_lr;
+    int minutes{};
 };
 inline constexpr FieldDefaults field_defaults[]{
-    {"Sunflower","CornerXSnake",4,100,{-7.2,4.5},0,true},
+    {"Sunflower","Squares",3,100,{},0,false,20},
     {"Dandelion","CornerXSnake",6,100,{-4.5,11.3},0,true},
     {"Mushroom","CornerXSnake",2,100,{-6.3,4.5},0,true},
     {"Blue Flower","CornerXSnake",7,100,{},2,false},

@@ -20,7 +20,7 @@ Plan catalog_plan() {
         bool boss{};
     };
     const Recipe recipes[]{
-        {"Ladybug (Mushroom)","Ladybug","mushroom",Time(330000),true},
+        {"Ladybug (Mushroom)","Ladybug","mushroom",Time(330000),false},
         {"Spider","Spider","spider",Time(1830000),false},
         {"Rhino Beetle (Blue Flower)","Rhino Beetle","blueflower",Time(330000),false},
         {"Ladybug (Clover)","Ladybug","clover",Time(330000),false,"clover"},

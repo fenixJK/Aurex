@@ -268,7 +268,7 @@ extensions::Manifest module_manifest(std::string id,std::string provider,bool br
     if (cycle) {
         result.permissions.insert(automation::Permission::tool); result.permissions.insert(automation::Permission::movement); result.permissions.insert(automation::Permission::interact);
         result.settings_version=4;
-        extensions::Setting givers{"givers","Quest givers",SettingSelection{"Polar Bear"}};
+        extensions::Setting givers{"givers","Quest givers",SettingSelection{}};
         for (const auto& npc:game::npcs()) givers.choices.push_back(npc.name);
         givers.ordered=true; givers.inline_choices=true; result.settings.push_back(std::move(givers));
         result.settings.push_back({"interrupt-gather","Gather interrupt",true});

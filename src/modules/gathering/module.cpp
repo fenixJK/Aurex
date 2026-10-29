@@ -16,6 +16,7 @@ std::vector<std::string> choices(const PatternControls& controls) {
         result.push_back(preset.name);
     }
     if (std::find(result.begin(),result.end(),controls.initial)==result.end()) throw std::invalid_argument("Unknown default gathering pattern");
+    std::sort(result.begin(),result.end());
     return result;
 }
 std::string field_prefix(const std::string& field) {
@@ -37,7 +38,9 @@ bool boolean(const Settings& settings,const std::string& key) {
 }
 void pattern_settings(std::vector<extensions::Setting>& settings,const std::string& prefix,const FieldDefaults* defaults=nullptr) {
     settings.push_back({prefix+"pattern-scale","Size (%)",defaults?defaults->scale:100,25,200,{}});
-    settings.push_back({prefix+"pattern-repetitions","Reps",1,1,9,{}});
+    // Natro's field-default "width" is its PatternReps value. These Lua ports
+    // use repetitions; the separate width parameter belongs to Aurex patterns.
+    settings.push_back({prefix+"pattern-repetitions","Reps",defaults?defaults->width:1,1,9,{}});
     settings.push_back({prefix+"invert-fb","Invert F/B",false});
     settings.push_back({prefix+"invert-lr","Invert L/R",defaults && defaults->invert_lr});
 }
@@ -267,8 +270,10 @@ public:
 };
 }
 Settings migrate_settings(int version,const Settings& saved) {
-    if (version<1 || version>8) throw std::invalid_argument("Unsupported gathering settings version");
+    if (version<1 || version>9) throw std::invalid_argument("Unsupported gathering settings version");
     auto settings=saved;
+    for (auto& [key,value]:settings) if (key=="pattern" || (key.starts_with("field-") && key.ends_with("-pattern")))
+        if (auto* name=std::get_if<std::string>(&value); name && *name=="Lines") *name="Rows";
     std::erase_if(settings,[](const auto& entry) {
         const auto& key=entry.first;
         return key=="sprinkler-spacing-forward" || key=="sprinkler-spacing-lateral"
@@ -307,7 +312,10 @@ Settings migrate_settings(int version,const Settings& saved) {
         for(const auto& prefix:prefixes) settings.try_emplace(prefix+"shift-lock",settings.at("shift-lock"));
         settings.erase("shift-lock");
     }
-    if (version==6) for (const auto& field:field_defaults) {
+    if (version==6) for (const auto& current:field_defaults) {
+        // Keep this historical migration independent of the new starter setup.
+        constexpr FieldDefaults old_sunflower{"Sunflower","CornerXSnake",4,100,{-7.2,4.5},0,true};
+        const auto& field=current.name=="Sunflower"?old_sunflower:current;
         const auto prefix=field_prefix(std::string(field.name))+"-";
         const auto unchanged=[&](const std::string& key,const SettingValue& value) {
             const auto found=settings.find(prefix+key);
@@ -343,7 +351,7 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
     result.enabled_by_default=true;
     result.description="Follow the configured field rotation, gather, return to the hive and convert. Active field requests can temporarily change the selected field.";
     result.consumes.insert(extensions::RequestService::fields);
-    result.permissions=permissions; result.settings_version=9;
+    result.permissions=permissions; result.settings_version=10;
     result.settings={{"cycles","Completed cycles",static_cast<int>(defaults.cycles),1,10000,{}},
         {"run-seconds","Run limit (seconds)",static_cast<int>(defaults.config.duration.count()/1000),1,28800,{}}};
     if (!defaults.fields.empty()) {
@@ -402,7 +410,8 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
             result.settings.push_back({prefix+"pattern","Pattern",pattern,0,0,names});
             const auto width=pattern==preferred && field_defaults?field_defaults->width:controls->width;
             result.settings.push_back({prefix+"pattern-width","Width",width,1,12,{}});
-            result.settings.push_back({prefix+"gather-minutes","Time limit",controls->minutes,1,120,{}});
+            const auto minutes=field_defaults && field_defaults->minutes?field_defaults->minutes:controls->minutes;
+            result.settings.push_back({prefix+"gather-minutes","Time limit",minutes,1,120,{}});
             result.settings.push_back({prefix+"backpack-percent","Bag limit",controls->backpack,1,100,{}});
             result.settings.push_back({prefix+"extend-while","Finish active buffs",SettingSelection{},0,0,{"Pop Star","Guiding Star","Field boost"}});
             result.settings.back().inline_choices=true;

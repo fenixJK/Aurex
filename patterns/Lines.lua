@@ -1,4 +1,5 @@
--- Editable gathering pattern. Movement speed and stopping limits are handled by the host.
+-- Rows: a row-by-row zigzag. The filename is kept for existing installations.
+-- Movement speed and stopping limits are handled by the host.
 local steps = {}
 return {
     configure = function(settings)
