@@ -32,7 +32,11 @@ class SpecialValueEditor final : public QObject {
     QAbstractSpinBox* number_;
     QLineEdit* edit_;
     bool eventFilter(QObject* object,QEvent* event) override {
-        if (object==edit_ && !number_->specialValueText().isEmpty() && edit_->text()==number_->specialValueText()) {
+        // Destruction also sends events after the spin box and line edit have
+        // lost their derived state. Only inspect their values for editing input.
+        if (object!=edit_ || (event->type()!=QEvent::KeyPress && event->type()!=QEvent::InputMethod))
+            return QObject::eventFilter(object,event);
+        if (!number_->specialValueText().isEmpty() && edit_->text()==number_->specialValueText()) {
             if (event->type()==QEvent::KeyPress) {
                 const auto* key=static_cast<QKeyEvent*>(event);
                 if ((!key->text().isEmpty() && key->text().front().isDigit())
