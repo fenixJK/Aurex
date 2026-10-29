@@ -1,6 +1,9 @@
 #include "setting_widgets.hpp"
 #include "extensions_ui.hpp"
 #include "presets.hpp"
+#include "core/module_host/collection_settings.hpp"
+#include <QApplication>
+#include <QClipboard>
 #include <QJsonArray>
 #include "command_form.hpp"
 #include "module_plot.hpp"
@@ -382,6 +385,22 @@ void ExtensionsUi::build_page(const std::string& id) {
         if(page->field_choices.contains(field.id)) editor->select(page->field_choices.at(field.id));
         page->field_choices[field.id]=editor->current();
         collections[field.id]=editor;
+        editor->copy=[this,id,collection=field.id](const std::string& choice) {
+            perform([&] {
+                const auto json=extensions::copy_collection_settings(host_.entries().at(id).manifest,module_settings(id),collection,choice);
+                QApplication::clipboard()->setText(QString::fromUtf8(json));
+            });
+        };
+        editor->paste=[this,id,collection=field.id](const std::string& choice) {
+            if (busy_()) return;
+            const bool success=perform([&] {
+                const auto values=extensions::paste_collection_settings(host_.entries().at(id).manifest,module_settings(id),collection,choice,
+                    QApplication::clipboard()->text().toUtf8());
+                configure_module(id,values);
+            });
+            auto* feedback=extension_pages_.at(id)->feedback;
+            feedback->setText(success?QString{}:message_->text()); feedback->setVisible(!success);
+        };
         editor->restore=[this,id,collection=field.id](const std::string& choice) {
             const auto& manifest=host_.entries().at(id).manifest;
             auto& controls=extension_pages_.at(id)->controls;

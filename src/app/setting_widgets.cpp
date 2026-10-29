@@ -114,6 +114,7 @@ class CollectionControl final : public CollectionEditor {
     QMenu* available_;
     QLabel* empty_;
     QPushButton* defaults_;
+    QPushButton *copy_,*paste_;
     QStackedWidget* pages_;
     std::vector<std::string> choices_;
     std::map<std::string,QWidget*> editors_;
@@ -138,6 +139,7 @@ class CollectionControl final : public CollectionEditor {
         add_->setEnabled(!available_->isEmpty());
         if(fields_->currentIndex()>=0) pages_->setCurrentWidget(editors_.at(fields_->tabText(fields_->currentIndex()).toStdString()));
         pages_->setVisible(fields_->count()>0); empty_->setVisible(fields_->count()==0); defaults_->setEnabled(fields_->count()>0);
+        copy_->setEnabled(fields_->count()>0); paste_->setEnabled(fields_->count()>0);
         if(edited && !signalsBlocked() && changed) changed();
     }
 public:
@@ -151,6 +153,13 @@ public:
         available_=new QMenu(add_); add_->setMinimumWidth(88); bar->addWidget(add_);
         connect(add_,&QPushButton::clicked,this,[this] { available_->popup(add_->mapToGlobal(QPoint(0,add_->height()))); });
         auto reset=new QPushButton("Defaults"); defaults_=reset; reset->setObjectName("collection-defaults"); bar->addWidget(reset);
+        copy_=new QPushButton("Copy"); copy_->setObjectName("collection-copy");
+        paste_=new QPushButton("Paste"); paste_->setObjectName("collection-paste");
+        copy_->setToolTip("Copy this field's settings.");
+        paste_->setToolTip("Paste settings for this field from Aurex or Natro.");
+        bar->insertWidget(bar->count()-1,copy_); bar->insertWidget(bar->count()-1,paste_);
+        connect(copy_,&QPushButton::clicked,this,[this] { if (copy && !current().empty()) copy(current()); });
+        connect(paste_,&QPushButton::clicked,this,[this] { if (paste && !current().empty()) paste(current()); });
         pages_=new QStackedWidget; pages_->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Maximum); layout->addWidget(pages_);
         empty_=text("Use “+ "+q(label)+"” to add an item.","muted"); layout->addWidget(empty_);
         for(const auto& choice:choices) {
@@ -175,10 +184,11 @@ public:
         SettingSelection result; for(int i=0;i<fields_->count();++i) result.push_back(fields_->tabText(i).toStdString()); return result;
     }
     void setValue(const SettingSelection& selected) override {
-        const auto before=value();
+        const auto before=value(); const auto current_choice=current();
         QSignalBlocker block(fields_); while(fields_->count()) fields_->removeTab(0);
         for(const auto& choice:selected) if(editors_.contains(choice)) addField(choice);
-        if(fields_->count()) fields_->setCurrentIndex(0); refresh(value()!=before);
+        if(fields_->count()) { fields_->setCurrentIndex(0); select(current_choice); }
+        refresh(value()!=before);
         if(this->selected) this->selected();
     }
 };

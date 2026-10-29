@@ -1,6 +1,6 @@
 add_library(hive_gathering run.cpp strategy.cpp)
 target_link_libraries(hive_gathering PUBLIC hive_automation)
-add_library(hive_gathering_module module.cpp)
+add_library(hive_gathering_module module.cpp field_settings.cpp)
 target_link_libraries(hive_gathering_module PUBLIC hive_gathering)
 file(GLOB HIVE_PATTERN_FILES CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/patterns/*.lua")
 set(HIVE_PATTERN_HEADER "${PROJECT_BINARY_DIR}/generated/bundled_patterns.hpp")

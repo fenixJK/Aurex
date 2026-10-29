@@ -85,7 +85,7 @@ Plan walking_plan(const workflows::RouteCatalog& routes,double speed,std::shared
             if (!return_to_hive || !daylight) return true;
             std::erase_if(enemy.hunt_fields,[&](const auto& field) { return !routes.network().contains(field+".entry"); });
             if (enemy.hunt_fields.empty()) return true;
-            enemy.scheduled=game::during_night(daylight); enemy.departure=return_to_hive;
+            enemy.daylight=daylight; enemy.scheduled=game::during_night(daylight); enemy.departure=return_to_hive;
             enemy.scout_hive=returns.hive;enemy.scout_transport=returns.transport_prompt;
             enemy.scout_route=returns.access.cannon && bool(returns.transport_prompt)
                 && routes.network().contains("pepper.entry") && routes.network().contains("mountaintop.entry")

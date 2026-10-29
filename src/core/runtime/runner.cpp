@@ -418,16 +418,24 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
         program_->observe({progress_.elapsed,progress_.steps,progress_.backpack_percent,c,&observations,
             progress_.estimated_heading,progress_.route_position,progress_.route_execution});
         if (step_ && std::holds_alternative<Walk>(*step_)) speed_->observe(c,observations.movement_speed);
-        if (step_) if (const auto* walk=std::get_if<Walk>(&*step_); walk && menu_pending_.empty() && walk->until && walk->until()) {
+        const bool movement_finished=step_ && menu_pending_.empty() && std::visit([](const auto& step) {
+            using T=std::decay_t<decltype(step)>;
+            if constexpr (std::is_same_v<T,Walk> || std::is_same_v<T,FollowPath> || std::is_same_v<T,Navigate>)
+                return step.until && step.until();
+            return false;
+        },*step_);
+        if (movement_finished) {
             // Runtime cancellation releases input and integrates its final movement
             // sample before notifying the program that this leg has ended.
-            if (!pending_.empty()) {
+            if (!pending_.empty() || checkpoint_ || navigation_) {
                 tasks_.cancel(scope_);
-                for (const auto& result:results(scope_)) if (result.id==pending_
-                    && result.outcome!=TaskOutcome::cancelled && result.outcome!=TaskOutcome::executed) {
+                for (const auto& result:results(scope_)) if (result.outcome!=TaskOutcome::cancelled && result.outcome!=TaskOutcome::executed) {
                     finish(State::failed,"Could not stop observed movement: "+result.reason); return;
                 }
                 pending_.clear();
+            }
+            if (checkpoint_ || navigation_) {
+                progress_.route_position.reset(); progress_.route_execution.reset();
             }
             complete_step(c,observations);
             return;

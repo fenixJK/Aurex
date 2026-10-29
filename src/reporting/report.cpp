@@ -1,3 +1,4 @@
+#include <QImageReader>
 #include "report.hpp"
 #include <QFont>
 #include <QPainter>
@@ -196,7 +197,7 @@ QImage render_report(const Report& report) {
     for (const auto& trace:report.buffs)
         if (trace.current.level)
             buffs.append(&trace);
-    const auto& style=report.appearance; const auto colors=palette(style.theme);
+    const auto& style=report.appearance; auto colors=palette(style.theme);
     const auto rows=buff_rows(buffs,buffs_y+20,style.chart_height);
     const double plot_left=std::any_of(buffs.begin(),buffs.end(),[](const auto* trace) { return trace->current.icon.isNull(); })?144:92;
     const double plot_width=880-plot_left;
@@ -233,6 +234,19 @@ QImage render_report(const Report& report) {
     if (panels.size()>4 || (style.totals && counts.size()>shown)) notes.append("Additional activity omitted");
     QImage image(width,bottom+18+(notes.empty()?0:20),QImage::Format_RGB32); image.fill(colors.background);
     QPainter p(&image); p.setRenderHints(QPainter::Antialiasing|QPainter::TextAntialiasing|QPainter::SmoothPixmapTransform);
+    if (!style.background_image.isEmpty()) {
+        QImageReader reader(style.background_image); reader.setAutoTransform(true);
+        if (reader.size().isValid()) reader.setScaledSize(reader.size().scaled(2048,2048,Qt::KeepAspectRatio));
+        const auto background=reader.read();
+        if (!background.isNull()) {
+            const double scale=std::max(double(image.width())/background.width(),double(image.height())/background.height());
+            const QSizeF crop(image.width()/scale,image.height()/scale);
+            p.drawImage(image.rect(),background,QRectF((background.width()-crop.width())/2,
+                (background.height()-crop.height())/2,crop.width(),crop.height()));
+            auto shade=colors.background; shade.setAlpha(std::clamp(style.background_fade,0,100)*255/100); p.fillRect(image.rect(),shade);
+            colors.panel.setAlpha(175+std::clamp(style.background_fade,0,100)*80/100);
+        }
+    }
     p.fillRect(0,0,width,4,colors.heading);
     text(p,{margin,13,160,28},"AUREX",22,colors.heading,true);
     const auto period=end.addMSecs(-report.window_ms).toString("d MMM · HH:mm")+" – "+end.toString("HH:mm");

@@ -1,5 +1,6 @@
 #include "plan.hpp"
 #include "chat.hpp"
+#include "search_daylight.hpp"
 #include "game/detection/vicious.hpp"
 #include <algorithm>
 #include <array>
@@ -10,6 +11,7 @@ namespace hive::features::combat {
 namespace {
 class Encounter final : public automation::Program {
     Enemy enemy_;
+    SearchDaylight daylight_;
     double speed_;
     Time entered_,started_{},last_frame_{Time(-1)},moved_{};
     std::optional<Time> clear_since_,completed_at_,engaged_;
@@ -28,7 +30,7 @@ class Encounter final : public automation::Program {
             distance_=std::make_shared<game::DistanceIntegrator>(step.leg.tiles);
             step.distance=distance_;
             step.until=[this,searching] {
-                return complete_ || session_finished_ || (searching && engaged_)
+                return complete_ || session_finished_ || (searching && (engaged_ || daylight_.ended()))
                     || observed_now_-last_frame_>Time(2000);
             };
         }
@@ -56,6 +58,7 @@ public:
     }
     void observe(const automation::View& view) override {
         observed_now_=view.context.now;
+        if (!engaged_) daylight_.observe(enemy_.daylight,view.context,entered_);
         if (view.context.now-last_frame_>Time(2000)) visible_=0;
         if (!started) { started=true; started_=view.context.now; }
         if (complete_ || session_finished_) return;
@@ -130,6 +133,10 @@ public:
             // A defeat can arrive while still sweeping a bee activated by
             // somebody else. There is no fight displacement to undo then.
             x_=y_=0; search_origin_=true;
+        }
+        if (!engaged_ && !complete_ && daylight_.ended()) {
+            if (enemy_.progress) enemy_.progress->finish(false);
+            return Done{"Daytime — ending Vicious Bee search"};
         }
         Observation<game::DialogButtons> buttons;
         if (!enemy_.amulet.empty() && !amulet_kept_ && view.observations) {

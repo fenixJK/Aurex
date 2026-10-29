@@ -59,7 +59,8 @@ QString validate(const DiscordSettings& settings,bool webhook_required) {
     if (!settings.mention.isEmpty() && !QRegularExpression("^[0-9]{16,22}$").match(settings.mention).hasMatch())
         return "The alert user ID must contain 16–22 digits.";
     if (settings.appearance.theme<ReportTheme::forest || settings.appearance.theme>ReportTheme::graphite
-        || settings.appearance.chart_height<75 || settings.appearance.chart_height>150) return "Choose a supported report layout.";
+        || settings.appearance.chart_height<75 || settings.appearance.chart_height>150
+        || settings.appearance.background_fade<0 || settings.appearance.background_fade>100) return "Choose a supported report layout.";
     if (settings.report_minutes<1 || settings.report_minutes>720) return "Choose a report interval up to 12 hours.";
     return {};
 }

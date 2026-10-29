@@ -1,5 +1,6 @@
 #include "module.hpp"
 #include "defaults.hpp"
+#include "field_settings.hpp"
 #include <algorithm>
 
 namespace hive::features::gathering {
@@ -18,11 +19,6 @@ std::vector<std::string> choices(const PatternControls& controls) {
     if (std::find(result.begin(),result.end(),controls.initial)==result.end()) throw std::invalid_argument("Unknown default gathering pattern");
     std::sort(result.begin(),result.end());
     return result;
-}
-std::string field_prefix(const std::string& field) {
-    std::uint64_t hash=14695981039346656037ULL;
-    for (unsigned char c : field) { hash^=c; hash*=1099511628211ULL; }
-    return "field-"+std::to_string(hash);
 }
 std::vector<std::string> sprinkler_choices() {
     std::vector<std::string> result;
@@ -375,6 +371,10 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
         }
         if (sprinklers->recenter && !controls) result.settings.push_back({"recenter","FDC",false});
     }
+    result.import_collection=[](const std::string& collection,const std::string& choice,const Settings& copied) {
+        if (collection!="fields") throw std::invalid_argument("Unknown gathering collection");
+        return import_natro_field(choice,copied);
+    };
     result.page=extensions::PageLayout{{},true};
     if (!defaults.fields.empty()) result.page->sections.push_back({"fields","Field rotation","Select fields and arrange the order to visit them.",{"fields"},false,1});
     if (defaults.whirligig_return) {

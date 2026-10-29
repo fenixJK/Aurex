@@ -76,6 +76,9 @@ struct Manifest {
     bool enabled_by_default{};
     bool presets{true};
     std::vector<SetupProfile> setup_profiles;
+    // Optional native adapter for another application's collection settings.
+    // The shared importer still validates the returned patch against this page.
+    std::function<Settings(const std::string&,const std::string&,const Settings&)> import_collection;
 };
 struct SessionView {
     Status status;

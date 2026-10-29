@@ -20,6 +20,7 @@ class CollectionEditor : public QWidget, public SelectionValue {
 public:
     std::function<void(const std::string&)> restore;
     std::function<void()> selected;
+    std::function<void(const std::string&)> copy,paste;
     virtual std::string current() const=0;
     virtual void select(const std::string& choice)=0;
     virtual void addSection(const std::string& choice,QWidget* section)=0;

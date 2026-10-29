@@ -41,6 +41,8 @@ struct ReportAppearance {
     ReportTheme theme{ReportTheme::forest};
     int chart_height{100};
     bool activity{true},nectar{true},modules{true},totals{true};
+    QString background_image;
+    int background_fade{75};
     bool operator==(const ReportAppearance&) const = default;
 };
 struct Report {

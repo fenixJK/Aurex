@@ -43,6 +43,7 @@ struct Enemy {
     std::string field;
     std::function<std::string(const ObservationContext&)> requested_field;
     std::shared_ptr<const game::DetectionSource> vicious;
+    std::shared_ptr<const game::DetectionSource> daylight;
     bool scout_route{};
     std::shared_ptr<automation::HiveSetupResult> scout_hive;
     std::shared_ptr<const game::LandmarkSource> scout_transport;

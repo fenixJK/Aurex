@@ -10,6 +10,7 @@ if(HIVE_BUILD_DESKTOP)
     manifest.cpp
     host.cpp
     configuration.cpp
+    collection_settings.cpp
     presets.cpp
     package.cpp)
   target_link_libraries(hive_extensions PUBLIC hive_automation hive_session Qt6::Core)

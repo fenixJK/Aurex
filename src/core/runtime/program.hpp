@@ -99,11 +99,11 @@ struct InspectInventoryItem {
     bool start_at_bottom{};
     bool quantity{};
 };
-struct Navigate { std::string destination; std::optional<InspectInventoryItem> inventory_search; };
+struct Navigate { std::string destination; std::optional<InspectInventoryItem> inventory_search; std::function<bool()> until; };
 class Program;
 using ProgramFactory=std::function<std::unique_ptr<Program>()>;
 struct RunProgram { ProgramFactory create; bool return_result{}; };
-struct FollowPath { workflows::CheckpointPlan movement; };
+struct FollowPath { workflows::CheckpointPlan movement; std::function<bool()> until; };
 struct ApproachLandmark { workflows::CheckpointPlan movement; std::shared_ptr<const game::LandmarkSource> source; };
 struct ApproachPrompt { workflows::CheckpointPlan movement; game::PromptLandmark prompt; };
 struct Pattern {

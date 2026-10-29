@@ -1,5 +1,6 @@
 #include "status_page.hpp"
 #include "controls.hpp"
+#include "report_appearance.hpp"
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFormLayout>
@@ -109,6 +110,8 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
     appearance_.chart_height=std::clamp(settings.value("discord/chartHeight",100).toInt(),75,150);
     appearance_.activity=settings.value("discord/showActivity",true).toBool(); appearance_.nectar=settings.value("discord/showNectar",true).toBool();
     appearance_.modules=settings.value("discord/showModules",true).toBool(); appearance_.totals=settings.value("discord/showTotals",true).toBool();
+    appearance_.background_image=settings.value("discord/backgroundImage").toString();
+    appearance_.background_fade=std::clamp(settings.value("discord/backgroundFade",75).toInt(),0,100);
     initial.appearance=appearance_;
     initial.buff_ids=buff_ids_; settings.setValue("discord/buffs",buff_ids_);
     buff_count->setText(QString("%1 selected").arg(buff_ids_.size()));
@@ -145,6 +148,7 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
         settings.setValue("discord/theme",int(appearance_.theme)); settings.setValue("discord/chartHeight",appearance_.chart_height);
         settings.setValue("discord/showActivity",appearance_.activity); settings.setValue("discord/showNectar",appearance_.nectar);
         settings.setValue("discord/showModules",appearance_.modules); settings.setValue("discord/showTotals",appearance_.totals);
+        settings.setValue("discord/backgroundImage",appearance_.background_image); settings.setValue("discord/backgroundFade",appearance_.background_fade);
         return true;
     };
     connect(enabled,&QCheckBox::toggled,this,[save] { save(); });
@@ -155,25 +159,8 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
     connect(discord_user_,&QLineEdit::editingFinished,this,[save] { save(); });
     connect(mention,&QCheckBox::toggled,this,[save] { save(); });
     connect(interval,&QComboBox::currentIndexChanged,this,[save] { save(); });
-    connect(appearance,&QPushButton::clicked,this,[this,save] {
-        auto dialog=new QDialog(this); dialog->setAttribute(Qt::WA_DeleteOnClose); dialog->setObjectName("report-appearance-dialog");
-        dialog->setWindowTitle("Report layout"); dialog->setWindowModality(Qt::WindowModal);
-        auto layout=new QVBoxLayout(dialog); auto fields=new QFormLayout; layout->addLayout(fields);
-        auto theme=new QComboBox; theme->addItems({"Forest","Midnight","Graphite"}); theme->setCurrentIndex(int(appearance_.theme)); fields->addRow("Theme",theme);
-        auto height=new QComboBox; height->addItem("Compact",75); height->addItem("Normal",100); height->addItem("Tall",150);
-        height->setCurrentIndex(std::max(0,height->findData(appearance_.chart_height))); fields->addRow("Buff charts",height);
-        auto activity=new QCheckBox("Activity breakdown"); activity->setChecked(appearance_.activity); layout->addWidget(activity);
-        auto nectar=new QCheckBox("Nectar"); nectar->setChecked(appearance_.nectar); layout->addWidget(nectar);
-        auto modules=new QCheckBox("Module panels"); modules->setChecked(appearance_.modules); layout->addWidget(modules);
-        auto totals=new QCheckBox("Totals"); totals->setChecked(appearance_.totals); layout->addWidget(totals);
-        const auto changed=[this,save,theme,height,activity,nectar,modules,totals] {
-            appearance_={reporting::ReportTheme(theme->currentIndex()),height->currentData().toInt(),activity->isChecked(),nectar->isChecked(),modules->isChecked(),totals->isChecked()};
-            if (!save()) appearance_=discord_->settings().appearance;
-        };
-        connect(theme,&QComboBox::currentIndexChanged,dialog,changed); connect(height,&QComboBox::currentIndexChanged,dialog,changed);
-        for (auto check:{activity,nectar,modules,totals}) connect(check,&QCheckBox::toggled,dialog,changed);
-        auto done=new QPushButton("Done"); layout->addWidget(done); connect(done,&QPushButton::clicked,dialog,&QDialog::accept);
-        dialog->setFixedSize(300,layout->sizeHint().height()+20); dialog->show();
+    connect(appearance,&QPushButton::clicked,this,[this,save,&settings] {
+        show_report_appearance(this,appearance_,QFileInfo(settings.fileName()).absolutePath(),save);
     });
     connect(buffs,&QPushButton::clicked,this,[this,save,buff_count] {
         auto dialog=new QDialog(this); dialog->setObjectName("report-buffs"); dialog->setAttribute(Qt::WA_DeleteOnClose);
