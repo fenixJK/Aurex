@@ -199,7 +199,7 @@ QImage load_report_background(const QString& path) {
 QRectF report_background_crop(QSize image,QSize report,const ReportAppearance& style) {
     if (image.isEmpty() || report.isEmpty()) return {};
     const double scale=std::max(double(report.width())/image.width(),double(report.height())/image.height())
-        *std::clamp(style.background_zoom,100,300)/100.;
+        *std::clamp(style.background_zoom,ReportAppearance::min_background_zoom,ReportAppearance::max_background_zoom)/100.;
     const QSizeF crop(report.width()/scale,report.height()/scale);
     const auto position=[](double value) { return std::isfinite(value)?std::clamp(value,0.,1.):.5; };
     return {(image.width()-crop.width())*position(style.background_x),
@@ -253,7 +253,10 @@ QImage render_report(const Report& report,const QImage* cached_background) {
     if (!style.background_image.isEmpty()) {
         const auto background=cached_background?*cached_background:load_report_background(style.background_image);
         if (!background.isNull()) {
-            p.drawImage(image.rect(),background,report_background_crop(background.size(),image.size(),style));
+            const auto crop=report_background_crop(background.size(),image.size(),style);
+            const auto scale=image.width()/crop.width();
+            // Below 100%, leave the theme visible around the smaller image.
+            p.drawImage(QRectF(-crop.x()*scale,-crop.y()*scale,background.width()*scale,background.height()*scale),background);
             auto shade=colors.background; shade.setAlpha(std::clamp(style.background_fade,0,100)*255/100); p.fillRect(image.rect(),shade);
             colors.panel.setAlpha(175+std::clamp(style.background_fade,0,100)*80/100);
         }

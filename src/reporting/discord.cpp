@@ -61,7 +61,7 @@ QString validate(const DiscordSettings& settings,bool webhook_required) {
     if (settings.appearance.theme<ReportTheme::forest || settings.appearance.theme>ReportTheme::graphite
         || settings.appearance.chart_height<75 || settings.appearance.chart_height>150
         || settings.appearance.background_fade<0 || settings.appearance.background_fade>100
-        || settings.appearance.background_zoom<100 || settings.appearance.background_zoom>300
+        || settings.appearance.background_zoom<ReportAppearance::min_background_zoom || settings.appearance.background_zoom>ReportAppearance::max_background_zoom
         || !std::isfinite(settings.appearance.background_x) || settings.appearance.background_x<0 || settings.appearance.background_x>1
         || !std::isfinite(settings.appearance.background_y) || settings.appearance.background_y<0 || settings.appearance.background_y>1) return "Choose a supported report layout.";
     if (settings.report_minutes<1 || settings.report_minutes>720) return "Choose a report interval up to 12 hours.";

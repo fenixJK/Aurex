@@ -112,7 +112,7 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
     appearance_.modules=settings.value("discord/showModules",true).toBool(); appearance_.totals=settings.value("discord/showTotals",true).toBool();
     appearance_.background_image=settings.value("discord/backgroundImage").toString();
     appearance_.background_fade=std::clamp(settings.value("discord/backgroundFade",75).toInt(),0,100);
-    appearance_.background_zoom=std::clamp(settings.value("discord/backgroundZoom",100).toInt(),100,300);
+    appearance_.background_zoom=std::clamp(settings.value("discord/backgroundZoom",100).toInt(),reporting::ReportAppearance::min_background_zoom,reporting::ReportAppearance::max_background_zoom);
     appearance_.background_x=std::clamp(settings.value("discord/backgroundX",.5).toDouble(),0.,1.);
     appearance_.background_y=std::clamp(settings.value("discord/backgroundY",.5).toDouble(),0.,1.);
     initial.appearance=appearance_;

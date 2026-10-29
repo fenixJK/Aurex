@@ -39,6 +39,7 @@ struct HoneyReport {
 };
 enum class ReportTheme { forest,midnight,graphite };
 struct ReportAppearance {
+    static constexpr int min_background_zoom=50,max_background_zoom=200;
     ReportTheme theme{ReportTheme::forest};
     int chart_height{100};
     bool activity{true},nectar{true},modules{true},totals{true};

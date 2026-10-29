@@ -15,6 +15,7 @@
 #include <QTimer>
 #include <QMouseEvent>
 #include <QResizeEvent>
+#include <QScreen>
 #include <QSignalBlocker>
 #include <algorithm>
 #include <cmath>
@@ -32,7 +33,8 @@ class ReportPreview final : public QLabel {
         const auto ratio=devicePixelRatioF();
         auto pixmap=QPixmap::fromImage(report_.scaledToWidth(std::lround(width()*ratio),Qt::SmoothTransformation));
         pixmap.setDevicePixelRatio(ratio);setPixmap(pixmap);
-        setMinimumHeight(std::ceil(pixmap.deviceIndependentSize().height()));
+        const auto height=int(std::ceil(pixmap.deviceIndependentSize().height()));
+        if (height!=minimumHeight()) { setMinimumHeight(height);if (size_changed) size_changed(); }
     }
 protected:
     void resizeEvent(QResizeEvent* event) override { QLabel::resizeEvent(event);rescale(); }
@@ -46,7 +48,7 @@ protected:
         const auto crop=reporting::report_background_crop(background.size(),report_.size(),appearance_);
         const auto shown=pixmap().deviceIndependentSize();const auto delta=event->position()-last_;last_=event->position();
         const auto pan=[](double value,double delta,double crop,double shown,double overflow) {
-            return overflow>0.001 && shown>0?std::clamp(value-delta*crop/shown/overflow,0.,1.):value;
+            return std::abs(overflow)>0.001 && shown>0?std::clamp(value-delta*crop/shown/overflow,0.,1.):value;
         };
         const auto x=pan(appearance_.background_x,delta.x(),crop.width(),shown.width(),background.width()-crop.width());
         const auto y=pan(appearance_.background_y,delta.y(),crop.height(),shown.height(),background.height()-crop.height());
@@ -61,7 +63,7 @@ protected:
     }
 public:
     QImage background;
-    std::function<void()> changed,finished;
+    std::function<void()> changed,finished,size_changed;
     explicit ReportPreview(reporting::ReportAppearance& appearance):appearance_(appearance) {
         setAlignment(Qt::AlignTop|Qt::AlignHCenter);setMinimumWidth(1);
     }
@@ -126,9 +128,9 @@ void show_report_appearance(QWidget* parent,reporting::ReportAppearance& appeara
     auto fade=new QSlider(Qt::Horizontal);fade->setObjectName("report-background-fade");fade->setRange(0,100);fade->setValue(appearance.background_fade);controls->addWidget(fade);
     fade->setToolTip("0% keeps the image visible. 100% fades it completely into the theme.");
     auto zoom_label=new QLabel;controls->addWidget(zoom_label);
-    auto zoom=new QSlider(Qt::Horizontal);zoom->setObjectName("report-background-zoom");zoom->setRange(100,300);zoom->setValue(appearance.background_zoom);controls->addWidget(zoom);
+    auto zoom=new QSlider(Qt::Horizontal);zoom->setObjectName("report-background-zoom");zoom->setRange(reporting::ReportAppearance::min_background_zoom,reporting::ReportAppearance::max_background_zoom);zoom->setValue(appearance.background_zoom);controls->addWidget(zoom);
     auto reset=new QPushButton("Reset framing");reset->setObjectName("report-background-reset");controls->addWidget(reset);
-    auto hint=new QLabel("Drag the background in the preview to position it. Zoom in for more room to move.");hint->setWordWrap(true);hint->setMaximumWidth(230);controls->addWidget(hint);
+    auto hint=new QLabel("Drag the background in the preview to position it. Below 100%, the theme fills any space around the image.");hint->setWordWrap(true);hint->setMaximumWidth(230);controls->addWidget(hint);
     auto error=new QLabel;error->setWordWrap(true);error->setMaximumWidth(230);error->setTextFormat(Qt::PlainText);controls->addWidget(error);controls->addStretch();
     auto done=new QPushButton("Done");controls->addWidget(done);QObject::connect(done,&QPushButton::clicked,dialog,&QDialog::accept);
     auto showcase=new QVBoxLayout;layout->addLayout(showcase,1);
@@ -136,6 +138,17 @@ void show_report_appearance(QWidget* parent,reporting::ReportAppearance& appeara
     auto preview=new ReportPreview(appearance);preview->setObjectName("report-preview");
     preview->background=reporting::load_report_background(appearance.background_image);
     auto scroll=new QScrollArea;scroll->setWidgetResizable(true);scroll->setWidget(preview);scroll->setMinimumWidth(490);showcase->addWidget(scroll,1);
+    auto fit=new QTimer(dialog);fit->setSingleShot(true);
+    QObject::connect(fit,&QTimer::timeout,dialog,[dialog,preview,scroll] {
+        const auto available=dialog->screen()->availableGeometry().adjusted(16,16,-16,-16);
+        const auto frame_height=dialog->frameGeometry().height()-dialog->height();
+        const auto wanted=dialog->height()-scroll->viewport()->height()+preview->minimumHeight();
+        dialog->resize(dialog->width(),std::min(std::max(600,wanted),available.height()-frame_height));
+        const auto frame=dialog->frameGeometry();
+        const auto top=std::clamp(frame.top(),available.top(),std::max(available.top(),available.bottom()-frame.height()+1));
+        dialog->move(dialog->pos()+QPoint(0,top-frame.top()));
+    });
+    preview->size_changed=[fit] { fit->start(0); };
     auto render=new QTimer(dialog);render->setSingleShot(true);
     const auto sample=example_report(appearance,buffs);
     const auto refresh=[&appearance,preview,sample,fade_label,remove,fade,zoom,zoom_label,reset] {
