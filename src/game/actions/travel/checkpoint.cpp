@@ -265,18 +265,22 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
             const auto& actions=nudging_?plan_.nudge:plan_.approach;
             const auto& path=nudging_?plan_.nudge_path:plan_.path;
             if (!path.empty()) {
+                // Releasing input during an observation pause can finish the
+                // current leg. Resume at the next leg, never with zero distance.
+                if (distance_ && distance_->complete()) {
+                    distance_.reset();
+                    if (++index_==path.size()) { confirm(c.now); return; }
+                }
                 const auto& leg=path.at(index_);
+                if (!distance_) distance_=std::make_shared<game::DistanceIntegrator>(leg.tiles);
                 // Keep walking while observations arrive independently. Paced walking
                 // owns the distance bound; a seen prompt still cancels it immediately.
                 if (launch) {
-                    if (!distance_) distance_=std::make_shared<game::DistanceIntegrator>(leg.tiles);
-                    if (distance_->complete()) { confirm(c.now); return; }
                     auto remaining=leg; remaining.tiles=distance_->remaining_tiles();
                     pending_=tasks.submit(scope_,TaskClass::travel,
                         {game::paced_walk(remaining,speed_,c,false,distance_)},plan_.timeout-(c.now-started_.now));
                 }
                 else {
-                    if (!distance_) distance_=std::make_shared<game::DistanceIntegrator>(leg.tiles);
                     pending_=tasks.submit(scope_,TaskClass::travel,
                         {game::movement_slice(leg,distance_->remaining_tiles(),speed_->current())},plan_.timeout-(c.now-started_.now));
                 }

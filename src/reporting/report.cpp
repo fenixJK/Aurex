@@ -118,20 +118,26 @@ void time_axis(QPainter& p,QRectF plot,qint64 window,const QDateTime& end,const 
         text(p,{x,plot.bottom()+6,80,18},end.addMSecs(window*i/4-window).toString("HH:mm"),11,colors.subtle,false,alignment);
     }
 }
-void honey_backpack_chart(QPainter& p,QRectF plot,const Report& report,const Palette& colors) {
-    double low=0,high=1; bool honey=false,backpack=false;
+struct HoneyScale { double low{},high{1}; bool observed{}; };
+HoneyScale honey_scale(const Report& report) {
+    HoneyScale scale;
+    auto& [low,high,honey]=scale;
     for (const auto& point:report.honey.rates) if (point.percent && std::isfinite(*point.percent)) {
         low=std::min(low,*point.percent); high=std::max(high,*point.percent); honey=true;
     }
-    for (const auto& point:report.trend) if (point.percent && std::isfinite(*point.percent)) backpack=true;
     const double magnitude=std::pow(10.,std::floor(std::log10(high-low)));
     low=std::floor(low/magnitude)*magnitude;
     high=std::ceil(high/magnitude)*magnitude;
+    return scale;
+}
+void honey_backpack_chart(QPainter& p,QRectF plot,const Report& report,const HoneyScale& scale,const Palette& colors) {
+    const auto [low,high,honey]=scale;
+    const bool backpack=std::any_of(report.trend.begin(),report.trend.end(),[](const auto& point) { return point.percent && std::isfinite(*point.percent); });
     for (int i=0;i<3;++i) {
         const auto y=plot.top()+i*plot.height()/2;
         p.setPen(colors.grid); p.drawLine(QPointF(plot.left(),y),QPointF(plot.right(),y));
         text(p,{plot.left()-48,y-9,40,18},QString::number(100-i*50)+"%",11,accent(0,colors),false,Qt::AlignRight|Qt::AlignVCenter);
-        if (honey) text(p,{plot.right()+8,y-9,48,18},amount(high-i*(high-low)/2),11,accent(1,colors));
+        if (honey) text(p,{plot.right()+6,y-9,960-plot.right()-6,18},amount(high-i*(high-low)/2),11,accent(1,colors),false,Qt::AlignRight|Qt::AlignVCenter);
     }
     for (int i=1;i<4;++i) {
         const auto x=plot.left()+plot.width()*i/4;
@@ -255,7 +261,6 @@ QImage render_report(const Report& report,const QImage* cached_background) {
     const auto& style=report.appearance; auto colors=palette(style.theme);
     const auto rows=buff_rows(buffs,buffs_y+20,style.chart_height);
     const double plot_left=std::any_of(buffs.begin(),buffs.end(),[](const auto* trace) { return trace->current.icon.isNull(); })?144:92;
-    const double plot_width=880-plot_left;
     QList<const Section*> panels;
     for (const auto& section:snapshot.sections)
         if (style.modules && std::any_of(section.metrics.begin(),section.metrics.end(),[](const auto& metric) { return metric.progress.has_value(); })) panels.append(&section);
@@ -289,6 +294,24 @@ QImage render_report(const Report& report,const QImage* cached_background) {
     if (panels.size()>4 || (style.totals && counts.size()>shown)) notes.append("Additional activity omitted");
     QImage image(width,bottom+18+(notes.empty()?0:20),QImage::Format_RGB32); image.fill(colors.background);
     QPainter p(&image); p.setRenderHints(QPainter::Antialiasing|QPainter::TextAntialiasing|QPainter::SmoothPixmapTransform);
+    const auto uptime=[&](const GaugeHistory& trace) {
+        const bool incomplete=report.window_ms && trace.observed_ms<report.window_ms*9/10;
+        return trace.observed_ms?QString::number(100.*trace.active_ms/trace.observed_ms,'f',0)+"%"+(incomplete?"*":""):QString("—");
+    };
+    const auto rate_scale=honey_scale(report);
+    double value_width=38;
+    const auto fit_value=[&](const QString& label,int size,bool bold=false) {
+        font(p,size,bold);
+        value_width=std::max(value_width,double(p.fontMetrics().horizontalAdvance(label)+2));
+    };
+    if (rate_scale.observed)
+        for (int i=0;i<3;++i) fit_value(amount(rate_scale.high-i*(rate_scale.high-rate_scale.low)/2),11);
+    for (const auto& row:rows) {
+        const bool grouped=row.traces.size()>1;
+        for (const auto* trace:row.traces)
+            fit_value((grouped?trace->current.name.left(1)+" ":QString{})+uptime(*trace),grouped?10:12,true);
+    }
+    const double value_left=960-value_width,plot_width=value_left-6-plot_left;
     if (!style.background_image.isEmpty()) {
         const auto background=cached_background?*cached_background:load_report_background(style.background_image);
         if (!background.isNull()) {
@@ -323,7 +346,7 @@ QImage render_report(const Report& report,const QImage* cached_background) {
         } else { p.setPen(QPen(accent(i,colors),2)); p.drawLine(QPointF(x,152),QPointF(x+16,152)); }
         text(p,{x+23,141,130,22},i?"Honey / sec":"Backpack",12,accent(i,colors));
     }
-    honey_backpack_chart(p,{plot_left,174,plot_width,90},report,colors);
+    honey_backpack_chart(p,{plot_left,174,plot_width,90},report,rate_scale,colors);
     qint64 total=0; for (const auto& activity:report.activities) total+=activity.milliseconds;
     const QRectF activity_bar(margin,activity_y,content,activity_height); if (style.activity) bar(p,activity_bar,{},{},colors);
     if (total && style.activity) {
@@ -338,13 +361,8 @@ QImage render_report(const Report& report,const QImage* cached_background) {
     }
     if (!rows.empty()) {
         p.setPen(colors.divider); p.drawLine(QPointF(40,buffs_y),QPointF(960,buffs_y));
-        text(p,{878,buffs_y+2,36,18},"Scale",10,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
-        text(p,{906,buffs_y+2,54,18},"Uptime",10,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
+        text(p,{value_left,buffs_y+2,value_width,18},"Uptime",10,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
     }
-    const auto uptime=[&](const GaugeHistory& trace) {
-        const bool incomplete=report.window_ms && trace.observed_ms<report.window_ms*9/10;
-        return trace.observed_ms?QString::number(100.*trace.active_ms/trace.observed_ms,'f',0)+"%"+(incomplete?"*":""):QString("—");
-    };
     for (qsizetype i=0;i<rows.size();++i) {
         const auto& row=rows[i];
         const bool binary=row.ceiling==1,grouped=row.traces.size()>1;
@@ -368,22 +386,22 @@ QImage render_report(const Report& report,const QImage* cached_background) {
             if (binary) activity_strip(p,plot,trace.samples,report.window_ms,color);
             else plot_line(p,plot,trace.samples,report.window_ms,0,high,color,&Sample::level);
             observed|=trace.peak.has_value();
-            const auto center=y+height/2;
+            const auto center=y+height/2,label_height=std::min(36.,height);
             if (trace.current.icon.isNull()) {
-                text(p,{36,grouped?y+14*j:center-18,double(plot_left-44),grouped?14.:36.},trace.current.name,11,color,true);
+                text(p,{36,grouped?y+14*j:center-label_height/2,double(plot_left-44),grouped?14.:label_height},trace.current.name,11,color,true);
             } else {
-                const auto size=trace.current.icon.size().scaled(36,36,Qt::KeepAspectRatio);
+                const auto size=trace.current.icon.size().scaled(36,int(label_height),Qt::KeepAspectRatio);
                 p.save();
                 if (grouped) p.setClipRect(QRectF(42+36.*j/row.traces.size(),center-18,36./row.traces.size(),36));
                 p.drawImage(QRectF(42+(36-size.width())/2.,center-size.height()/2.,size.width(),size.height()),trace.current.icon);
                 p.restore();
             }
-            text(p,{916,grouped?center-7*row.traces.size()+14*j:center-18,44,grouped?14.:36.},
+            text(p,{value_left,grouped?center-7*row.traces.size()+14*j:center-18,value_width,grouped?14.:36.},
                 (grouped?trace.current.name.left(1)+" ":QString{})+uptime(trace),grouped?10:12,
                 grouped?color:colors.muted,true,Qt::AlignRight|Qt::AlignVCenter);
         }
         const auto scale_color=!grouped && row.traces.front()->current.color.isValid()?colors.ink(row.traces.front()->current.color):colors.muted;
-        text(p,{884,plot.top()-9,30,18},binary?"On":"×"+QString::number(high,'g',3),11,scale_color);
+        if (!binary) text(p,{36,y+height+1,plot_left-44,13},"×"+QString::number(high,'g',3),10,scale_color,false,Qt::AlignHCenter|Qt::AlignVCenter);
         if (!observed) text(p,plot,"Waiting for readings",11,colors.subtle,false,Qt::AlignCenter);
     }
     time_axis(p,{plot_left,double(chart_bottom)-26,plot_width,26},report.window_ms,end,colors);

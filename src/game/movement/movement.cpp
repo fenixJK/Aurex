@@ -36,6 +36,9 @@ void MovementSpeed::observe(const ObservationContext& c,const Observation<double
         return;
     }
     observed_=reading.captured;
+    // Keep speed changes, not one identical sample per capture. The separate
+    // observation timestamp still rejects older or conflicting readings.
+    if (reading.value==samples_.back().speed) return;
     const auto stamp=std::max(samples_.back().captured,reading.captured);
     if (stamp==samples_.back().captured) samples_.back().speed=reading.value;
     else samples_.push_back({stamp,reading.value});
