@@ -31,6 +31,7 @@ struct State {
     Reading<Time> pollen_changed_at;
     Reading<HivePrompt> hive_prompt;
     Reading<TextSnapshot> text;
+    Reading<TextSnapshot> prompt_text;
     Reading<TextSnapshot> fixed_labels;
     Reading<InteractionCaption> interaction_caption;
     Reading<InteractionBanner> interaction_banner;

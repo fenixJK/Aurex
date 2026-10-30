@@ -287,19 +287,29 @@ std::optional<Rect> interaction_text_region(const Frame& frame) {
     const auto prompt=locate_prompt(frame,CaptionSearch::all);
     return prompt?std::optional(prompt->bounds):std::nullopt;
 }
-Reading<InteractionBanner> read_interaction_banner(const Frame& frame,std::uint64_t generation,const HudFeatures*) {
+Reading<InteractionBanner> read_interaction_banner(const Frame& frame,std::uint64_t generation,const HudFeatures*,Reading<TextSnapshot>* caption) {
+    if (caption) *caption={};
     if (!frame.valid() || !generation || frame.region.x!=0 || frame.region.y!=0 || frame.region.width!=1 || frame.region.height<upper_hud_region.height) return {};
     Reading<InteractionBanner> result{Knowledge::present,InteractionBanner::none,frame.captured,frame.window,generation};
     // E and the HUD locate the panel even when its color merges into the scenery.
     // Generic readiness needs only E or a cooldown. Reading unrelated captions
     // here delays negative observations while approaching an interaction pad.
-    if (const auto prompt=locate_prompt(frame,CaptionSearch::cooldowns)) {
+    if (const auto prompt=locate_prompt(frame,caption?CaptionSearch::all:CaptionSearch::cooldowns)) {
+        // Known captions use the same visual matcher as OCR's prompt crop,
+        // but can reach controls while unrelated OCR is still processing.
+        const auto label=caption?interaction_label(interaction_text_image(frame,prompt->bounds)):std::optional<TextLine>{};
+        if (caption && label) {
+            auto line=*label;
+            line.pixels.x+=std::floor(prompt->bounds.x*frame.width)-interaction_text_padding;
+            line.pixels.y+=std::floor(prompt->bounds.y*frame.height)-interaction_text_padding;
+            *caption={Knowledge::present,{frame.width,frame.viewport_height(),{std::move(line)}},frame.captured,frame.window,generation};
+        }
         if (prompt->key && !interaction_cooldown(frame,prompt->bounds)) {
             result.value=InteractionBanner::ready;
             return result;
         }
-        const auto label=interaction_label(interaction_text_image(frame,prompt->bounds));
-        if (label && label->text=="Trade Request") return result;
+        const auto name=caption?label:interaction_label(interaction_text_image(frame,prompt->bounds));
+        if (name && name->text=="Trade Request") return result;
         if (cooldown_caption(frame,prompt->bounds)) {
             result.value=InteractionBanner::cooldown;
             return result;

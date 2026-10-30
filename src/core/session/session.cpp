@@ -48,38 +48,15 @@ Session::Session(Desktop& desktop): desktop_(desktop), observer_(desktop), runti
                     bool recovering=false;
                     const bool starting=feature_ && feature_->waiting_for_game_view() && !runtime_.has_work();
                     const bool pending_handoff=managed_ && continue_features_ && !feature_ && !runtime_.has_work();
-                    if (starting && !snapshot.window.id) {
-                        std::optional<Window> candidate;
-                        bool ambiguous=false;
-                        for (const auto& window:desktop_.windows()) if (window.process==active_window_.process) {
-                            if (candidate) { ambiguous=true; break; }
-                            candidate=window;
-                        }
-                        if (candidate && !ambiguous) snapshot=desktop_.inspect(candidate->id);
-                    }
                     if (snapshot.escape_down) runtime_.stop("Emergency stop");
                     else if (!snapshot.input_allowed) runtime_.stop("Input permission lost");
-                    else if (pending_handoff) {
-                        if (!snapshot.focused) runtime_.pause(now);
-                        recovering=true;
-                    }
-                    else if (starting && snapshot.window.id && snapshot.window.process==active_window_.process
-                        && snapshot.window.bounds.valid() && snapshot.focused
-                        && (snapshot.window.id!=active_window_.id || snapshot.window.bounds!=active_window_.bounds)) {
-                        feature_->rebase_startup_window({snapshot.window,tasks_.generation(),now});
-                        observer_.stop(); runtime_.stop("Updating startup window");
-                        runtime_.start(snapshot.window,now,CompletionMode::managed);
-                        active_window_=snapshot.window; window_id_=snapshot.window.id;
-                        observer_.watch({active_window_,tasks_.generation(),now},observation_needs());
-                        startup_window_missing_=Time(-1); recovering=true;
-                    }
-                    else if (starting && !snapshot.window.id &&
-                        (startup_window_missing_<Time{} || now-startup_window_missing_<Time(30000))) {
-                        if (startup_window_missing_<Time{}) startup_window_missing_=now;
-                        recovering=true;
-                    }
+                    else if (state==RunState::paused) recovering=true; // Explicit pause is never auto-resumed.
                     else if (window_recovery_) { recover_window(now); recovering=true; }
-                    else if (feature_ && feature_->needs_client_rejoin() && snapshot.window.id && !snapshot.focused) runtime_.stop("Game focus lost before rejoin");
+                    else if (view_recovery_ || (managed_ && view_changed(snapshot))) {
+                        if (!snapshot.window.id && !view_recovery_ && begin_window_recovery(now)) recovering=true;
+                        else { recover_view(snapshot,now); recovering=true; }
+                    }
+                    else if (pending_handoff) recovering=true;
                     else if (feature_ && feature_->needs_client_rejoin() && begin_client_rejoin(now)) recovering=true;
                     else if (!snapshot.window.id && (begin_window_recovery(now) || begin_client_rejoin(now))) recovering=true;
                     else if (state==RunState::running && snapshot.focused && requested_rejoin(now)
@@ -89,14 +66,21 @@ Session::Session(Desktop& desktop): desktop_(desktop), observer_(desktop), runti
                         if (feature_) feature_->observe_movement({snapshot.window,tasks_.generation(),now},observations);
                         runtime_.tick(now,snapshot);
                     }
-                    if (snapshot.window.id) startup_window_missing_=Time(-1);
                     if (!recovering && feature_) {
                         if (runtime_.status().state==RunState::running) {
                             feature_->update({snapshot.window,tasks_.generation(),monotonic_now()},observations);
-                            runtime_.tick(monotonic_now(),snapshot);
-                            observer_.watch({snapshot.window,tasks_.generation(),monotonic_now()},observation_needs());
-                            observer_.request_text(feature_->text_regions());
-                            observer_.request_labels(feature_->fixed_labels());
+                            // Program evaluation can be slow; inspect again before
+                            // executing newly queued input against screen coordinates.
+                            snapshot=desktop_.inspect(window_id_);
+                            if (!snapshot.escape_down && snapshot.input_allowed && view_changed(snapshot))
+                                recover_view(snapshot,monotonic_now());
+                            else runtime_.tick(monotonic_now(),snapshot);
+                            if (runtime_.status().state!=RunState::running) feature_->stop(runtime_.status().reason);
+                            else if (!view_recovery_) {
+                                observer_.watch({snapshot.window,tasks_.generation(),monotonic_now()},observation_needs());
+                                observer_.request_text(feature_->text_regions());
+                                observer_.request_labels(feature_->fixed_labels());
+                            }
                             const auto progress=feature_->progress();
                             if (progress.state!=automation::State::running && !(continue_features_ && automation::can_handoff(progress))) { runtime_.stop(progress.message); observer_.stop(); }
                             if (feature_->can_replace_window()) {
@@ -109,9 +93,9 @@ Session::Session(Desktop& desktop): desktop_(desktop), observer_(desktop), runti
                             feature_->pause(monotonic_now(),runtime_.status().reason); runtime_.stop(feature_->progress().message);
                         } else feature_->stop(runtime_.status().reason);
                     }
-                    if (runtime_.status().state!=RunState::running) { window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); initial_join_.reset(); observer_.stop(); }
-                } catch (const std::exception& e) { runtime_.stop(e.what()); if (feature_) feature_->stop(e.what()); window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); initial_join_.reset(); observer_.stop(); }
-                catch (...) { runtime_.stop("Unexpected platform failure"); if (feature_) feature_->stop("Unexpected platform failure"); window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); initial_join_.reset(); observer_.stop(); }
+                    if (runtime_.status().state!=RunState::running) { window_recovery_.reset(); view_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); initial_join_.reset(); observer_.stop(); }
+                } catch (const std::exception& e) { runtime_.stop(e.what()); if (feature_) feature_->stop(e.what()); window_recovery_.reset(); view_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); initial_join_.reset(); observer_.stop(); }
+                catch (...) { runtime_.stop("Unexpected platform failure"); if (feature_) feature_->stop("Unexpected platform failure"); window_recovery_.reset(); view_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); initial_join_.reset(); observer_.stop(); }
             }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -136,14 +120,14 @@ void Session::pause() {
     observer_.stop();
     if (feature_) { feature_->pause(monotonic_now()); runtime_.stop(feature_->progress().state==automation::State::completed?"Routine paused at a completed workflow":feature_->progress().message); }
     else runtime_.pause(monotonic_now());
-    window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset();
+    window_recovery_.reset(); view_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset();
 }
 void Session::resume() {
     std::lock_guard lock(mutex_); const auto now=monotonic_now(); const auto snapshot=desktop_.inspect(window_id_);
     runtime_.resume(now,snapshot);
     if (runtime_.status().state==RunState::running && observer_.has_detectors()) observer_.watch({snapshot.window,tasks_.generation(),now});
 }
-void Session::stop(std::string reason) { std::lock_guard lock(mutex_); if (feature_) feature_->stop(reason); runtime_.stop(std::move(reason)); window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); initial_join_.reset(); observer_.stop(); }
+void Session::stop(std::string reason) { std::lock_guard lock(mutex_); if (feature_) feature_->stop(reason); runtime_.stop(std::move(reason)); window_recovery_.reset(); view_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset(); initial_join_.reset(); observer_.stop(); }
 Status Session::status() { std::lock_guard lock(mutex_); return runtime_.status(); }
 SessionSnapshot Session::snapshot() {
     std::lock_guard lock(mutex_);
@@ -151,7 +135,8 @@ SessionSnapshot Session::snapshot() {
     if (feature_) { result.feature=feature_->progress(); result.feature->module_id=feature_id_; }
     result.recovery=*recovery_counts_;
     result.server={rejoin_target_?rejoin_target_->uri():std::string{},joined_server_};
-    result.reconnecting=client_rejoin_.has_value() || reconnect_windows_.has_value() || window_recovery_.has_value() || recovery_counts_->disconnected;
+    result.reconnecting=client_rejoin_.has_value() || reconnect_windows_.has_value() || window_recovery_.has_value() || view_recovery_.has_value() || recovery_counts_->disconnected;
+    result.restoring_window=view_recovery_.has_value();
     return result;
 }
 void Session::pause_between_features() {
@@ -166,7 +151,7 @@ std::uint64_t Session::generation() { std::lock_guard lock(mutex_); return tasks
 void Session::start_managed(Window window) {
     std::lock_guard lock(mutex_); const auto now=monotonic_now();
     if (runtime_.status().state==RunState::running || runtime_.status().state==RunState::paused) throw std::logic_error("Stop the current session first");
-    clear_feature(); startup_window_missing_=Time(-1);
+    clear_feature();
     const auto observed=desktop_.inspect(window.id);
     if (observed.window.id==window.id && observed.window.process==window.process && observed.window.bounds.valid() && observed.focused)
         window=observed.window;
@@ -179,7 +164,7 @@ void Session::clear_feature(bool stop_observer) {
     if (stop_observer) observer_.stop();
     feature_.reset(); feature_tasks_.reset();
     feature_id_.clear();
-    feature_grant_={}; window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset();
+    feature_grant_={}; window_recovery_.reset(); view_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset();
     if (feature_scope_) { tasks_.revoke(*feature_scope_,monotonic_now()); feature_scope_.reset(); }
 }
 void Session::configure_rejoin(std::optional<game::JoinTarget> target) {
@@ -237,21 +222,11 @@ void Session::run_feature(automation::Launch launch) {
     Window window;
     try {
         const auto now=monotonic_now(); auto snapshot=desktop_.inspect(window_id_);
-        if (!feature_ && !runtime_.has_work() && !snapshot.window.id) {
-            std::optional<Window> candidate;
-            bool ambiguous=false;
-            for (const auto& window:desktop_.windows()) if (window.process==active_window_.process) {
-                if (candidate) { ambiguous=true; break; }
-                candidate=window;
-            }
-            if (candidate && !ambiguous) snapshot=desktop_.inspect(candidate->id);
-        }
-        if (!feature_ && !runtime_.has_work() && snapshot.window.id && snapshot.window.process==active_window_.process
-            && snapshot.window.bounds.valid() && snapshot.focused
-            && (snapshot.window.id!=active_window_.id || snapshot.window.bounds!=active_window_.bounds)) {
-            observer_.stop(); runtime_.stop("Updating startup window");
-            runtime_.start(snapshot.window,now,CompletionMode::managed);
-            active_window_=snapshot.window; window_id_=snapshot.window.id;
+        if (!snapshot.escape_down && snapshot.input_allowed && (view_recovery_ || view_changed(snapshot))) {
+            clear_feature(false);
+            launch_feature(active_window_,std::move(launch),now);
+            if (!window_recovery_) recover_view(snapshot,now);
+            return;
         }
         if (snapshot.escape_down) runtime_.stop("Emergency stop");
         else runtime_.tick(now,snapshot);
@@ -321,7 +296,7 @@ void Session::stop_feature(const std::string& module_id,const std::string& reaso
     if (state!=automation::State::running && state!=automation::State::paused) return;
     feature_->fail(reason);
     if (!continue_features_ || !automation::can_handoff(feature_->progress())) runtime_.stop(reason);
-    window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset();
+    window_recovery_.reset(); view_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset();
     observer_.stop();
 }
 game::ObservedState Session::observations() { return observer_.latest(false); }
@@ -335,15 +310,15 @@ std::optional<automation::Progress> Session::feature_progress() {
 }
 ModuleScope Session::grant(ModuleGrant grant) {
     std::lock_guard lock(mutex_);
-    if (!managed_ || window_recovery_ || runtime_.status().state!=RunState::running) throw std::logic_error("Start a managed session before registering modules");
+    if (!managed_ || window_recovery_ || view_recovery_ || runtime_.status().state!=RunState::running) throw std::logic_error("Start a managed session before registering modules");
     return tasks_.grant(std::move(grant));
 }
 void Session::revoke(ModuleScope scope) { std::lock_guard lock(mutex_); tasks_.revoke(scope,monotonic_now()); }
-bool Session::acquire(ModuleScope scope) { std::lock_guard lock(mutex_); return !window_recovery_ && tasks_.acquire(scope); }
+bool Session::acquire(ModuleScope scope) { std::lock_guard lock(mutex_); return !window_recovery_ && !view_recovery_ && tasks_.acquire(scope); }
 void Session::release(ModuleScope scope) { std::lock_guard lock(mutex_); tasks_.release(scope); }
 std::string Session::submit(ModuleScope scope,TaskClass kind,std::vector<Action> actions,Time lifetime) {
     std::lock_guard lock(mutex_);
-    if (window_recovery_) throw std::logic_error("Game input is suspended during window recovery");
+    if (window_recovery_ || view_recovery_) throw std::logic_error("Game input is suspended during window recovery");
     if (navigation_.perception) navigation_.perception->input_submitted(actions);
     return tasks_.submit(scope,kind,std::move(actions),monotonic_now(),lifetime);
 }

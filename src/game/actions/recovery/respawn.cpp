@@ -5,7 +5,7 @@ namespace hive::automation {
 namespace {
 std::string unreadable_respawn(const Observation<game::RespawnView>& reading,const View& view,Time minimum) {
     const Observation<bool> captured{Knowledge::present,true,reading.captured,reading.window,reading.generation};
-    if (captured.has_value(view.context,Time(2000),minimum+Time(1)))
+    if (captured.has_value(view.context,game::respawn_menu_response_time,minimum+Time(1)))
         return "Respawn controls were not recognized in the latest capture";
     if (view.observations && !view.observations->observation_error.empty())
         return "Respawn observation failed: "+view.observations->observation_error;
@@ -165,7 +165,10 @@ public:
         const bool live=state && state->alive.has_value(c,Time(2000),minimum_) && state->alive.value
             && state->game_hud.has_value(c,Time(2000),minimum_) && state->game_hud.value
             && !(state->connection.has_value(c,Time(2000)) && state->connection.value==game::Connection::disconnected);
-        const bool menu=fresh && (reading.value.screen==game::RespawnScreen::menu
+        // A slow detector can finish a post-key capture after the usual live
+        // view budget. It still identifies the page awaiting our next key.
+        // Never reuse a frame from before that key, another window, or session.
+        const bool menu=reading.has_value(c,game::respawn_menu_response_time,minimum_+Time(1)) && (reading.value.screen==game::RespawnScreen::menu
             || reading.value.screen==game::RespawnScreen::confirmation);
         // Each observed menu transition gets its own response deadline. A slow
         // Escape menu must not consume the time allowed for R and Enter.
@@ -177,10 +180,10 @@ public:
             if (completion_.ready(view,reading,minimum_,transition_)) {
                 return complete(view,true);
             }
-            if (!completion_.transitioned() && !fresh && c.now-started_>=Time(8000))
+            if (!completion_.transitioned() && !fresh && c.now-started_>=game::respawn_menu_response_time)
                 throw ClientRejoinRequired(unreadable_respawn(reading,view,minimum_));
             if (!completion_.transitioned() && live && fresh && reading.value.screen==game::RespawnScreen::game
-                && c.now-transition_>=Time(8000)) {
+                && c.now-transition_>=game::respawn_menu_response_time) {
                 // A reset at the unclaimed spawn platform has no hive prompt
                 // to return. Let the hive workflow survey the location before
                 // spending another reset, without claiming death was observed.
@@ -190,7 +193,7 @@ public:
             if (c.now-transition_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return a readable live game view");
             return Wait{Time(100),"Waiting for player respawn"};
         }
-        if (c.now-started_>=Time(8000)) {
+        if (c.now-started_>=game::respawn_menu_response_time) {
             if ((stage_==Stage::select || stage_==Stage::confirm) && live && fresh && reading.value.screen==game::RespawnScreen::game)
                 return retry(c.now,"Respawn controls did not appear after the shortcut");
             if (!fresh) throw ClientRejoinRequired(unreadable_respawn(reading,view,minimum_));
@@ -200,7 +203,7 @@ public:
                 throw ClientRejoinRequired("Respawn confirmation did not respond");
             throw ClientRejoinRequired("Respawn menu could not be confirmed");
         }
-        if (!fresh) return Wait{Time(50),"Waiting for respawn menu"};
+        if (!fresh && !menu) return Wait{Time(50),"Waiting for respawn menu"};
         const auto screen=reading.value.screen;
         // The HUD can show through a menu animation. Do not toggle Escape
         // again while waiting for the menu or confirmation to finish opening.

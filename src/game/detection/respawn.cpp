@@ -135,7 +135,9 @@ public:
         // Callers still need has_value() to act, but can distinguish failed
         // recognition from a capture that never arrived or became stale.
         const Observation<bool> captured{Knowledge::present,true,packet->view.captured,packet->view.window,packet->view.generation};
-        if (!captured.has_value(context,Time(2000))) return {};
+        const bool menu=packet->view.knowledge==Knowledge::present &&
+            (packet->view.value.screen==RespawnScreen::menu || packet->view.value.screen==RespawnScreen::confirmation);
+        if (!captured.has_value(context,menu?respawn_menu_response_time:Time(2000))) return {};
         return packet->view;
     }
 };

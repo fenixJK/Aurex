@@ -3,6 +3,77 @@
 #include <utility>
 
 namespace hive {
+bool Session::view_changed(const Snapshot& snapshot) const {
+    return !snapshot.focused || snapshot.window.id!=active_window_.id || snapshot.window.process!=active_window_.process
+        || snapshot.window.bounds!=active_window_.bounds;
+}
+void Session::recover_view(Snapshot snapshot,Time now) {
+    const RejoinLimits limits;
+    if (!view_recovery_) {
+        // Cancel first: no held key, pointer movement or old click may survive
+        // a foreground/window change, even when activation succeeds immediately.
+        runtime_.stop("Restoring Roblox window");
+        if (runtime_.status().state==RunState::faulted) throw std::runtime_error("Could not release input before restoring Roblox");
+        if (feature_) feature_->suspend_view(now);
+        observer_.stop();
+        runtime_.start(active_window_,now,CompletionMode::managed);
+        view_recovery_=ViewRecovery{now+limits.focus,now};
+    }
+    if (now>=view_recovery_->deadline) {
+        if (begin_client_rejoin(now,true)) { view_recovery_.reset(); return; }
+        runtime_.stop("Roblox could not be restored; check the game window");
+        return;
+    }
+    if (!snapshot.window.id || snapshot.window.process!=active_window_.process) {
+        if (now<view_recovery_->next_scan) return;
+        view_recovery_->next_scan=now+limits.poll;
+        std::optional<Window> candidate;
+        for (const auto& window:desktop_.windows()) if (window.process==active_window_.process && window.bounds.valid()) {
+            if (candidate) return; // Never choose between multiple client windows blindly.
+            candidate=window;
+        }
+        if (!candidate) {
+            // Minimized windows are deliberately absent from capture/window
+            // discovery. The platform validates the saved identity before
+            // restoring it; a missing client uses the normal rejoin instead.
+            if (desktop_.client_running(active_window_.process)) desktop_.focus_client(active_window_);
+            else if (begin_client_rejoin(now,true)) view_recovery_.reset();
+            return;
+        }
+        snapshot=desktop_.inspect(candidate->id);
+        view_recovery_->next_scan=now;
+    }
+    if (snapshot.escape_down) { runtime_.stop("Emergency stop"); return; }
+    if (!snapshot.input_allowed) { runtime_.stop("Input permission lost"); return; }
+    if (!snapshot.window.id || snapshot.window.process!=active_window_.process || !snapshot.window.bounds.valid()) return;
+    if (!snapshot.focused) {
+        if (view_recovery_->capture_after>=Time{}) { observer_.stop(); view_recovery_->capture_after=Time(-1); }
+        if (now>=view_recovery_->next_scan) {
+            view_recovery_->next_scan=now+limits.poll;
+            desktop_.focus_client(snapshot.window);
+        }
+        return; // Confirm activation with inspect(), not the activation API's return value.
+    }
+    if (view_recovery_->capture_after<Time{} || snapshot.window.id!=active_window_.id || snapshot.window.bounds!=active_window_.bounds) {
+        observer_.stop(); runtime_.stop("Updating Roblox window");
+        runtime_.start(snapshot.window,now,CompletionMode::managed);
+        active_window_=snapshot.window; window_id_=snapshot.window.id;
+        view_recovery_->capture_after=now;
+        observer_.watch({active_window_,tasks_.generation(),now},{game::ObservationKind::health,game::ObservationKind::connection});
+        return;
+    }
+    const auto frame=observer_.latest_frame();
+    if (!frame || !frame->valid() || frame->window.id!=active_window_.id || frame->window.process!=active_window_.process
+        || frame->window.bounds!=active_window_.bounds || frame->captured<view_recovery_->capture_after
+        || frame->captured>now || now-frame->captured>Time(2000)) return;
+    if (feature_ && feature_->progress().state==automation::State::running)
+        feature_->restore_view({active_window_,tasks_.generation(),now});
+    view_recovery_.reset();
+    if (feature_ && feature_->progress().state!=automation::State::running && !(continue_features_ && automation::can_handoff(feature_->progress()))) {
+        runtime_.stop(feature_->progress().message); return;
+    }
+    observer_.watch({active_window_,tasks_.generation(),now},observation_needs());
+}
 void Session::configure_rejoin_schedule(int hours,int minute) {
     std::lock_guard lock(mutex_);
     const auto state=runtime_.status().state;
@@ -103,7 +174,8 @@ void Session::recover_window(Time now) {
     const auto observed=desktop_.inspect(candidate->id);
     if (observed.escape_down) { feature_->stop("Emergency stop"); runtime_.stop("Emergency stop"); return; }
     if (!observed.input_allowed) { feature_->stop("Input permission lost"); runtime_.stop("Input permission lost"); return; }
-    if (!observed.focused || observed.window.id!=candidate->id || observed.window.process!=candidate->process
+    if (!observed.focused) { desktop_.focus_client(observed.window); return; }
+    if (observed.window.id!=candidate->id || observed.window.process!=candidate->process
         || observed.window.bounds!=candidate->bounds) return;
     adopt_window(observed.window,now);
 }
@@ -113,6 +185,7 @@ void Session::adopt_window(const Window& window,Time now) {
     runtime_.start(window,now,CompletionMode::managed);
     feature_->replace_window({window,tasks_.generation(),now},*feature_scope_);
     active_window_=window; window_id_=active_window_.id;
+    view_recovery_.reset();
     if (client_rejoin_) joined_server_=std::exchange(joining_server_,{});
     window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset();
     if (feature_->progress().state!=automation::State::running) { runtime_.stop(feature_->progress().message); return; }

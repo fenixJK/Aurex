@@ -55,7 +55,8 @@ public:
         case ObservationKind::shift_lock:
             if (game_hud_visible(frame,generation)) state.shift_lock=read_shift_lock(frame,generation);
             break;
-        case ObservationKind::interaction: state.interaction_banner=read_interaction_banner(frame,generation); break;
+        case ObservationKind::interaction:
+            state.interaction_banner=read_interaction_banner(frame,generation,nullptr,&state.prompt_text); break;
         }
         return result;
     }
@@ -95,7 +96,8 @@ void apply_state_observation(State& state,ObservationKind kind,const Detection& 
     case ObservationKind::backpack: state.backpack_percent=value.backpack_percent; state.pollen_changed_at=value.pollen_changed_at; break;
     case ObservationKind::confirmation: state.confirmation=value.confirmation; break;
     case ObservationKind::shift_lock: state.shift_lock=value.shift_lock; break;
-    case ObservationKind::interaction: state.interaction_banner=value.interaction_banner; break;
+    case ObservationKind::interaction:
+        state.interaction_banner=value.interaction_banner; state.prompt_text=value.prompt_text; break;
     }
 }
 }

@@ -31,6 +31,8 @@ public:
     bool expects_reconnect() const noexcept;
     bool waiting_for_game_view() const noexcept;
     void rebase_startup_window(const ObservationContext& context);
+    void suspend_view(Time now);
+    void restore_view(const ObservationContext& context);
     bool can_replace_window() const noexcept;
     void allow_client_rejoin(bool allowed) { allow_rejoin_=allowed; }
     bool needs_client_rejoin() const { return progress_.state==State::running && awaiting_window_ && rejoin_requested_; }
@@ -65,10 +67,12 @@ private:
     std::unique_ptr<Runner> child_;
     std::unique_ptr<Runner> recovery_;
     ProgramFactory replacement_;
+    ProgramFactory recovery_factory_;
     ProgramFactory connection_reconnect_,connection_replacement_;
     bool startup_pending_{},startup_joining_{},connection_recovering_{},resume_connected_{};
     unsigned connection_attempts_{};
     bool awaiting_window_{},window_replaced_{},allow_rejoin_{},rejoin_requested_{};
+    bool view_suspended_{};
     unsigned depth_{};
     std::optional<workflows::Interaction> interaction_;
     std::optional<workflows::Conversion> conversion_;
@@ -98,6 +102,8 @@ private:
     void checkpoint_failed(const ObservationContext& context,const game::State& observations);
     void clear_operations();
     bool recover(Interruption interruption,const ObservationContext& context,const game::State& observations);
+    void start_recovery(ProgramFactory factory,const ObservationContext& context,bool joining=false);
+    void rebase_view(const ObservationContext& context);
     bool same_context(const ObservationContext& context) const;
     bool prepare_menu(const ObservationContext& context,const game::State& observations);
     bool prepares_menu() const;

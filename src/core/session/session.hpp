@@ -25,6 +25,7 @@ struct SessionSnapshot {
     RecoveryCounts recovery;
     game::ServerSession server;
     bool reconnecting{};
+    bool restoring_window{};
 };
 class Session : public TaskPort {
 public:
@@ -90,6 +91,8 @@ private:
     std::optional<WindowIdentities> reconnect_windows_;
     struct WindowRecovery { Time deadline{},next_scan{}; };
     std::optional<WindowRecovery> window_recovery_;
+    struct ViewRecovery { Time deadline{},next_scan{},capture_after{Time(-1)}; };
+    std::optional<ViewRecovery> view_recovery_;
     std::optional<game::JoinTarget> rejoin_target_;
     std::optional<ClientRejoin> client_rejoin_;
     std::optional<std::pair<Window,Time>> initial_join_;
@@ -103,7 +106,6 @@ private:
     std::optional<game::JoinTarget> rejoin_target(Time now) const;
     bool requested_rejoin(Time now);
     bool pause_down_{};
-    Time startup_window_missing_{Time(-1)};
     std::uint64_t pause_requests_{};
     std::vector<ActivityEvent> activity_events_;
     std::atomic<bool> exiting_{false};
@@ -115,5 +117,7 @@ private:
     void recover_window(Time now);
     bool begin_client_rejoin(Time now,bool requested=false);
     void adopt_window(const Window& window,Time now);
+    void recover_view(Snapshot snapshot,Time now);
+    bool view_changed(const Snapshot& snapshot) const;
 };
 }

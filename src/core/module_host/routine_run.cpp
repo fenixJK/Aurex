@@ -25,7 +25,7 @@ RoutineRun::~RoutineRun() {
 }
 SessionView RoutineRun::view() {
     auto snapshot=session_.snapshot();
-    return {std::move(snapshot.status),snapshot.now,snapshot.generation,std::move(snapshot.feature),snapshot.pause_requests,{},snapshot.session_id,std::move(snapshot.server),snapshot.reconnecting};
+    return {std::move(snapshot.status),snapshot.now,snapshot.generation,std::move(snapshot.feature),snapshot.pause_requests,{},snapshot.session_id,std::move(snapshot.server),snapshot.reconnecting,snapshot.restoring_window};
 }
 void RoutineRun::start(Window window) {
     if (state_!=RoutineState::ready) throw std::logic_error("Create a new routine before starting again");
@@ -62,6 +62,7 @@ SessionView RoutineRun::tick() {
             host_.update(current); return current;
         }
         host_.update(current);
+        if (current.restoring_window) return current;
         if (preparing_) {
             if (!current.feature) throw std::runtime_error("Session preparation lost its result");
             if (current.feature->state==automation::State::running) return current;

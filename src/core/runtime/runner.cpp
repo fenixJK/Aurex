@@ -103,6 +103,60 @@ void Runner::rebase_startup_window(const ObservationContext& c) {
     // Preserve the loading deadline across the client's resize/maximize events.
     context_.window=c.window; last_=c.now; speed_->start(c);
 }
+void Runner::suspend_view(Time now) {
+    if (progress_.state!=State::running || view_suspended_) return;
+    if (now<last_) throw std::logic_error("Clock moved backwards during window recovery");
+    view_suspended_=true;
+    sidebar_->invalidate(now);
+    progress_.message="Restoring Roblox window";
+}
+void Runner::rebase_view(const ObservationContext& c) {
+    context_=c; last_=prerequisites_started_=c.now; speed_->start(c);
+    progress_.route_position.reset(); progress_.route_execution.reset(); progress_.estimated_heading.reset();
+    progress_.backpack_percent.reset();
+    if (child_) child_->rebase_view(c);
+    if (pattern_) pattern_->rebase_view(c);
+    if (recovery_) recovery_->rebase_view(c);
+}
+void Runner::restore_view(const ObservationContext& c) {
+    if (!view_suspended_ || !c.window.id || !c.window.bounds.valid() || c.generation!=scope_.generation
+        || c.window.process!=context_.window.process || c.now<last_)
+        throw std::logic_error("Window recovery needs the same client and session");
+    sidebar_->invalidate(c.now);
+    if (waiting_for_game_view()) {
+        rebase_startup_window(c); view_suspended_=false;
+        return;
+    }
+    const bool unstarted=!progress_.steps && !step_ && !child_ && !pattern_ && !recovery_ && !owned_ && pending_.empty();
+    rebase_view(c); view_suspended_=false;
+    if (unstarted) return;
+    // A half-executed route, drag or click must never be replayed. Restart an
+    // existing recovery, or let the workflow reset its own execution state.
+    if (recovery_ && recovery_factory_) {
+        const auto factory=connection_recovering_?connection_reconnect_:recovery_factory_;
+        const auto replacement=replacement_;
+        clear_operations(); replacement_=replacement; window_replaced_=false;
+        start_recovery(factory,c);
+    } else if (!recover(Interruption::lost_route,c,{})) {
+        if (connection_reconnect_ && permissions_.contains(Permission::interact)) {
+            // The ordinary reconnect workflow also accepts an already loaded
+            // game, then re-establishes location without assuming a fresh spawn.
+            const bool resume=startup_pending_;
+            clear_operations(); startup_pending_=false;
+            connection_recovering_=true; resume_connected_=resume; window_replaced_=false;
+            replacement_=connection_replacement_;
+            start_recovery(connection_reconnect_,c);
+        } else finish(State::failed,"Roblox restored; interrupted work will be retried",Interruption::lost_route);
+    }
+}
+void Runner::start_recovery(ProgramFactory factory,const ObservationContext& c,bool joining) {
+    recovery_factory_=std::move(factory);
+    recovery_=std::make_unique<Runner>(recovery_factory_(),permissions_,static_cast<TaskPort&>(*this),scope_,navigation_services_,depth_+1);
+    recovery_->configure_conversion(hive_conversion_); recovery_->configure_statistics(recovery_counts_); recovery_->configure_reporting(activity_sink_);
+    recovery_->sidebar_=sidebar_;
+    recovery_->startup_pending_=recovery_->startup_joining_=joining;
+    recovery_->start(c);
+}
 void Runner::configure_connection_recovery(ProgramFactory reconnect,ProgramFactory replacement) {
     if (progress_.state!=State::ready) throw std::logic_error("Configure connection recovery before starting");
     if (bool(reconnect)!=bool(replacement)) throw std::invalid_argument("Connection recovery requires both connection factories");
@@ -120,7 +174,7 @@ void Runner::clear_operations() {
     if (pattern_) { pattern_->stop(); pattern_.reset(); }
     if (child_) { child_->stop(); child_.reset(); }
     if (recovery_) { recovery_->stop(); recovery_.reset(); }
-    replacement_={}; awaiting_window_=false; rejoin_requested_=false;
+    replacement_={}; recovery_factory_={}; awaiting_window_=false; rejoin_requested_=false; view_suspended_=false;
     navigation_.reset();
     if (travel_pointer_) {
         travel_pointer_->cancel(scope_);
@@ -197,9 +251,7 @@ bool Runner::recover(Interruption interruption,const ObservationContext& c,const
         replacement_=connection_replacement_; startup_pending_=false;
         connection_recovering_=true; resume_connected_=resume; ++connection_attempts_;
     }
-    recovery_=std::make_unique<Runner>(factory(),permissions_,static_cast<TaskPort&>(*this),scope_,navigation_services_,depth_+1); recovery_->configure_conversion(hive_conversion_); recovery_->configure_statistics(recovery_counts_); recovery_->configure_reporting(activity_sink_);
-    recovery_->sidebar_=sidebar_;
-    recovery_->start(c); progress_.message=connection?"Recovering game connection":"Recovering at hive";
+    start_recovery(factory,c); progress_.message=connection?"Recovering game connection":"Recovering at hive";
     return true;
 }
 bool Runner::expects_reconnect() const noexcept {
@@ -218,7 +270,7 @@ bool Runner::server_change_ready() const noexcept {
 bool Runner::prepare_client_rejoin(Time now,bool requested) {
     if (!allow_rejoin_ || progress_.state!=State::running) return false;
     if (requested && connection_replacement_ && permissions_.contains(Permission::interact)
-        && (waiting_for_game_view() || server_change_ready())) {
+        && (waiting_for_game_view() || server_change_ready() || view_suspended_)) {
         // Planned hops are not connection failures and do not consume their retry budget.
         resume_connected_=startup_pending_; startup_pending_=false;
         clear_operations(); replacement_=program_->server_arrival();
@@ -263,10 +315,7 @@ void Runner::replace_window(const ObservationContext& c,ModuleScope scope) {
     if (progress_.elapsed>=config_.duration) { finish(State::failed,"Workflow deadline reached during reconnect"); return; }
     guard_=program_->guard(); if (!guard_) guard_=observation_guard(config_);
     clock_started_=true;
-    recovery_=std::make_unique<Runner>(replacement_(),permissions_,static_cast<TaskPort&>(*this),scope_,navigation_services_,depth_+1); recovery_->configure_conversion(hive_conversion_); recovery_->configure_statistics(recovery_counts_); recovery_->configure_reporting(activity_sink_);
-    recovery_->sidebar_=sidebar_;
-    recovery_->startup_pending_=recovery_->startup_joining_=true;
-    recovery_->start(c); awaiting_window_=false; rejoin_requested_=false; window_replaced_=true;
+    start_recovery(replacement_,c,true); awaiting_window_=false; rejoin_requested_=false; window_replaced_=true;
     progress_.message="Confirming the replacement game window";
 }
 void Runner::interrupt(Interruption interruption,const ObservationContext& c,const game::State& observations,std::string message) {
@@ -303,6 +352,7 @@ void Runner::observe_movement(const ObservationContext& c,const game::State& obs
 }
 void Runner::update(const ObservationContext& c,const game::State& observations) {
     if (progress_.state!=State::running) return;
+    if (view_suspended_) return;
     if (awaiting_window_) { wait_window(c.now); return; }
     if (!same_context(c) || c.now<last_) { finish(State::failed,"Session or window changed"); return; }
     // A delayed UI observation pauses this step, not the entire game session.
@@ -335,7 +385,7 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
             const auto result=recovery_->progress(); progress_.message=result.message;
             if (result.state==State::completed) {
                 progress_.route_position=result.route_position; progress_.estimated_heading=result.estimated_heading;
-                recovery_.reset();
+                recovery_.reset(); recovery_factory_={};
                 replacement_={};
                 if (connection_recovering_) {
                     connection_recovering_=false;

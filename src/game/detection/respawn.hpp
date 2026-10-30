@@ -2,6 +2,7 @@
 #include "detection.hpp"
 
 namespace hive::game {
+inline constexpr Time respawn_menu_response_time{8000};
 enum class RespawnScreen { menu,confirmation,game,respawning };
 struct RespawnView { RespawnScreen screen; std::optional<Point> target; };
 class RespawnSource {

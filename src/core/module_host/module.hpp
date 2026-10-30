@@ -90,6 +90,7 @@ struct SessionView {
     std::uint64_t session_id{};
     game::ServerSession server;
     bool reconnecting{};
+    bool restoring_window{};
 };
 inline void validate_settings(const Manifest& manifest,const Settings& settings) { validate_settings(manifest.settings,settings); }
 class Module {

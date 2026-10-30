@@ -62,7 +62,10 @@ class HiveSurvey final : public Program {
             return Step(Wait{Time(50),"Checking hive slot "+std::to_string(selected_)});
         };
         if (!view.observations) return wait();
-        const auto& text=view.observations->text;
+        const auto& visual=view.observations->prompt_text;
+        const auto& ocr=view.observations->text;
+        const bool visual_caption=visual.has_value(c,Time(2000),minimum_) && visual.captured>=ocr.captured;
+        const auto& text=visual_caption?visual:ocr;
         if (!text.has_value(c,Time(2000),minimum_) || (!expired && text.captured<=seen_)) return wait();
         seen_=text.captured;
         const auto owned=game::read_prompt_landmark(c,text,game::hive_proximity_prompt());
@@ -82,7 +85,7 @@ class HiveSurvey final : public Program {
             stage_=Stage::claim; return next(view);
         }
         const auto& prompt=view.observations->interaction_prompt;
-        if (!prompt.has_value(c,Time(2000),minimum_) || prompt.captured!=text.captured) return wait();
+        if (!visual_caption && (!prompt.has_value(c,Time(2000),minimum_) || prompt.captured!=text.captured)) return wait();
         const bool trade=game::read_prompt_landmark(c,text,{{"Trade Request"},
             game::interaction_prompt_search_region,game::hive_prompt_confidence,game::PromptMatch::phrase,true}).value;
         // After E, a missing caption can be the claim transition, not an occupied slot.
@@ -90,7 +93,7 @@ class HiveSurvey final : public Program {
         // One unrecognized banner does not invalidate the known row position.
         // Visit the remaining slots before resetting the acquisition attempt.
         const bool unreadable=!owned.usable(c,Time(2000),minimum_) || !available.usable(c,Time(2000),minimum_);
-        if ((prompt.value || unreadable) && !trade) return expired?advance_slot(view):wait();
+        if ((visual_caption || prompt.value || unreadable) && !trade) return expired?advance_slot(view):wait();
         if (!trade && corrections_<approach_.attempts && !approach_.nudge_path.empty()) {
             stage_=Stage::correct; return next(view);
         }
@@ -108,6 +111,9 @@ public:
             throw std::invalid_argument("Hive claim requires a speed from 8 to 200 and preferred slot from 0 to 6");
     }
     RunConfig config() const override { return {can_scan()?Time(120000):Time(60000),claim_.speed,{},true,true}; }
+    game::ObservationNeeds observation_needs() const override {
+        return stage_==Stage::check || stage_==Stage::claim?game::ObservationNeeds{game::ObservationKind::interaction}:game::ObservationNeeds{};
+    }
     std::vector<Rect> text_regions() const override { return stage_==Stage::check || stage_==Stage::claim?std::vector<Rect>{game::hive_claim_prompt().region}:std::vector<Rect>{}; }
     Step next(const View& view) override {
         if (!started_) { if (claim_.result) claim_.result->reset(); started_=true; }

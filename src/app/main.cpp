@@ -664,7 +664,7 @@ public:
                     last_outcome_=outcome;
                 }
             }
-            hive::extensions::SessionView view{snapshot.status,snapshot.now,snapshot.generation,snapshot.feature,snapshot.pause_requests,{},snapshot.session_id,snapshot.server,snapshot.reconnecting};
+            hive::extensions::SessionView view{snapshot.status,snapshot.now,snapshot.generation,snapshot.feature,snapshot.pause_requests,{},snapshot.session_id,snapshot.server,snapshot.reconnecting,snapshot.restoring_window};
             bool routine_failed=false;
             if (routine_ && !start_timer_.isActive()) {
                 view=routine_->tick(); extensions_->render();
