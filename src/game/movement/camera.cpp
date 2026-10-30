@@ -23,9 +23,22 @@ unsigned turned_heading(unsigned from,const CameraMove& move) {
 }
 std::vector<Action> camera_actions(const CameraMove& move) {
     if (!camera_key(move.key) || move.steps<1 || move.steps>32 || move.press<Time(20)
-        || move.press>Time(200) || move.release<Time(20) || move.release>Time(250))
+        || move.press>Time(200) || move.release<Time(20) || move.release>Time(250)
+        || (move.input!=CameraInput::held && move.input!=CameraInput::tapped))
         throw std::invalid_argument("Invalid camera movement");
     std::vector<Action> actions;
+    if (move.input==CameraInput::tapped) {
+        // Reuse the runtime's ordered taps. The caller owns any settling pause;
+        // do not add a held-key delay for each tap in a pattern camera turn.
+        for (std::size_t remaining=move.steps;remaining;) {
+            Action action{"Adjusting camera",{},Time(1),{}};
+            action.tap=move.key;
+            action.tap_count=static_cast<unsigned>(std::min(remaining,std::size_t(8)));
+            remaining-=action.tap_count;
+            actions.push_back(std::move(action));
+        }
+        return actions;
+    }
     actions.reserve(move.steps*2);
     for (std::size_t i=0;i<move.steps;++i) {
         actions.push_back({"Adjusting camera",{move.key},move.press,{}});

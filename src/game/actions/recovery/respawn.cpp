@@ -22,6 +22,12 @@ public:
     explicit RespawnCompletion(bool already_died=false):transitioned_(already_died) {}
     void begin(Time now) { origin_before_=now; }
     bool transitioned() const { return transitioned_; }
+    Observation<bool> hive_arrival(const View& view,Time minimum) const {
+        if (!view.observations) return {};
+        const auto& arrival=view.observations->at_hive;
+        return arrival.has_value(view.context,Time(2000),std::max(minimum,last_dead_+Time(1))) && arrival.value
+            ?arrival:Observation<bool>{};
+    }
     void observe_origin(const View& view) {
         const auto* state=view.observations;
         // A pre-reset capture may finish processing after Escape. A missing
@@ -80,7 +86,10 @@ public:
     Step next(const View& view) override {
         if (started_<Time{}) started_=view.context.now;
         if (completion_.ready(view,source_->read(view.context),started_,started_)) {
-            if (result_) result_->transition={Knowledge::present,true,view.context.now,view.context.window,view.context.generation};
+            if (result_) {
+                result_->transition={Knowledge::present,true,view.context.now,view.context.window,view.context.generation};
+                result_->at_hive=completion_.hive_arrival(view,started_);
+            }
             return Done{"Game view returned after respawn"};
         }
         if (view.context.now-started_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return the game view; rejoining Bee Swarm");
@@ -100,8 +109,10 @@ class Respawn final : public Program {
     unsigned key_retries_{};
     std::optional<game::RespawnScreen> requested_from_;
     Step complete(const View& view,bool confirmed) {
-        if (result_) result_->transition={Knowledge::present,confirmed,view.context.now,
-            view.context.window,view.context.generation};
+        if (result_) {
+            result_->transition={Knowledge::present,confirmed,view.context.now,view.context.window,view.context.generation};
+            result_->at_hive=confirmed?completion_.hive_arrival(view,minimum_):Observation<bool>{};
+        }
         stage_=Stage::done;
         return Done{confirmed?"Respawn finished; confirming the hive":"Reset transition unseen; checking the return location"};
     }

@@ -2,10 +2,12 @@
 #include "core/runtime/model.hpp"
 
 namespace hive::game {
+enum class CameraInput { held, tapped };
 struct CameraMove {
     Key key{Key::rotate_right};
     std::size_t steps{1};
     Time press{50},release{50};
+    CameraInput input{CameraInput::held};
 };
 std::vector<Action> camera_actions(const CameraMove& move);
 CameraMove pitch_limit(Key direction);

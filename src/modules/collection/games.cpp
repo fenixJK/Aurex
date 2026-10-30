@@ -7,7 +7,7 @@ class MemoryMatch final : public automation::Program {
     std::shared_ptr<const game::DetectionSource> source_;
     std::string station_;
     CardMemory memory_;
-    bool entered_{},accepted_{},playing_{};
+    bool entered_{},accepted_{},playing_{},click_submitted_{};
     unsigned retries_{};
     Time clicked_{},began_{},last_board_{Time(-1)};
     std::optional<unsigned> pending_;
@@ -48,14 +48,20 @@ public:
         if (!playing_) { memory_.begin(*board); playing_=true; }
         else memory_.observe(*board);
         if (memory_.waiting()) {
-            if (c.now-clicked_<Time(1500)) return Wait{};
+            // A frame captured shortly after the click can arrive much later
+            // on a busy client. Only the captured board can establish that the
+            // card remained closed for the response window.
+            if (packet->context.now-clicked_<Time(1500)) return Wait{};
             if (++retries_>1) throw ObservationUnavailable("Memory card did not turn over");
             memory_.retry_click();
         } else { pending_.reset(); retries_=0; }
         const auto choice=pending_?pending_:memory_.choose();
         if (!choice) return Wait{Time(100),"Waiting for cards"};
-        pending_=choice; memory_.clicked(*choice); clicked_=c.now;
+        pending_=choice; memory_.clicked(*choice); clicked_=c.now; click_submitted_=true;
         return UseControl{{Knowledge::present,memory_.center(*choice),packet->context.now,c.window,c.generation},0,"Turn card",Point{.85,.15}};
+    }
+    void step_completed(const automation::View& view) override {
+        if (std::exchange(click_submitted_,false)) clicked_=view.context.now;
     }
 };
 }

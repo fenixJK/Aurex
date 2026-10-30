@@ -87,7 +87,11 @@ Observation<NectarLevels> read_nectar(const DetectionInput& input) {
         if (color<0) continue;
         while (x<f.width && nectar_color(f,x,y)==color) ++x;
         if (x-left<band || x-left>pitch+band) continue;
-        const int right=int(std::round(left+pitch))-1;
+        // Nectar edges belong to the same grid as the other buff icons.
+        // Do not measure an arbitrary matching patch between those cells.
+        const double cell=(left-origin)/pitch;
+        if (std::abs(cell-std::round(cell))*pitch>band+.01) continue;
+        const int right=int(std::round(origin+(std::round(cell)+1)*pitch))-1;
         if (right+band>=f.width) continue;
         int a=0,b=0;
         for (int xx=left;xx<=std::min(x-1,left+band);++xx) a=std::max(a,height(xx,color));

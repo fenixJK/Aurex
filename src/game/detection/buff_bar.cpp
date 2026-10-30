@@ -82,7 +82,9 @@ std::optional<BuffBar> hud_buff_bar(const DetectionInput& input) {
     if (!f.valid() || !input.generation || std::size_t(f.width)*f.height>32000000
         || (input.cancelled && input.cancelled())) return {};
     if (const auto hud=resource_hud_regions(input)) {
-        const double scale=f.width/f.window.bounds.width;
+        // Roblox can shrink its HUD independently of the capture/display DPI.
+        // The paired resource boxes and buff cells share the same UI scale.
+        const double scale=(*hud)[1].width/294.;
         const double bottom=(*hud)[1].y+(*hud)[1].height+37*scale;
         if (bottom>=38*scale && bottom<f.height) return BuffBar{scale,38*scale,0,bottom,true};
     }

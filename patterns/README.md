@@ -18,6 +18,9 @@ Slimline is a narrow side-to-side sweep. These are different movement patterns.
 
 `next(view)` returns one movement or key operation. `camera` operations accept
 `rotate-left`, `rotate-right`, `pitch-up` or `pitch-down` and a `steps` count.
+They use held key presses by default. Optional `input = 'tapped'` sends the
+requested taps without a hold delay; the pattern supplies its settling pause.
+Kettle alone opts into this mode, retaining its 35 ms turn and 45 ms tilt pauses.
 Balance pitch changes within a cycle; the host also restores outstanding pitch
 when a timed, bag, objective or priority interrupt ends gathering. `cycle_end` marks a safe point
 for optional correction. The host controls real movement speed, input release,

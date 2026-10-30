@@ -73,11 +73,12 @@ void Runtime::enqueue(Job job) {
             });
             const bool turn=(*a.tap==Key::rotate_left || *a.tap==Key::rotate_right)
                 && std::all_of(a.held.begin(),a.held.end(),[](Key key) { return key>=Key::forward && key<=Key::right; });
+            const bool camera=camera_key(*a.tap) && a.held.empty() && !a.continue_movement;
             const bool menu=menu_key(*a.tap) && a.held.empty() && !a.continue_movement && a.tap_count==1;
             const bool hotbar=hotbar_key(*a.tap) && a.tap_count==1 && std::all_of(a.held.begin(),a.held.end(),[](Key key) {
                 return (key>=Key::forward && key<=Key::right) || key==Key::primary;
             });
-            if ((!jump && !menu && !turn && !hotbar) || a.pointer || a.pointer_to || a.scroll || (a.pacing && !hotbar))
+            if ((!jump && !menu && !turn && !camera && !hotbar) || a.pointer || a.pointer_to || a.scroll || (a.pacing && !hotbar))
                 throw std::invalid_argument("Invalid key tap");
         }
         for (auto key : a.held) if (key < Key::forward || key > Key::select_all) throw std::invalid_argument("Unsupported key");

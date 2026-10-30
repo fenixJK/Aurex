@@ -2,6 +2,13 @@
 #include <algorithm>
 
 namespace hive::features::planters {
+namespace {
+bool limit_growth(Plant& plant,Time maximum) {
+    if (maximum==Time{} || !plant.material.empty() || plant.due-plant.placed<=maximum) return false;
+    plant.due=plant.placed+maximum;
+    return true;
+}
+}
 Account::Account(std::shared_ptr<Store> store):store_(std::move(store)) {
     if (!store_) throw std::invalid_argument("Planters needs an account store");
     publish(saved());
@@ -30,6 +37,24 @@ void Account::defer_placement(const std::string& planter,WallTime now) {
     std::lock_guard lock(snapshot_mutex_);
     placement_retries_[planter]=now+std::chrono::minutes(5);
     ++edit_revision_; // Reconsider the remaining equipment at the next routine turn.
+}
+void Account::configure_growth_limit(Time maximum) {
+    if (maximum<Time{} || maximum>std::chrono::hours(24) || (maximum>Time{} && maximum<Time(1000)))
+        throw std::invalid_argument("Invalid maximum planter growth time");
+    if (busy_.exchange(true)) throw std::runtime_error("Planters is using these timers. Try again after its current run.");
+    try {
+        if (maximum>Time{}) {
+            auto ledger=saved(); bool changed=false;
+            for (auto& plant:ledger.plants) {
+                // An in-flight harvest keeps the intent that was already issued.
+                if (ledger.pending && ledger.pending->plant.id==plant.id) continue;
+                changed=limit_growth(plant,maximum) || changed;
+            }
+            if (changed) { validate(ledger); store_->save(ledger); publish(ledger); ++edit_revision_; }
+        }
+        max_growth_=maximum;
+    } catch (...) { busy_=false; throw; }
+    busy_=false;
 }
 std::optional<WallTime> Account::placement_retry(const std::string& planter) const {
     std::lock_guard lock(snapshot_mutex_);
@@ -129,6 +154,7 @@ void Account::set_saved(std::optional<std::uint64_t> id,const Stats& stats,doubl
             if (found==ledger.plants.end()) throw std::invalid_argument("Saved planter no longer exists");
             if (found->stats.planter==stats.planter && found->stats.field==stats.field) {
                 plant.phase=found->phase;
+                plant.material=found->material;
                 plant.due=placed+Time(static_cast<Time::rep>(std::ceil(harvest_fraction(*found)*duration.count())));
             }
             *found=plant;
@@ -139,6 +165,8 @@ void Account::set_saved(std::optional<std::uint64_t> id,const Stats& stats,doubl
             if (ledger.placement_limits.capacity && ++*ledger.placement_limits.capacity>=3) ledger.placement_limits.capacity.reset();
         }
         ledger.placement_limits.occupied_fields.erase(stats.field);
+        auto& saved_plant=*std::find_if(ledger.plants.begin(),ledger.plants.end(),[&](const Plant& value) { return value.id==plant.id; });
+        limit_growth(saved_plant,max_growth_);
         validate(ledger); store_->save(ledger);
         publish(ledger);
         ++edit_revision_;

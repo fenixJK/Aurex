@@ -3,33 +3,43 @@
 #include <cmath>
 namespace hive::game {
 using namespace detail;
-Reading<std::uint64_t> read_honey(const Frame& frame,const std::vector<TextLine>& lines,std::uint64_t generation) {
+namespace {
+std::optional<std::uint64_t> honey_amount(std::string text) {
+    text=normalize(text);
+    if (text.starts_with("honey ")) text.erase(0,6);
+    // OCR may join the total, its smaller (+.../sec) caption and even the
+    // adjacent Pollen label. Only the leading balance belongs to this counter.
+    auto end=text.find_first_of("(+");
+    if (const auto pollen=text.find(" pollen");pollen!=std::string::npos) end=std::min(end,pollen);
+    if (end!=std::string::npos) text.resize(end);
+    text.erase(text.find_last_not_of(' ')+1);
+    std::replace(text.begin(),text.end(),'.',',');
+    // Some engines read thousands separators as spaces. Keep the same strict
+    // three-digit grouping validation rather than concatenating arbitrary digits.
+    std::replace(text.begin(),text.end(),' ',',');
+    return amount(text,1000000000000000000ULL);
+}
+Reading<std::uint64_t> honey_reading(const Frame& frame,std::span<const TextLine> lines,std::uint64_t generation,
+    const std::optional<std::array<Rect,2>>& resources) {
     Reading<std::uint64_t> result{Knowledge::unknown,{},frame.captured,frame.window,generation};
-    if (!frame.valid()) return result;
+    if (!frame.valid() || !resources) return result;
+    const auto& region=resources->front();
     std::optional<std::uint64_t> found;
-    const auto number=[](std::string value) {
-        value.erase(0,value.find_first_not_of(" \t")); value.erase(value.find_last_not_of(" \t")+1);
-        std::replace(value.begin(),value.end(),'.',',');
-        return amount(value,1000000000000000000ULL);
-    };
-    const auto credible=[](const TextLine& line) { return !line.confidence || (std::isfinite(*line.confidence) && *line.confidence>=.5f && *line.confidence<=1); };
-    for (const auto& label:lines) {
-        const auto text=normalize(label.text); const auto& r=label.pixels;
-        if (!credible(label) || !inside(r,frame) || r.y+r.height>frame.height*.18 || (text!="honey" && !text.starts_with("honey "))) continue;
-        std::vector<std::uint64_t> candidates;
-        if (text.starts_with("honey ")) { if (auto value=number(text.substr(6))) candidates.push_back(*value); }
-        else for (const auto& candidate:lines) {
-            const auto& c=candidate.pixels;
-            if (!credible(candidate) || !inside(c,frame) || c.x<r.x+r.width-2 || c.x-(r.x+r.width)>r.height*3
-                || std::abs((c.y+c.height/2)-(r.y+r.height/2))>std::max(r.height,c.height)*.65) continue;
-            if (auto value=number(candidate.text)) candidates.push_back(*value);
+    for (const auto& line:lines) {
+        const auto& r=line.pixels; const auto text=normalize(line.text);
+        if (!inside(r,frame) || (line.confidence && (!std::isfinite(*line.confidence) || *line.confidence<.5f || *line.confidence>1))) continue;
+        const auto x=(r.x-region.x)/region.width,y=r.y+r.height/2;
+        // The paired HUD boxes establish which counter this is even when OCR
+        // misses the small Honey label. The rate caption starts farther right.
+        if (x<0 || x>=.5 || y<region.y || y>region.y+region.height || (!text.starts_with("honey ") && x<.15)) continue;
+        if (const auto value=honey_amount(text)) {
+            if (found && *found!=*value) return result;
+            found=value;
         }
-        for (const auto value:candidates) { if (found && *found!=value) return result; found=value; }
     }
     if (found) { result.value=*found; result.knowledge=Knowledge::present; }
     return result;
 }
-namespace {
 class HoneyDetector final : public Detector {
 public:
     std::vector<Rect> text_regions(const DetectionInput& input) const override {
@@ -40,10 +50,13 @@ public:
     }
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         auto result=std::make_shared<HoneyDetection>();
-        result->amount=read_honey(input.frame,{input.text.begin(),input.text.end()},input.generation);
+        result->amount=honey_reading(input.frame,input.text,input.generation,resource_hud_regions(input));
         return result;
     }
 };
+}
+Reading<std::uint64_t> read_honey(const Frame& frame,const std::vector<TextLine>& lines,std::uint64_t generation) {
+    return honey_reading(frame,lines,generation,resource_hud_regions(frame));
 }
 std::shared_ptr<const Detector> honey_detector() { return std::make_shared<HoneyDetector>(); }
 }

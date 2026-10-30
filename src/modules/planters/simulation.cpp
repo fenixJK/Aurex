@@ -25,7 +25,7 @@ std::vector<Group> planning_groups(const PlanningSnapshot& snapshot) {
         bounded(plant.age,0,30*86400); bounded(plant.due_in,-30*86400,86400); bounded(plant.travel.seconds,0,1800);
         bounded(plant.age+plant.due_in,1-1e-7,86400+1e-7);
         if (s.nectar<Nectar::comforting || s.nectar>Nectar::invigorating || plant.phase<Phase::build || plant.phase>Phase::recover
-            || (plant.phase==Phase::build && plant.age+plant.due_in+1e-7<std::round(s.full_seconds))) throw std::invalid_argument("Invalid growing planter intent");
+            || (!plant.material.empty() && plant.age+plant.due_in+1e-7<std::round(s.full_seconds))) throw std::invalid_argument("Invalid growing planter intent");
     }
     std::stable_sort(queue.begin(),queue.end(),[](const Growing& a,const Growing& b) { return a.due_in<b.due_in; });
     double free_at=0;

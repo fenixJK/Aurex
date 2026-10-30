@@ -20,6 +20,7 @@ class Account {
     PlacementLimits placement_limits_;
     std::map<std::string,WallTime> placement_retries_;
     std::optional<std::size_t> configured_capacity_;
+    Time max_growth_{};
     std::optional<WallTime> offline_since_;
     std::vector<std::pair<WallTime,WallTime>> offline_;
     void apply_offline(Controller& controller);
@@ -31,6 +32,7 @@ public:
     MaterialHistory materials() const;
     std::size_t placement_capacity(std::size_t configured) const;
     std::size_t configure_capacity(std::size_t configured);
+    void configure_growth_limit(Time maximum);
     void retry_placements();
     void defer_placement(const std::string& planter,WallTime now);
     std::optional<WallTime> placement_retry(const std::string& planter={}) const;

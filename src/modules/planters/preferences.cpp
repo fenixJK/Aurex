@@ -21,6 +21,8 @@ Preferences default_preferences() {
     return result;
 }
 void validate(const Preferences& preferences) {
+    if (preferences.max_growth_minutes<0 || preferences.max_growth_minutes>1440)
+        throw std::invalid_argument("Invalid maximum planter growth time");
     if (preferences.mode!=Mode::nectar && preferences.mode!=Mode::items) throw std::invalid_argument("Unknown planter mode");
     if (preferences.materials.size()>item_goals().size() || std::set<std::string>(preferences.materials.begin(),preferences.materials.end()).size()!=preferences.materials.size())
         throw std::invalid_argument("Invalid material goal selection");
@@ -43,6 +45,7 @@ void apply_preferences(std::vector<Group>& groups,const Preferences& preferences
         const auto index=static_cast<std::size_t>(group.nectar);
         if (index>=5) throw std::invalid_argument("Unknown nectar reading");
         group.target=preferences.targets[index]; group.priority=preferences.priorities[index];
+        group.max_growth_seconds=preferences.max_growth_minutes*60.0;
         group.phase=group.current_known?phase(group.phase,group.current,group.target):Phase::build;
         std::erase_if(group.candidates,[&](const auto& candidate) {
             return !preferences.planters.contains(candidate.stats.planter) || !preferences.fields.contains(candidate.stats.field);

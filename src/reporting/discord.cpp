@@ -58,7 +58,7 @@ QString validate(const DiscordSettings& settings,bool webhook_required) {
         return "The report channel ID must contain 16–22 digits.";
     if (!settings.mention.isEmpty() && !QRegularExpression("^[0-9]{16,22}$").match(settings.mention).hasMatch())
         return "The alert user ID must contain 16–22 digits.";
-    if (settings.appearance.theme<ReportTheme::forest || settings.appearance.theme>ReportTheme::graphite
+    if (!supported_report_theme(settings.appearance.theme)
         || settings.appearance.chart_height<75 || settings.appearance.chart_height>150
         || settings.appearance.background_fade<0 || settings.appearance.background_fade>100
         || settings.appearance.background_zoom<ReportAppearance::min_background_zoom || settings.appearance.background_zoom>ReportAppearance::max_background_zoom

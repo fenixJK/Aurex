@@ -37,7 +37,10 @@ struct HoneyReport {
     QList<Sample> rates;
     qint64 observed_ms{},baseline_delay{};
 };
-enum class ReportTheme { forest,midnight,graphite };
+enum class ReportTheme { forest,midnight,graphite,black,plum,paper };
+struct ReportThemeChoice { ReportTheme id; QString name; QColor swatch; };
+const QList<ReportThemeChoice>& report_themes();
+bool supported_report_theme(ReportTheme theme);
 struct ReportAppearance {
     static constexpr int min_background_zoom=50,max_background_zoom=200;
     ReportTheme theme{ReportTheme::forest};

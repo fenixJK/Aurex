@@ -7,6 +7,7 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QLabel>
+#include <QIcon>
 #include <QScrollArea>
 #include <QFileDialog>
 #include <QImageReader>
@@ -114,7 +115,12 @@ void show_report_appearance(QWidget* parent,reporting::ReportAppearance& appeara
     auto layout=new QHBoxLayout(dialog);layout->setContentsMargins(16,16,16,16);layout->setSpacing(16);
     auto controls=new QVBoxLayout;controls->setSpacing(8);layout->addLayout(controls);
     auto fields=new QFormLayout;fields->setVerticalSpacing(8);controls->addLayout(fields);
-    auto theme=new QComboBox;theme->setObjectName("report-theme");theme->addItems({"Forest (default)","Midnight","Graphite"});theme->setCurrentIndex(int(appearance.theme));fields->addRow("Theme",theme);
+    auto theme=new QComboBox;theme->setObjectName("report-theme");
+    for (const auto& choice:reporting::report_themes()) {
+        QPixmap swatch(16,16);swatch.fill(choice.swatch);
+        theme->addItem(QIcon(swatch),choice.name,int(choice.id));
+    }
+    theme->setCurrentIndex(std::max(0,theme->findData(int(appearance.theme))));fields->addRow("Theme",theme);
     auto height=new QComboBox;height->setObjectName("report-chart-height");height->addItem("Compact",75);height->addItem("Normal (default)",100);height->addItem("Tall",150);
     height->setCurrentIndex(std::max(0,height->findData(appearance.chart_height)));fields->addRow("Buff charts",height);
     theme->setMinimumHeight(28);height->setMinimumHeight(28);
@@ -169,7 +175,7 @@ void show_report_appearance(QWidget* parent,reporting::ReportAppearance& appeara
     const auto schedule=[render] { if (!render->isActive()) render->start(16); };
     preview->changed=schedule;preview->finished=commit;
     const auto changed=[&appearance,commit,theme,height,activity,nectar,modules,totals,fade,zoom,schedule] {
-        appearance.theme=reporting::ReportTheme(theme->currentIndex());appearance.chart_height=height->currentData().toInt();
+        appearance.theme=reporting::ReportTheme(theme->currentData().toInt());appearance.chart_height=height->currentData().toInt();
         appearance.activity=activity->isChecked();appearance.nectar=nectar->isChecked();appearance.modules=modules->isChecked();appearance.totals=totals->isChecked();
         appearance.background_fade=fade->value();
         appearance.background_zoom=zoom->value();

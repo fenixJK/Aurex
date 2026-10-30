@@ -29,6 +29,7 @@ struct Group {
     std::vector<Event> pending;
     std::vector<Candidate> candidates;
     bool current_known{true};
+    double max_growth_seconds{}; // Zero leaves the nectar interval uncapped.
 };
 struct Assignment {
     Stats stats;

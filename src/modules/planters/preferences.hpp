@@ -10,6 +10,7 @@ struct Preferences {
     std::vector<std::string> materials;
     Mode mode{Mode::nectar};
     bool secondary{};
+    int max_growth_minutes{}; // Zero keeps adaptive, uncapped harvesting.
     bool needs_nectar() const { return mode==Mode::nectar || secondary; }
     bool farms_items() const { return mode==Mode::items || secondary; }
 };

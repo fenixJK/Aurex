@@ -52,7 +52,7 @@ std::string TaskBroker::submit(ModuleScope scope,TaskClass kind,std::vector<Acti
             throw std::invalid_argument("Concurrent pointer interaction was not granted");
         if (a.pointer && !grant.capabilities.contains(Capability::pointer)) throw std::invalid_argument("Pointer access was not granted");
         if (a.scroll && !grant.capabilities.contains(Capability::interaction)) throw std::invalid_argument("Scroll interaction was not granted");
-        if (a.tap && !grant.capabilities.contains(*a.tap==Key::jump?Capability::movement:Capability::interaction))
+        if (a.tap && !grant.capabilities.contains(*a.tap==Key::jump || camera_key(*a.tap)?Capability::movement:Capability::interaction))
             throw std::invalid_argument("Key tap capability was not granted");
         for (auto key : a.held) {
             auto capability=(key==Key::primary || key==Key::interact || hotbar_key(key) || key>=Key::digit_0)?Capability::interaction:Capability::movement;

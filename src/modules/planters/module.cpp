@@ -88,6 +88,7 @@ public:
         auto values=saved; values.try_emplace("materials",SettingSelection{}); values.try_emplace("interrupt-gather",true);
         values.try_emplace("mode",std::string("Nectar")); values.try_emplace("secondary",false);
         values.try_emplace("simulation-days",7); values.try_emplace("gather-planter-fields",false);
+        values.try_emplace("max-growth-minutes",defaults_.preferences.value_or(default_preferences()).max_growth_minutes);
         extensions::validate_settings(module_manifest(defaults_),values);
         interrupt_gather_=std::get<bool>(values.at("interrupt-gather"));
         simulation_days_=std::get<int>(values.at("simulation-days"));
@@ -103,6 +104,7 @@ public:
         auto preferences=defaults_.preferences.value_or(default_preferences());
         preferences.mode=std::get<std::string>(values.at("mode"))=="Items"?Mode::items:Mode::nectar;
         preferences.secondary=std::get<bool>(values.at("secondary"));
+        preferences.max_growth_minutes=std::get<int>(values.at("max-growth-minutes"));
         const auto selection=[&](const char* id) -> const SettingSelection& { return std::get<SettingSelection>(values.at(id)); };
         preferences.planters.clear();
         for (const auto& label : selection("equipment")) {
@@ -125,6 +127,7 @@ public:
         validate(preferences); plan.preferences=std::move(preferences);
         planters::program(plan,network_,account_,source_,actions_,clock_);
         plan.capacity=account_->configure_capacity(plan.capacity);
+        account_->configure_growth_limit(std::chrono::minutes(plan.preferences->max_growth_minutes));
         plan_=std::move(plan); results_.reset(); started_=true; check_requested_=true;
     }
     Settings setting_adjustments() const override { return started_?Settings{{"capacity",static_cast<int>(plan_.capacity)}}:Settings{}; }
@@ -354,7 +357,7 @@ public:
 };
 }
 Settings migrate_settings(int version,const Settings& previous) {
-    if(version<1 || version>3) throw std::invalid_argument("Unknown previous Planter settings version");
+    if(version<1 || version>4) throw std::invalid_argument("Unknown previous Planter settings version");
     auto values=previous; values.erase("resolved-action");
     if(version<3) {
         const auto mode=values.find("mode"),maintain=values.find("maintain-nectar"),goals=values.find("materials");
@@ -366,6 +369,7 @@ Settings migrate_settings(int version,const Settings& previous) {
     }
     if(const auto goals=values.find("materials");goals!=values.end())
         std::erase_if(std::get<SettingSelection>(goals->second),[](const auto& label) {return label=="Stickers" || label=="Dapper From Above";});
+    values.try_emplace("max-growth-minutes",0);
     return values;
 }
 extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,std::string provider) {
@@ -377,7 +381,7 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
     extensions::Manifest result;
     result.requests={extensions::RequestService::fields};
     result.id=std::move(id); result.provider=std::move(provider); result.name="Planters"; result.version="0.2.0";
-    result.settings_version=4;
+    result.settings_version=5;
     result.enabled_by_default=true;
     result.description="Prioritize nectar or item drops, with optional work in spare capacity."; result.permissions=permissions;
     result.settings={{"run-seconds","Run limit (seconds)",static_cast<int>(plan.config.duration.count()/1000),1,28800,{}},
@@ -387,6 +391,9 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
         setting.help="Maximum managed planters. A confirmed in-game limit lowers this value. Raise it after freeing a slot to retry placements.";
     }
     const auto preferences=plan.preferences.value_or(default_preferences()); validate(preferences);
+    result.settings.push_back({"max-growth-minutes","Max growth (minutes)",preferences.max_growth_minutes,0,1440,{}});
+    result.settings.back().minimum_label="No limit";
+    result.settings.back().help="Optional nectar harvest limit; 120 means two hours of growth. No limit keeps full growth during nectar buildup and adaptive maintenance. Item planters always grow fully. Existing nectar timers can be shortened, never postponed. Travel and higher-priority work can delay collection.";
     result.settings.push_back({"mode","Priority",std::string(preferences.mode==Mode::items?"Items":"Nectar"),0,0,{"Nectar","Items"}});
     result.settings.push_back({"secondary","Also farm items",preferences.secondary});
     result.settings.back().enabled_by="mode"; result.settings.back().enabled_values={"Nectar","Items"};
@@ -439,7 +446,7 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
         {"fields","Fields",{},{"fields"},false,1}},true};
     for (std::size_t i=0;i<5;++i) { result.page->sections.push_back({"nectar-"+std::to_string(i),nectar_names()[i],{},
         {"target-"+std::to_string(i),"buffer-"+std::to_string(i),"priority-"+std::to_string(i)},false,3}); result.page->sections.back().row=true; result.page->sections.back().order_group="nectar"; result.page->sections.back().order_setting="priority-"+std::to_string(i); }
-    extensions::PageSection run{"run","Harvesting",{},{"capacity","max-actions","run-seconds"},false,3};
+    extensions::PageSection run{"run","Harvesting",{},{"capacity","max-growth-minutes","max-actions","run-seconds"},false,2};
     if (!returns.empty()) run.settings.push_back("return-method");
     if (has_loot(plan)) run.settings.push_back("collect-loot");
     run.settings.push_back("gather-planter-fields"); run.settings.push_back("interrupt-gather");

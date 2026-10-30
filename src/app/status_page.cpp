@@ -106,7 +106,8 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
     initial.report_minutes=settings.value("discord/reportMinutes",reporting::DiscordSettings::default_report_minutes).toInt();
     if (settings.contains("discord/buffs")) buff_ids_=settings.value("discord/buffs").toStringList();
     else for (const auto& buff:discord_->available_buffs()) buff_ids_.append(buff.id.isEmpty()?buff.name:buff.id);
-    appearance_.theme=reporting::ReportTheme(std::clamp(settings.value("discord/theme",0).toInt(),0,2));
+    const auto theme=reporting::ReportTheme(settings.value("discord/theme",0).toInt());
+    appearance_.theme=reporting::supported_report_theme(theme)?theme:reporting::ReportTheme::forest;
     appearance_.chart_height=std::clamp(settings.value("discord/chartHeight",100).toInt(),75,150);
     appearance_.activity=settings.value("discord/showActivity",true).toBool(); appearance_.nectar=settings.value("discord/showNectar",true).toBool();
     appearance_.modules=settings.value("discord/showModules",true).toBool(); appearance_.totals=settings.value("discord/showTotals",true).toBool();

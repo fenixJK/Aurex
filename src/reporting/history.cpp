@@ -74,9 +74,13 @@ void History::sample(qint64 now,const Snapshot& snapshot) {
     counters({},snapshot.counters);
     for (const auto& section:snapshot.sections) counters(section.id.isEmpty()?section.name:section.id,section.counters);
     const HoneySample reading{now-std::max(qint64(0),snapshot.honey_age_ms),snapshot.honey};
-    if (reading.at>=began_ && (honey_.empty() || reading.at>honey_.back().at)) {
-        honey_.push_back(reading);
-        if (!first_honey_ && reading.value) first_honey_=reading;
+    if (reading.at>=began_) {
+        // OCR can finish after a newer sample recorded an unreadable frame.
+        // Keep capture order without letting that gap discard a valid balance.
+        auto at=std::lower_bound(honey_.begin(),honey_.end(),reading.at,[](const auto& sample,qint64 time) { return sample.at<time; });
+        if (at==honey_.end() || at->at!=reading.at) at=honey_.insert(at,reading);
+        else if (!at->value) at->value=reading.value;
+        if (at->value && (!first_honey_ || at->at<first_honey_->at)) first_honey_=*at;
     }
     trim(honey_,now);
 }
@@ -152,6 +156,7 @@ Report History::report(Snapshot snapshot,qint64 session_ms,qint64 window_ms,qint
         previous=&sample;
     }
     if (first && last) {
+        if (!result.honey.current && end-last->at<=2*sample_interval_ms) result.honey.current=last->value;
         result.honey.period=qint64(*last->value)-qint64(*first->value); result.honey.observed_ms=last->at-first->at;
         if (first_honey_) {
             result.honey.session=qint64(*last->value)-qint64(*first_honey_->value);

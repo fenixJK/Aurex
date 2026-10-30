@@ -11,35 +11,72 @@
 namespace hive::reporting {
 namespace {
 
-QColor accent(int index) {
-    static const QColor colors[]{"#91d2b6","#e9be6b","#8aace0","#bb9ddd","#e69b8e","#70c8d2","#d6d68c","#d995c6","#78b8a4","#d4a57c","#a5a6e4","#b2c1c8"};
-    return colors[index%12];
-}
-void font(QPainter& painter,int size,bool bold=false) {
-    QFont value=painter.font(); value.setPixelSize(size); value.setWeight(bold?QFont::DemiBold:QFont::Normal); painter.setFont(value);
-}
-void text(QPainter& painter,QRectF rect,QString value,int size,QColor color=QColor("#e6eeee"),bool bold=false,int alignment=Qt::AlignLeft|Qt::AlignVCenter) {
-    font(painter,size,bold); painter.setPen(color);
-    value=redact(value).simplified(); painter.drawText(rect,alignment,painter.fontMetrics().elidedText(value,Qt::ElideRight,int(rect.width())));
-}
-struct Palette { QColor background,panel,border,heading; };
+struct Palette {
+    QColor background,panel,border,heading;
+    QColor foreground{"#e6eeee"},muted{"#a1b7bd"},subtle{"#8ba3ac"};
+    QColor grid{"#435c66"},grid_secondary{"#364e58"},grid_vertical{"#3d5660"},track{"#2b3e44"},divider{"#2a3c43"};
+    bool light{};
+    QColor ink(QColor color) const {
+        if (!light) return color;
+        const auto luminance=[](QColor c) {
+            const auto linear=[](double v) { return v<=.04045?v/12.92:std::pow((v+.055)/1.055,2.4); };
+            return .2126*linear(c.redF())+.7152*linear(c.greenF())+.0722*linear(c.blueF());
+        };
+        const auto surface=std::min(luminance(background),luminance(panel));
+        while ((surface+.05)/(luminance(color)+.05)<4.5) color=color.darker(110);
+        return color;
+    }
+};
 Palette palette(ReportTheme theme) {
     switch (theme) {
     case ReportTheme::midnight:return {"#141827","#202638","#3a445a","#a6b9e8"};
     case ReportTheme::graphite:return {"#17191c","#25282d","#41464e","#c9d1da"};
+    case ReportTheme::black:return {"#08090b","#14161a","#30343b","#f0f2f5",
+        "#e8ebf0","#b8bdc7","#969eac","#3b424d","#303641","#343b46","#2b3039","#292f38"};
+    case ReportTheme::plum:return {"#201824","#302435","#58425f","#e4b7ec",
+        "#f0e7f2","#c8b3ce","#af96b7","#67516f","#503d57","#5b4663","#4e3b55","#4b3752"};
+    case ReportTheme::paper:return {"#f3f4f6","#ffffff","#d1d5db","#283447",
+        "#202b3b","#4f5d6e","#5d6a7a","#c5ccd5","#d7dde5","#d1d7e0","#e2e7ed","#d7dde5",true};
     default:return {"#101d23","#17282e","#2a3c43","#e7cc8f"};
     }
+}
+QColor accent(int index,const Palette& palette) {
+    static const QColor colors[]{"#91d2b6","#e9be6b","#8aace0","#bb9ddd","#e69b8e","#70c8d2","#d6d68c","#d995c6","#78b8a4","#d4a57c","#a5a6e4","#b2c1c8"};
+    return palette.ink(colors[index%12]);
+}
+void font(QPainter& painter,int size,bool bold=false) {
+    QFont value=painter.font(); value.setPixelSize(size); value.setWeight(bold?QFont::DemiBold:QFont::Normal); painter.setFont(value);
+}
+void text(QPainter& painter,QRectF rect,QString value,int size,QColor color,bool bold=false,int alignment=Qt::AlignLeft|Qt::AlignVCenter) {
+    font(painter,size,bold); painter.setPen(color);
+    value=redact(value).simplified(); painter.drawText(rect,alignment,painter.fontMetrics().elidedText(value,Qt::ElideRight,int(rect.width())));
 }
 void card(QPainter& painter,QRectF rect,const Palette& colors) {
     painter.setPen(colors.border); painter.setBrush(colors.panel); painter.drawRoundedRect(rect,14,14);
 }
-void bar(QPainter& painter,QRectF rect,std::optional<double> value,QColor color) {
-    painter.setPen(Qt::NoPen); painter.setBrush(QColor("#2b3e44")); painter.drawRoundedRect(rect,rect.height()/2,rect.height()/2);
+void bar(QPainter& painter,QRectF rect,std::optional<double> value,QColor color,const Palette& colors) {
+    painter.setPen(Qt::NoPen); painter.setBrush(colors.track); painter.drawRoundedRect(rect,rect.height()/2,rect.height()/2);
     if (value && std::isfinite(*value)) {
         const auto width=rect.width()*std::clamp(*value,0.,100.)/100.;
         if (width>0) { rect.setWidth(width); painter.setBrush(color); painter.drawRoundedRect(rect,rect.height()/2,rect.height()/2); }
     }
 }
+}
+const QList<ReportThemeChoice>& report_themes() {
+    static const QList<ReportThemeChoice> choices=[] {
+        QList<ReportThemeChoice> result;
+        for (const auto& [id,name]:std::initializer_list<std::pair<ReportTheme,const char*>>{
+            {ReportTheme::forest,"Forest (default)"},{ReportTheme::midnight,"Midnight"},
+            {ReportTheme::graphite,"Graphite"},{ReportTheme::black,"Black"},
+            {ReportTheme::plum,"Plum"},{ReportTheme::paper,"Paper"}})
+            result.append({id,QString::fromUtf8(name),palette(id).background});
+        return result;
+    }();
+    return choices;
+}
+bool supported_report_theme(ReportTheme theme) {
+    const auto& choices=report_themes();
+    return std::any_of(choices.begin(),choices.end(),[&](const auto& choice) { return choice.id==theme; });
 }
 QString redact(QString value) {
     static const QRegularExpression links(R"((?:https?://|roblox://|aurex://join/)[^\s<>"']+)",QRegularExpression::CaseInsensitiveOption);
@@ -73,15 +110,15 @@ void plot_line(QPainter& p,QRectF plot,const QList<Sample>& samples,qint64 windo
     }
     p.setPen(QPen(color,1.6)); p.setBrush(Qt::NoBrush); p.drawPath(path);
 }
-void time_axis(QPainter& p,QRectF plot,qint64 window,const QDateTime& end) {
+void time_axis(QPainter& p,QRectF plot,qint64 window,const QDateTime& end,const Palette& colors) {
     if (window<=0) return;
     for (int i=0;i<=4;++i) {
         const auto alignment=(i==0?Qt::AlignLeft:i==4?Qt::AlignRight:Qt::AlignHCenter)|Qt::AlignVCenter;
         const auto x=plot.left()+plot.width()*i/4-(i==0?0:i==4?80:40);
-        text(p,{x,plot.bottom()+6,80,18},end.addMSecs(window*i/4-window).toString("HH:mm"),11,QColor("#8ba3ac"),false,alignment);
+        text(p,{x,plot.bottom()+6,80,18},end.addMSecs(window*i/4-window).toString("HH:mm"),11,colors.subtle,false,alignment);
     }
 }
-void honey_backpack_chart(QPainter& p,QRectF plot,const Report& report) {
+void honey_backpack_chart(QPainter& p,QRectF plot,const Report& report,const Palette& colors) {
     double low=0,high=1; bool honey=false,backpack=false;
     for (const auto& point:report.honey.rates) if (point.percent && std::isfinite(*point.percent)) {
         low=std::min(low,*point.percent); high=std::max(high,*point.percent); honey=true;
@@ -92,17 +129,17 @@ void honey_backpack_chart(QPainter& p,QRectF plot,const Report& report) {
     high=std::ceil(high/magnitude)*magnitude;
     for (int i=0;i<3;++i) {
         const auto y=plot.top()+i*plot.height()/2;
-        p.setPen(QColor("#435c66")); p.drawLine(QPointF(plot.left(),y),QPointF(plot.right(),y));
-        text(p,{plot.left()-48,y-9,40,18},QString::number(100-i*50)+"%",11,accent(0),false,Qt::AlignRight|Qt::AlignVCenter);
-        if (honey) text(p,{plot.right()+8,y-9,48,18},amount(high-i*(high-low)/2),11,accent(1));
+        p.setPen(colors.grid); p.drawLine(QPointF(plot.left(),y),QPointF(plot.right(),y));
+        text(p,{plot.left()-48,y-9,40,18},QString::number(100-i*50)+"%",11,accent(0,colors),false,Qt::AlignRight|Qt::AlignVCenter);
+        if (honey) text(p,{plot.right()+8,y-9,48,18},amount(high-i*(high-low)/2),11,accent(1,colors));
     }
     for (int i=1;i<4;++i) {
         const auto x=plot.left()+plot.width()*i/4;
-        p.setPen(QPen(QColor("#3d5660"),1,Qt::DashLine)); p.drawLine(QPointF(x,plot.top()),QPointF(x,plot.bottom()));
+        p.setPen(QPen(colors.grid_vertical,1,Qt::DashLine)); p.drawLine(QPointF(x,plot.top()),QPointF(x,plot.bottom()));
     }
     p.save(); p.setClipRect(plot); p.setPen(Qt::NoPen); p.setRenderHint(QPainter::Antialiasing,false);
     QLinearGradient fill(plot.topLeft(),plot.bottomLeft());
-    fill.setColorAt(0,QColor("#e9be6b")); fill.setColorAt(1,QColor("#857043")); p.setBrush(fill);
+    fill.setColorAt(0,accent(1,colors)); fill.setColorAt(1,colors.ink(QColor("#857043"))); p.setBrush(fill);
     qint64 previous=0;
     for (const auto& point:report.honey.rates) {
         const auto elapsed=point.at-previous; previous=point.at;
@@ -113,12 +150,12 @@ void honey_backpack_chart(QPainter& p,QRectF plot,const Report& report) {
         p.drawRect(QRectF(x-width,plot.bottom()-height,width,height));
     }
     p.restore();
-    plot_line(p,plot,report.trend,report.window_ms,0,100,accent(0));
-    if (!honey && !backpack) text(p,plot,"Waiting for readings",15,QColor("#8ba3ac"),false,Qt::AlignCenter);
+    plot_line(p,plot,report.trend,report.window_ms,0,100,accent(0,colors));
+    if (!honey && !backpack) text(p,plot,"Waiting for readings",15,colors.subtle,false,Qt::AlignCenter);
 }
-void gauge_sparkline(QPainter& p,QRectF plot,const QList<Sample>& samples,qint64 window,QColor color,std::optional<double> floor) {
+void gauge_sparkline(QPainter& p,QRectF plot,const QList<Sample>& samples,qint64 window,QColor color,std::optional<double> floor,const Palette& colors) {
     if (floor) {
-        p.setPen(QPen(QColor("#d59c87"),1,Qt::DashLine)); const auto y=plot.bottom()-plot.height()*std::clamp(*floor,0.,100.)/100;
+        p.setPen(QPen(colors.ink(QColor("#d59c87")),1,Qt::DashLine)); const auto y=plot.bottom()-plot.height()*std::clamp(*floor,0.,100.)/100;
         p.drawLine(QPointF(plot.left(),y),QPointF(plot.right(),y));
     }
     plot_line(p,plot,samples,window,0,100,color);
@@ -161,9 +198,11 @@ QList<BuffRow> buff_rows(const QList<const GaugeHistory*>& buffs,double top,int 
         if (row==rows.end()) rows.append({{trace}});
         else row->traces.append(trace);
     }
+    for (auto& row:rows)
+        for (const auto* trace:row.traces) row.ceiling=std::max(row.ceiling,buff_ceiling(*trace));
+    std::stable_partition(rows.begin(),rows.end(),[](const auto& row) { return row.ceiling!=1; });
     for (auto& row:rows) {
         row.top=top;
-        for (const auto* trace:row.traces) row.ceiling=std::max(row.ceiling,buff_ceiling(*trace));
         row.height=row.ceiling==1?40:row.traces.front()->current.level->maximum>10?66:58;
         row.height=std::max(row.height,14.*row.traces.size()+16);
         if (row.ceiling>1) row.height=std::max(row.height*std::clamp(height,75,150)/100.,14.*row.traces.size()+34);
@@ -206,7 +245,7 @@ QRectF report_background_crop(QSize image,QSize report,const ReportAppearance& s
         (image.height()-crop.height())*position(style.background_y),crop.width(),crop.height()};
 }
 QImage render_report(const Report& report,const QImage* cached_background) {
-    constexpr int width=1000,margin=24,content=952,buffs_y=276;
+    constexpr int width=1000,margin=24,content=952,buffs_y=276,activity_height=16;
     const auto& snapshot=report.snapshot;
     const auto end=report.created.addMSecs(-report.window_age_ms);
     QList<const GaugeHistory*> buffs;
@@ -230,7 +269,7 @@ QImage render_report(const Report& report,const QImage* cached_background) {
     const int chart_bottom=rows.empty()?264:int(rows.back().top+std::max(36.,rows.back().height-18));
     const int buff_height=rows.empty()?32:chart_bottom-buffs_y+36;
     const int activity_y=buffs_y+buff_height+14;
-    const int details_y=activity_y+(style.activity?48:0);
+    const int details_y=activity_y+(style.activity?activity_height+42:0);
     QList<CounterResult> counts;
     for (const auto& section:snapshot.sections) for (auto count:summarize(report,section)) {
         if (!count.session && !count.period) continue;
@@ -264,8 +303,8 @@ QImage render_report(const Report& report,const QImage* cached_background) {
     p.fillRect(0,0,width,4,colors.heading);
     text(p,{margin,13,160,28},"AUREX",22,colors.heading,true);
     const auto period=end.addMSecs(-report.window_ms).toString("d MMM · HH:mm")+" – "+end.toString("HH:mm");
-    text(p,{195,15,420,24},period,14,QColor("#a1b7bd"));
-    text(p,{756,15,220,24},"Session "+duration(report.session_ms),14,QColor("#a1b7bd"),false,Qt::AlignRight|Qt::AlignVCenter);
+    text(p,{195,15,420,24},period,14,colors.muted);
+    text(p,{756,15,220,24},"Session "+duration(report.session_ms),14,colors.muted,false,Qt::AlignRight|Qt::AlignVCenter);
     const auto money=[](auto value) { return value?amount(double(*value)):QString("—"); };
     const auto gain=[&](auto value) { return value && *value>0?"+"+money(value):money(value); };
     card(p,{margin,50,content,70},colors);
@@ -273,34 +312,34 @@ QImage render_report(const Report& report,const QImage* cached_background) {
     const QStringList values{money(report.honey.hourly),money(report.honey.current),gain(report.honey.period),gain(report.honey.session)};
     for (int i=0;i<4;++i) {
         const double x=margin+18+i*content/4.;
-        text(p,{x,57,220,21},labels[i],13,QColor("#a1b7bd"));
-        text(p,{x,80,220,32},values[i],29,i==0?accent(1):i==2?accent(report.honey.period && *report.honey.period<0?4:0):QColor("#e6eeee"),true);
+        text(p,{x,57,220,21},labels[i],13,colors.muted);
+        text(p,{x,80,220,32},values[i],29,i==0?accent(1,colors):i==2?accent(report.honey.period && *report.honey.period<0?4:0,colors):colors.foreground,true);
     }
     card(p,{margin,132,content,double(buffs_y+buff_height-132)},colors);
     for (int i=0;i<2;++i) {
         const double x=40+i*122;
         if (i) {
-            p.fillRect(QRectF(x,148,3,8),accent(i)); p.fillRect(QRectF(x+5,144,3,12),accent(i)); p.fillRect(QRectF(x+10,150,3,6),accent(i));
-        } else { p.setPen(QPen(accent(i),2)); p.drawLine(QPointF(x,152),QPointF(x+16,152)); }
-        text(p,{x+23,141,130,22},i?"Honey / sec":"Backpack",12,accent(i));
+            p.fillRect(QRectF(x,148,3,8),accent(i,colors)); p.fillRect(QRectF(x+5,144,3,12),accent(i,colors)); p.fillRect(QRectF(x+10,150,3,6),accent(i,colors));
+        } else { p.setPen(QPen(accent(i,colors),2)); p.drawLine(QPointF(x,152),QPointF(x+16,152)); }
+        text(p,{x+23,141,130,22},i?"Honey / sec":"Backpack",12,accent(i,colors));
     }
-    honey_backpack_chart(p,{plot_left,174,plot_width,90},report);
+    honey_backpack_chart(p,{plot_left,174,plot_width,90},report,colors);
     qint64 total=0; for (const auto& activity:report.activities) total+=activity.milliseconds;
-    const QRectF activity_bar(margin,activity_y,content,6); if (style.activity) bar(p,activity_bar,{},{});
+    const QRectF activity_bar(margin,activity_y,content,activity_height); if (style.activity) bar(p,activity_bar,{},{},colors);
     if (total && style.activity) {
-        double x=activity_bar.x(); p.save(); QPainterPath clip; clip.addRoundedRect(activity_bar,3,3); p.setClipPath(clip);
-        for (int i=0;i<report.activities.size();++i) { const auto part=activity_bar.width()*report.activities[i].milliseconds/total; p.fillRect(QRectF(x,activity_bar.y(),part,6),accent(i)); x+=part; }
+        double x=activity_bar.x(); p.save(); QPainterPath clip; clip.addRoundedRect(activity_bar,activity_height/2.,activity_height/2.); p.setClipPath(clip);
+        for (int i=0;i<report.activities.size();++i) { const auto part=activity_bar.width()*report.activities[i].milliseconds/total; p.fillRect(QRectF(x,activity_bar.y(),part,activity_height),accent(i,colors)); x+=part; }
         p.restore();
         const int shown=std::min(6,int(report.activities.size())); const double cell=double(content)/std::max(1,shown);
         for (int i=0;i<shown;++i) {
             const auto& activity=report.activities[i];
-            text(p,{margin+i*cell,double(activity_y+12),cell-8,20},activity.name+" "+QString::number(std::lround(100.*activity.milliseconds/total))+"%",12,accent(i),true);
+            text(p,{margin+i*cell,double(activity_y+activity_height+6),cell-8,20},activity.name+" "+QString::number(std::lround(100.*activity.milliseconds/total))+"%",12,accent(i,colors),true);
         }
     }
     if (!rows.empty()) {
-        p.setPen(QColor("#2a3c43")); p.drawLine(QPointF(40,buffs_y),QPointF(960,buffs_y));
-        text(p,{878,buffs_y+2,36,18},"Scale",10,QColor("#8ba3ac"),false,Qt::AlignRight|Qt::AlignVCenter);
-        text(p,{906,buffs_y+2,54,18},"Uptime",10,QColor("#8ba3ac"),false,Qt::AlignRight|Qt::AlignVCenter);
+        p.setPen(colors.divider); p.drawLine(QPointF(40,buffs_y),QPointF(960,buffs_y));
+        text(p,{878,buffs_y+2,36,18},"Scale",10,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
+        text(p,{906,buffs_y+2,54,18},"Uptime",10,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
     }
     const auto uptime=[&](const GaugeHistory& trace) {
         const bool incomplete=report.window_ms && trace.observed_ms<report.window_ms*9/10;
@@ -315,17 +354,17 @@ QImage render_report(const Report& report,const QImage* cached_background) {
         for (int grid=0;grid<3;++grid) {
             if (binary && grid==1) continue;
             const auto gy=plot.top()+grid*plot.height()/2;
-            p.setPen(QPen(QColor(grid==1?"#364e58":"#435c66"),1));
+            p.setPen(QPen((grid==1?colors.grid_secondary:colors.grid),1));
             p.drawLine(QPointF(plot.left(),gy),QPointF(plot.right(),gy));
         }
         for (int tick=1;tick<4;++tick) {
             const auto x=plot.left()+plot.width()*tick/4;
-            p.setPen(QPen(QColor("#3d5660"),1,Qt::DashLine)); p.drawLine(QPointF(x,plot.top()),QPointF(x,plot.bottom()));
+            p.setPen(QPen(colors.grid_vertical,1,Qt::DashLine)); p.drawLine(QPointF(x,plot.top()),QPointF(x,plot.bottom()));
         }
         bool observed=false;
         for (qsizetype j=0;j<row.traces.size();++j) {
             const auto& trace=*row.traces[j];
-            const auto color=trace.current.color.isValid()?trace.current.color:accent(i+j);
+            const auto color=trace.current.color.isValid()?colors.ink(trace.current.color):accent(i+j,colors);
             if (binary) activity_strip(p,plot,trace.samples,report.window_ms,color);
             else plot_line(p,plot,trace.samples,report.window_ms,0,high,color,&Sample::level);
             observed|=trace.peak.has_value();
@@ -341,13 +380,13 @@ QImage render_report(const Report& report,const QImage* cached_background) {
             }
             text(p,{916,grouped?center-7*row.traces.size()+14*j:center-18,44,grouped?14.:36.},
                 (grouped?trace.current.name.left(1)+" ":QString{})+uptime(trace),grouped?10:12,
-                grouped?color:QColor("#a1b7bd"),true,Qt::AlignRight|Qt::AlignVCenter);
+                grouped?color:colors.muted,true,Qt::AlignRight|Qt::AlignVCenter);
         }
-        const auto scale_color=!grouped && row.traces.front()->current.color.isValid()?row.traces.front()->current.color:QColor("#a1b7bd");
+        const auto scale_color=!grouped && row.traces.front()->current.color.isValid()?colors.ink(row.traces.front()->current.color):colors.muted;
         text(p,{884,plot.top()-9,30,18},binary?"On":"×"+QString::number(high,'g',3),11,scale_color);
-        if (!observed) text(p,plot,"Waiting for readings",11,QColor("#8ba3ac"),false,Qt::AlignCenter);
+        if (!observed) text(p,plot,"Waiting for readings",11,colors.subtle,false,Qt::AlignCenter);
     }
-    time_axis(p,{plot_left,double(chart_bottom)-26,plot_width,26},report.window_ms,end);
+    time_axis(p,{plot_left,double(chart_bottom)-26,plot_width,26},report.window_ms,end,colors);
     const int columns=(nectar_rows?1:0)+(!panels.empty()?1:0)+(shown?1:0);
     const double detail_width=columns?(content-12.*(columns-1))/columns:content;
     const double panel_x=margin+(nectar_rows?detail_width+12:0);
@@ -355,12 +394,12 @@ QImage render_report(const Report& report,const QImage* cached_background) {
     int side_y=details_y;
     if (nectar_rows) {
         card(p,{margin,double(side_y),detail_width,double(nectar_height)},colors);
-        text(p,{40,double(side_y+8),detail_width-32,24},"Nectar",15,QColor("#dce8e9"),true);
+        text(p,{40,double(side_y+8),detail_width-32,24},"Nectar",15,colors.foreground,true);
         for (int i=0;i<nectar_rows;++i) {
             const auto& trace=report.nectar[i]; const auto& gauge=trace.current; const double y=side_y+36+i*29;
-            const auto color=gauge.color.isValid()?gauge.color:accent(i);
-            text(p,{40,y,106,23},gauge.name,13,QColor("#a1b7bd"));
-            gauge_sparkline(p,{151,y+4,std::max(30.,detail_width-202),14},trace.samples,report.window_ms,color,gauge.floor);
+            const auto color=gauge.color.isValid()?colors.ink(gauge.color):accent(i,colors);
+            text(p,{40,y,106,23},gauge.name,13,colors.muted);
+            gauge_sparkline(p,{151,y+4,std::max(30.,detail_width-202),14},trace.samples,report.window_ms,color,gauge.floor,colors);
             text(p,{margin+detail_width-67,y,51,23},gauge.percent?QString::number(*gauge.percent,'f',0)+"%":"—",16,color,true,Qt::AlignRight|Qt::AlignVCenter);
         }
     }
@@ -368,28 +407,28 @@ QImage render_report(const Report& report,const QImage* cached_background) {
         QList<Metric> metrics; for (const auto& metric:section->metrics) if (metric.progress && metrics.size()<6) metrics.append(metric);
         const int height=34+metrics.size()*43;
         card(p,{panel_x,double(side_y),detail_width,double(height)},colors);
-        text(p,{panel_x+16,double(side_y+7),detail_width-32,24},section->name,15,QColor("#dce8e9"),true);
+        text(p,{panel_x+16,double(side_y+7),detail_width-32,24},section->name,15,colors.foreground,true);
         for (int i=0;i<metrics.size();++i) {
             const auto& metric=metrics[i]; const double y=side_y+35+i*43;
-            text(p,{panel_x+16,y,106,20},metric.label,13,QColor("#a1b7bd"));
-            text(p,{panel_x+128,y,detail_width-144,20},metric.value,13,QColor("#e6eeee"),true,Qt::AlignRight|Qt::AlignVCenter);
-            bar(p,{panel_x+16,y+26,detail_width-32,4},metric.progress,metric.color.isValid()?metric.color:accent(i));
+            text(p,{panel_x+16,y,106,20},metric.label,13,colors.muted);
+            text(p,{panel_x+128,y,detail_width-144,20},metric.value,13,colors.foreground,true,Qt::AlignRight|Qt::AlignVCenter);
+            bar(p,{panel_x+16,y+26,detail_width-32,4},metric.progress,metric.color.isValid()?colors.ink(metric.color):accent(i,colors),colors);
         }
         side_y+=height+12;
     }
     if (shown) {
         card(p,{totals_x,double(details_y),detail_width,double(stats_height)},colors);
-        text(p,{totals_x+16,double(details_y+7),detail_width-164,22},"Totals",15,QColor("#dce8e9"),true);
-        text(p,{totals_x+detail_width-139,double(details_y+9),58,20},duration(report.window_ms),11,QColor("#8ba3ac"),false,Qt::AlignRight|Qt::AlignVCenter);
-        text(p,{totals_x+detail_width-74,double(details_y+9),58,20},"Session",11,QColor("#8ba3ac"),false,Qt::AlignRight|Qt::AlignVCenter);
+        text(p,{totals_x+16,double(details_y+7),detail_width-164,22},"Totals",15,colors.foreground,true);
+        text(p,{totals_x+detail_width-139,double(details_y+9),58,20},duration(report.window_ms),11,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
+        text(p,{totals_x+detail_width-74,double(details_y+9),58,20},"Session",11,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
         for (int i=0;i<shown;++i) {
             const auto& count=counts[i]; const double y=details_y+32+i*22;
-            text(p,{totals_x+16,y,detail_width-162,20},count.label,12,QColor("#a1b7bd"));
-            text(p,{totals_x+detail_width-139,y,58,20},amount(double(count.period)),13,QColor("#dce8e9"),true,Qt::AlignRight|Qt::AlignVCenter);
-            text(p,{totals_x+detail_width-74,y,58,20},amount(double(count.session)),12,QColor("#8ba3ac"),false,Qt::AlignRight|Qt::AlignVCenter);
+            text(p,{totals_x+16,y,detail_width-162,20},count.label,12,colors.muted);
+            text(p,{totals_x+detail_width-139,y,58,20},amount(double(count.period)),13,colors.foreground,true,Qt::AlignRight|Qt::AlignVCenter);
+            text(p,{totals_x+detail_width-74,y,58,20},amount(double(count.session)),12,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
         }
     }
-    if (!notes.empty()) text(p,{margin,double(bottom+3),content,20},notes.join("   ·   "),11,QColor("#7f99a3"));
+    if (!notes.empty()) text(p,{margin,double(bottom+3),content,20},notes.join("   ·   "),11,colors.subtle);
     return image;
 }
 }

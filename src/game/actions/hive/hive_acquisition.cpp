@@ -72,8 +72,8 @@ class AcquireHive final : public Program {
     bool verify_spawn_{},reset_at_spawn_{};
     unsigned resets_{};
     Observation<bool> spawn_camera_;
-    void reserve_reset() {
-        if (resets_>=2) throw ClientRejoinRequired("Hive position could not be confirmed after retrying resets; rejoining Bee Swarm");
+    void reserve_reset(const std::string& reason="Hive position could not be confirmed after retrying resets") {
+        if (resets_>=2) throw ClientRejoinRequired(reason+"; rejoining Bee Swarm");
         ++resets_;
     }
     void observe(Time now) {
@@ -100,7 +100,7 @@ class AcquireHive final : public Program {
             const auto guard=child_guard_->evaluate(local,child_started_);
             if (guard.state==GuardState::waiting) {
                 if (!child_running_ && view.context.now-child_started_>=Time(10000)) {
-                    if (stage_==Stage::prepare) return recover(view);
+                    if (stage_==Stage::prepare) return recover(view,"Your hive prompt was not visible after respawn");
                     throw ObservationUnavailable("Hive setup prerequisite was not confirmed");
                 }
                 return Wait{Time(50),guard.message};
@@ -109,7 +109,7 @@ class AcquireHive final : public Program {
         }
         if (!child_running_) child_running_=view.elapsed;
         if (local.elapsed>=child_->config().duration) {
-            if (stage_==Stage::prepare) return options_.recovery?recover(view):Step(Defer{"Hive camera alignment timed out; departure skipped"});
+            if (stage_==Stage::prepare) return options_.recovery?recover(view,"Hive camera alignment timed out"):Step(Defer{"Hive camera alignment timed out; departure skipped"});
             if (stage_==Stage::recover) throw ClientRejoinRequired("Hive reset timed out; rejoining Bee Swarm");
             throw ObservationUnavailable("Hive setup phase timed out");
         }
@@ -118,7 +118,7 @@ class AcquireHive final : public Program {
         catch (const HiveAlignmentError& error) {
             if (stage_!=Stage::prepare) throw;
             // Reset restores a reproducible view before considering a rejoin.
-            return options_.recovery?recover(view):Step(Defer{std::string(error.what())+"; departure skipped"});
+            return options_.recovery?recover(view,error.what()):Step(Defer{std::string(error.what())+"; departure skipped"});
         }
         catch (const ObservationUnavailable&) {
             if (stage_!=Stage::claim || !recovered_) throw;
@@ -192,15 +192,15 @@ public:
             return reason==Interruption::death?wait_for_respawn(source,result):request_respawn(source,result);
         };
     }
-    Step recover(const View& view) {
+    Step recover(const View& view,const std::string& reason="Hive position was not confirmed after respawn") {
         if (!options_.recovery) throw ObservationUnavailable("Hive position could not be found");
-        reserve_reset();
+        reserve_reset(reason);
         // A stationary direction survey cannot lose a known unclaimed spawn.
         // Once claiming/preparation has moved us, location must be established again.
         reset_at_spawn_=options_.confirmed_spawn && stage_!=Stage::claim && stage_!=Stage::prepare;
         if (options_.result) options_.result->begin_preparation(view.context);
         begin(Stage::recover,view);
-        if (resets_>1) return ReportActivity{{"Retrying reset","Hive position was not confirmed after respawn",ActivityKind::diagnostic}};
+        if (resets_>1) return ReportActivity{{"Retrying reset",reason,ActivityKind::diagnostic}};
         return child_step(view);
     }
     Step prepare_owned(const View& view,const Observation<bool>& owned) {
@@ -258,6 +258,12 @@ public:
         case Stage::turn: return MoveCamera{{Key::rotate_right,4}};
         case Stage::oriented: return AdoptHeading{0,spawn_heading_};
         case Stage::locate: {
+            // The reset workflow may have just confirmed this arrival. Its
+            // capture predates this phase's start, but remains valid evidence;
+            // do not wait for an identical second OCR result before aligning.
+            if (reset_result_ && reset_result_->transition.has_value(c,Time::max()) && reset_result_->transition.value
+                && reset_result_->at_hive.has_value(c,Time(2000)) && reset_result_->at_hive.value)
+                return prepare_owned(view,reset_result_->at_hive);
             // Missing the death frame does not imply an unclaimed spawn. A
             // fresh owned-hive prompt can enter camera alignment; its visual
             // reference must still succeed before any departure is allowed.
@@ -308,7 +314,10 @@ public:
                 const bool revived=reset_result_ && reset_result_->transition.has_value(c,Time::max())
                     && reset_result_->transition.value && state.alive.has_value(c,Time(2000),minimum_) && state.alive.value
                     && state.game_hud.has_value(c,Time(2000),minimum_) && state.game_hud.value;
-                if (!revived) away_since_=Time(-1);
+                const auto hive=options_.result?options_.result->read(c,view.observations):std::nullopt;
+                // A short gap while the owned hive loads is not an unclaimed
+                // spawn. Keep the existing prompt allowance for known owners.
+                if (!revived || (hive && hive->claimed_slot)) away_since_=Time(-1);
                 else if (away_since_<Time{}) away_since_=text.captured;
                 else if (text.captured-away_since_>=Time(300)) return locate_unknown(view);
                 return wait_for_prompt();

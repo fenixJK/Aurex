@@ -28,7 +28,7 @@ return {
             for _, move in ipairs(moves) do walk(move[1], move[2], move[3]) end
         end
         local function camera(key, count, settle)
-            steps[#steps + 1] = {kind = 'camera', key = key, steps = count}
+            steps[#steps + 1] = {kind = 'camera', key = key, steps = count, input = 'tapped'}
             pause(settle or 35)
         end
         for repetition = 1, (settings.repetitions or 1) do

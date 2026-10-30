@@ -178,7 +178,7 @@ public:
         default: break;
         }
     }
-    void finished(State state) override { if (result_ && state!=State::completed) result_->reset(); }
+    void finished(State state) override { if (result_ && state!=State::completed) result_->invalidate_camera(); }
 };
 }
 std::unique_ptr<Program> prepare_hive_view(std::shared_ptr<const game::LandmarkSource> reference,

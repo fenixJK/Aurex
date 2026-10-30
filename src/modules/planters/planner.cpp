@@ -105,6 +105,8 @@ void validate_configuration(std::span<const Group> groups,std::span<const Active
     std::set<Nectar> nectars;
     for (const auto& g : groups) {
         number(g.current,0,100); target(g.target); validate_events(g.pending);
+        number(g.max_growth_seconds,0,86400);
+        if (g.max_growth_seconds>0 && g.max_growth_seconds<1) throw std::invalid_argument("Invalid maximum planter growth time");
         if (!g.current_known && g.current!=0) throw std::invalid_argument("Unknown nectar must use its conservative lower bound");
         if (g.nectar<Nectar::comforting || g.nectar>Nectar::invigorating || g.phase<Phase::build || g.phase>Phase::recover
             || !nectars.insert(g.nectar).second || g.candidates.size()>512 || g.priority<0 || g.priority>100)
@@ -158,6 +160,7 @@ std::vector<Assignment> assign(std::span<const Group> groups,std::span<const Act
             for (const auto& e : ordered) if (e.seconds>delay) later.push_back({e.seconds-delay,e.amount});
             auto growth=interval_sorted(at_place,later,c.stats.rate(),c.stats.full_seconds,g.target,!g.current_known || g.phase==Phase::build,c.travel.learned?0:c.travel.seconds);
             growth=std::max(growth,c.travel.seconds);
+            if (g.max_growth_seconds>0) growth=std::min(growth,g.max_growth_seconds);
             const auto ready=delay+growth;
             const auto amount=c.stats.rate()*std::min(growth,c.stats.full_seconds);
             Assignment choice{c.stats,g.current_known?g.phase:Phase::build,growth,ready,std::min(amount,100-forecast_sorted(g.current,ordered,ready))};

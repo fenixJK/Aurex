@@ -18,7 +18,7 @@ void plant_valid(const Plant& plant) {
         || plant.due.time_since_epoch()>Time::max()-std::chrono::hours(24)
         || plant.offline<Time{} || plant.offline>Time::max()-plant.due.time_since_epoch()-std::chrono::hours(24)
         || plant.due<=plant.placed || plant.due-plant.placed<Time(1000) || plant.due-plant.placed>std::chrono::hours(24)
-        || (plant.phase==Phase::build && (plant.due-plant.placed).count()<std::round(s.full_seconds)*1000)) throw std::invalid_argument("Invalid saved planter");
+        || (!plant.material.empty() && (plant.due-plant.placed).count()<std::round(s.full_seconds)*1000)) throw std::invalid_argument("Invalid saved planter");
     if (plant.growth && (plant.growth->observed<plant.placed || plant.growth->observed.time_since_epoch()>Time::max()-std::chrono::hours(24)
         || plant.growth->offline<Time{} || plant.growth->offline>plant.offline
         || !std::isfinite(plant.growth->fraction) || plant.growth->fraction<0 || plant.growth->fraction>1))
@@ -46,7 +46,11 @@ void wall_valid(WallTime wall) {
 }
 double harvest_fraction(const Plant& plant) {
     plant_valid(plant);
-    return plant.phase==Phase::build?1.0:std::min(1.0,(plant.due-plant.placed).count()/(plant.stats.full_seconds*1000));
+    const auto seconds=(plant.due-plant.placed).count()/1000.0;
+    // Phase describes nectar buildup, not a full-growth harvest requirement.
+    // Full intervals are rounded to whole seconds by the planner.
+    return plant.phase==Phase::build && seconds>=std::round(plant.stats.full_seconds)
+        ?1.0:std::min(1.0,seconds/plant.stats.full_seconds);
 }
 double harvest_minimum_fraction(const Plant& plant) {
     const auto target=harvest_fraction(plant);
@@ -163,7 +167,7 @@ std::uint64_t Controller::place(const Assignment& a,const ObservationContext& c,
     if (occupied.size()>=placement_capacity(ledger_.placement_limits,capacity_) || ledger_.placement_limits.occupied_fields.contains(a.stats.field)
         || ledger_.next_ticket==std::numeric_limits<std::uint64_t>::max())
         throw std::runtime_error("No planter capacity or action tickets available");
-    if (!std::isfinite(a.growth) || a.growth<1 || a.growth>86400 || (a.phase==Phase::build && a.growth<std::round(a.stats.full_seconds)))
+    if (!std::isfinite(a.growth) || a.growth<1 || a.growth>86400 || (!a.material.empty() && a.growth<std::round(a.stats.full_seconds)))
         throw std::invalid_argument("Invalid placement growth intent");
     const auto id=identity(a.stats);
     for (const auto& existing : occupied) {

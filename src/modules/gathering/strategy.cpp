@@ -126,6 +126,7 @@ public:
             auto turn=game::heading_move(0,game::turned_heading(0,camera->movement));
             if (!turn) return Wait{Time(1),"Facing unchanged"};
             turn->press=camera->movement.press; turn->release=camera->movement.release;
+            turn->input=camera->movement.input;
             control_->turning=*turn; return MoveCamera{*turn};
         } else if (const auto* done=std::get_if<Done>(&step)) {
             control_->stopping=true; control_->reason=done->reason; return finish();
