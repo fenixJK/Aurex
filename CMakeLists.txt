@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(Aurex VERSION 0.4.2 LANGUAGES C CXX)
+project(Aurex VERSION 0.4.3 LANGUAGES C CXX)
 set(AUREX_VERSION_SUFFIX "" CACHE STRING "Optional preview suffix, for example -beta.1")
 if(NOT AUREX_VERSION_SUFFIX STREQUAL "" AND NOT AUREX_VERSION_SUFFIX MATCHES "^-(alpha|beta|rc)(\\.(0|[1-9][0-9]*))?$")
   message(FATAL_ERROR "Use a preview suffix such as -beta.1, or leave AUREX_VERSION_SUFFIX empty for a stable build")
