@@ -2,6 +2,7 @@
 #include "bundled_files.hpp"
 #include "game/movement/camera.hpp"
 #include "runtime.hpp"
+#include "camera_options.hpp"
 #include "bundled_movement.hpp"
 #include <fstream>
 #include <array>
@@ -117,8 +118,7 @@ game::CameraMove camera_move(lua_State* s,int i) {
     field(s,i,"key"); const auto direction=key(s,-1); lua_pop(s,1);
     const auto count=number(s,i,"count",2,1,8); if (std::floor(count)!=count) throw std::runtime_error("Invalid turn count");
     game::CameraMove move{direction,static_cast<unsigned>(count)};
-    move.press=ms(s,i,"press",move.press); move.release=ms(s,i,"release",move.release);
-    game::camera_actions(move); return move;
+    scripting::detail::camera_options(s,i,move); return move;
 }
 Action action(lua_State* s,int i) {
     Action result{text(s,i,"label","Movement"),keys(s,i,"keys"),ms(s,i,"ms",Time(0),Time(5000)),{}};
@@ -140,9 +140,8 @@ workflows::CheckpointPlan checkpoint(lua_State* s,int i,double speed) {
         double distance=0; for (const auto& l:p.path) distance+=l.tiles;
         p.timeout=Time(static_cast<Time::rep>(std::ceil(distance*4000/speed)))+Time(5000);
     } else if (kind=="turn") {
-        const auto timing=camera_move(s,i);
-        p.camera_settle=timing.release; p.attempts=0; p.completion=workflows::CheckpointCompletion::movement;
-        for (unsigned n=0;n<timing.steps;++n) p.approach.push_back({"Route turn",{timing.key},timing.press,{}});
+        p.camera=camera_move(s,i);
+        p.attempts=0; p.completion=workflows::CheckpointCompletion::movement;
     } else if (kind=="motion") {
         p.continuous=true; p.attempts=0; p.completion=workflows::CheckpointCompletion::movement; p.timeout=Time(5000); p.speed=speed;
         field(s,i,"steps");

@@ -3,6 +3,7 @@
 #include "game/actions/hive/hive_setup.hpp"
 #include <limits>
 #include "runtime.hpp"
+#include "camera_options.hpp"
 extern "C" {
 #include <lua.h>
 #include <lauxlib.h>
@@ -296,12 +297,7 @@ Step step_value(lua_State* state,double speed) {
         const auto steps=number_field(state,-1,"steps",1,32);
         if (steps!=std::floor(steps)) throw std::runtime_error("Camera steps must be a whole number");
         MoveCamera result{{key(string_field(state,-1,"key")),static_cast<std::size_t>(steps)}};
-        if (has_field(state,-1,"input")) {
-            const auto input=string_field(state,-1,"input");
-            if (input!="held" && input!="tapped") throw std::runtime_error("Camera input must be held or tapped");
-            result.movement.input=input=="tapped"?game::CameraInput::tapped:game::CameraInput::held;
-        }
-        game::camera_actions(result.movement);
+        detail::camera_options(state,-1,result.movement);
         return result;
     }
     if (kind=="convert") return Convert{false,has_field(state,-1,"after_gather") && boolean_field(state,-1,"after_gather")};

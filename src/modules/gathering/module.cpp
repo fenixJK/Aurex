@@ -155,8 +155,7 @@ public:
                 const auto prefix=field_prefix(field.preference.field)+"-";
                 const auto& facing=std::get<std::string>(settings.at(prefix+"facing"));
                 const auto heading=static_cast<unsigned>(std::find(facings.begin(),facings.end(),facing)-facings.begin());
-                auto rotation=game::heading_move(0,heading);
-                if (rotation && field.rotation) { rotation->press=field.rotation->press; rotation->release=field.rotation->release; }
+                auto rotation=game::heading_move(0,heading,field.rotation.value_or(game::CameraMove{}));
                 field.rotation=rotation;
                 field.shift_lock=boolean(settings,prefix+"shift-lock");
                 field.extend_while=std::get<SettingSelection>(settings.at(prefix+"extend-while"));

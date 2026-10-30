@@ -1,6 +1,7 @@
 #pragma once
 #include "core/runtime/tasks.hpp"
 #include "game/movement/movement.hpp"
+#include "game/movement/camera.hpp"
 #include <variant>
 
 namespace hive::workflows {
@@ -12,7 +13,7 @@ struct CheckpointPlan {
     std::vector<Action> approach, nudge;
     Time timeout{10000}, observation_age{1000};
     std::size_t attempts{3};
-    Time camera_settle{150};
+    Time camera_settle{game::camera_settle(game::CameraFinish::observation)};
     std::vector<game::WalkLeg> path;
     double speed{28};
     std::vector<game::WalkLeg> nudge_path;
@@ -23,6 +24,7 @@ struct CheckpointPlan {
     Time minimum_duration{};
     std::string observation_scope;
     std::vector<Action> launch_prepare;
+    std::optional<game::CameraMove> camera;
 };
 void validate(const CheckpointPlan& plan);
 bool uses_camera(const CheckpointPlan& plan);

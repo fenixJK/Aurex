@@ -294,8 +294,7 @@ public:
             if (next_setup_<field.setup.size()) { phase(Phase::preparing); return field.setup[next_setup_++]; }
             stage_=Stage::rotated;
             if (field.rotation) {
-                if (auto rotate=game::heading_move(0,game::turned_heading(0,*field.rotation))) {
-                    rotate->press=field.rotation->press; rotate->release=field.rotation->release;
+                if (auto rotate=game::heading_move(0,game::turned_heading(0,*field.rotation),*field.rotation)) {
                     phase(Phase::preparing); return automation::MoveCamera{*rotate};
                 }
             }
@@ -336,8 +335,7 @@ public:
         if (stage_==Stage::pattern_restored) {
             stage_=Stage::restored; phase(Phase::returning);
             if (const auto& rotation=plan_.fields[selected_].rotation) {
-                if (auto restore=game::heading_move(game::turned_heading(0,*rotation),0)) {
-                    restore->press=rotation->press; restore->release=rotation->release;
+                if (auto restore=game::heading_move(game::turned_heading(0,*rotation),0,*rotation)) {
                     return automation::MoveCamera{*restore};
                 }
             }

@@ -81,8 +81,9 @@ public:
         // Allow an in-flight camera operation (32 taps at the accepted maximum
         // 200/250 ms timing) to finish, then restore pitch with normal taps.
         // This is only a deadline allowance; the guard stops gathering on time.
-        const game::CameraMove restore;
-        const auto cleanup=(Time(200)+Time(250)+restore.press+restore.release)*32;
+        const auto cleanup=game::camera_duration({Key::pitch_up,32,game::CameraInput::held,
+            game::CameraFinish::geometry,game::CameraHold{Time(200),Time(250)}})
+            +game::camera_duration({Key::pitch_down,32});
         result.duration=std::min(limits_.duration+extension_.limit+Time(2500)+cleanup,Time(std::chrono::hours(8)));
         return result;
     }
@@ -123,10 +124,8 @@ public:
             }
             if (camera->movement.key!=Key::rotate_left && camera->movement.key!=Key::rotate_right)
                 throw std::invalid_argument("Patterns can turn facing or pitch but cannot change zoom");
-            auto turn=game::heading_move(0,game::turned_heading(0,camera->movement));
+            auto turn=game::heading_move(0,game::turned_heading(0,camera->movement),camera->movement);
             if (!turn) return Wait{Time(1),"Facing unchanged"};
-            turn->press=camera->movement.press; turn->release=camera->movement.release;
-            turn->input=camera->movement.input;
             control_->turning=*turn; return MoveCamera{*turn};
         } else if (const auto* done=std::get_if<Done>(&step)) {
             control_->stopping=true; control_->reason=done->reason; return finish();

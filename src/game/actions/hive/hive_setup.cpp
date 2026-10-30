@@ -100,7 +100,7 @@ class PrepareHiveView final : public Program {
     bool started_{};
     HiveCameraStart camera_start_;
     void observe(Time finished) {
-        stage_=Stage::observe; minimum_=finished+Time(150); seen_=Time(-1);
+        stage_=Stage::observe; minimum_=finished+Time(1); seen_=Time(-1);
     }
 public:
     PrepareHiveView(std::shared_ptr<const game::LandmarkSource> reference,std::shared_ptr<const game::LandmarkSource> proximity,
@@ -128,9 +128,10 @@ public:
         case Stage::unlock: return RunProgram{[] { return set_shift_lock(false); }};
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
         case Stage::pitch_limit: return MoveCamera{hive_overhead_move(camera_start_)};
-        case Stage::pitch: return MoveCamera{{Key::pitch_down,4}};
-        case Stage::turn: return MoveCamera{{Key::rotate_right,turns_==0?4u:turns_==4?2u:1u,Time(100),Time(50)}};
-        case Stage::lower: return MoveCamera{{Key::pitch_down,1}};
+        case Stage::pitch: return MoveCamera{{Key::pitch_down,4,game::CameraInput::automatic,game::CameraFinish::observation}};
+        case Stage::turn: return MoveCamera{{Key::rotate_right,turns_==0?4u:turns_==4?2u:1u,
+            game::CameraInput::automatic,game::CameraFinish::observation}};
+        case Stage::lower: return MoveCamera{{Key::pitch_down,1,game::CameraInput::automatic,game::CameraFinish::observation}};
         case Stage::raise: return MoveCamera{{Key::pitch_up,1}};
         case Stage::reference: return AdoptHeading{0,heading_};
         case Stage::restore: return MoveCamera{{Key::pitch_up,1}};

@@ -120,8 +120,12 @@ public:
         switch (stage_) {
         case Stage::unlock: return RunProgram{[] { return set_shift_lock(false); }};
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
-        case Stage::pitch: return MoveCamera{hive_overhead_move(camera_start_)};
-        case Stage::turn:
+        case Stage::pitch: {
+            auto move=hive_overhead_move(camera_start_);
+            if (!can_scan()) move.finish=game::CameraFinish::observation;
+            return MoveCamera{move};
+        }
+        case Stage::turn: return MoveCamera{{Key::rotate_right,4,game::CameraInput::automatic,game::CameraFinish::observation}};
         case Stage::restore: return MoveCamera{{Key::rotate_right,4}};
         case Stage::departure_pitch: return MoveCamera{{Key::pitch_down,4}};
         case Stage::departure_zoom: return MoveCamera{{Key::zoom_out,5}};
@@ -197,7 +201,7 @@ public:
         else if (stage_==Stage::pitch || stage_==Stage::turn) {
             if (can_scan()) { start_scan(); return; }
             turned_=stage_==Stage::turn;
-            stage_=Stage::observe; minimum_=view.context.now+Time(150); seen_=Time(-1);
+            stage_=Stage::observe; minimum_=view.context.now+Time(1); seen_=Time(-1);
         }
     }
     void finished(State state) override { if (claim_.result && state!=State::completed) claim_.result->reset(); }

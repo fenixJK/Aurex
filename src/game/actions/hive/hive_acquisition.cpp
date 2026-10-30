@@ -77,7 +77,7 @@ class AcquireHive final : public Program {
         ++resets_;
     }
     void observe(Time now) {
-        stage_=Stage::observe; minimum_=now+Time(150); seen_=Time(-1);
+        stage_=Stage::observe; minimum_=now+Time(1); seen_=Time(-1);
     }
     void begin(Stage stage,const View& view) {
         stage_=stage;
@@ -254,8 +254,8 @@ public:
         }
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
         case Stage::pitch_limit: return MoveCamera{game::pitch_limit(Key::pitch_down)};
-        case Stage::pitch: return MoveCamera{{Key::pitch_up,hive_spawn_pitch_steps}};
-        case Stage::turn: return MoveCamera{{Key::rotate_right,4}};
+        case Stage::pitch: return MoveCamera{{Key::pitch_up,hive_spawn_pitch_steps,game::CameraInput::automatic,game::CameraFinish::observation}};
+        case Stage::turn: return MoveCamera{{Key::rotate_right,4,game::CameraInput::automatic,game::CameraFinish::observation}};
         case Stage::oriented: return AdoptHeading{0,spawn_heading_};
         case Stage::locate: {
             // The reset workflow may have just confirmed this arrival. Its

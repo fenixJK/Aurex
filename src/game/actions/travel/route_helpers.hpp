@@ -15,6 +15,7 @@ inline Time estimate(const std::vector<workflows::CheckpointPlan>& plans) {
     Time result{};
     for (const auto& plan : plans) {
         const auto before=result;
+        if (plan.camera) result+=game::camera_duration(*plan.camera);
         for (const auto& leg : plan.path) result+=Time(static_cast<Time::rep>(std::ceil(leg.tiles*4000/plan.speed)));
         for (const auto& action : plan.approach) result+=action.duration+(plan.continuous?Time{}:plan.camera_settle);
         for (const auto& step : plan.sequence) {

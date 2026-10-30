@@ -116,16 +116,19 @@ public:
             auto move=game::pitch_limit(Key::pitch_up);
             // Bloom geometry needs the full overhead view. Keep its original
             // longer key holds independently of faster hive/transport turns.
-            move.press=Time(100);
+            move.hold=game::CameraHold{Time(100),Time(50)};
+            move.finish=game::CameraFinish::input_only;
             return MoveCamera{move};
         }
-        if (stage_==Stage::zoom_out) { stage_=Stage::settle; return MoveCamera{{Key::zoom_out,5}}; }
+        if (stage_==Stage::zoom_out) {
+            stage_=Stage::settle;
+            return MoveCamera{{Key::zoom_out,5,game::CameraInput::automatic,game::CameraFinish::geometry}};
+        }
         if (stage_==Stage::settle) {
             stage_=Stage::select;
             // Never calibrate movement from a frame captured during the turn
             // or its final camera easing.
-            minimum_=c.now+Time(300);
-            return Wait{Time(300),"Settling bloom camera"};
+            minimum_=c.now+Time(1);
         }
         if (!context_) { context_=c; deadline_=c.now+plan_.duration; search_until_=c.now+Time(60000); }
         if (context_->generation!=c.generation || context_->window.id!=c.window.id || context_->window.process!=c.window.process

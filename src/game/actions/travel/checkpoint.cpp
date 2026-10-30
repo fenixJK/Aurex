@@ -3,6 +3,7 @@
 
 namespace hive::workflows {
 bool uses_camera(const CheckpointPlan& plan) {
+    if (plan.camera) return true;
     const auto camera=[](const Action& action) {
         return (action.tap && camera_key(*action.tap))
             || std::any_of(action.held.begin(),action.held.end(),camera_key);
@@ -19,6 +20,14 @@ void validate(const CheckpointPlan& p) {
     if (p.minimum_duration<Time{} || p.minimum_duration>=p.timeout
         || (p.minimum_duration>Time{} && p.completion!=CheckpointCompletion::movement))
         throw std::invalid_argument("Invalid minimum movement duration");
+    if (p.camera) {
+        if (p.completion!=CheckpointCompletion::movement || p.continuous || !p.detector.empty() || p.attempts
+            || !p.approach.empty() || !p.nudge.empty() || !p.path.empty() || !p.nudge_path.empty()
+            || !p.sequence.empty() || !p.launch_prepare.empty() || !p.launch_movement.empty()
+            || p.timeout<Time(100) || p.timeout>Time(120000) || game::camera_duration(*p.camera)>=p.timeout)
+            throw std::invalid_argument("Camera routes require a standalone bounded turn");
+        return;
+    }
     if (!p.sequence.empty()) {
         if (!p.continuous || p.completion!=CheckpointCompletion::movement || !p.approach.empty() || p.sequence.size()>512)
             throw std::invalid_argument("Distance sequences require continuous route movement");
@@ -65,10 +74,12 @@ void validate(const CheckpointPlan& p) {
         throw std::invalid_argument("Transport aiming requires a launch checkpoint");
     Time aiming{};
     for (const auto& action:p.launch_prepare) {
+        const bool tap=action.tap && camera_key(*action.tap) && action.held.empty();
         if (action.held.size()>1 || (!action.held.empty() && !camera_key(action.held.front()))
-            || action.tap || action.pointer || action.pointer_to || action.scroll || action.pacing || action.continue_movement
-            || action.tap_count!=1 || action.duration<Time(20) || action.duration>Time(200))
-            throw std::invalid_argument("Transport aiming only accepts brief camera presses and releases");
+            || (action.tap && !tap) || action.pointer || action.pointer_to || action.scroll || action.pacing || action.continue_movement
+            || action.tap_duration!=Time{} || action.tap_count<1 || action.tap_count>8 || (!action.tap && action.tap_count!=1)
+            || action.duration<Time(1) || action.duration>Time(550))
+            throw std::invalid_argument("Transport aiming only accepts camera input and settling");
         aiming+=action.duration;
     }
     for (const auto* path : {&p.path,&p.nudge_path}) {
@@ -178,6 +189,7 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
             pending_.clear();
             if (result.outcome!=TaskOutcome::executed) { fail(CheckpointFailure::interrupted,"Checkpoint movement was interrupted"); return; }
             executed_+=result.execution_time;
+            if (plan_.camera) { confirm(result.finished); continue; }
             const auto& path=nudging_?plan_.nudge_path:plan_.path;
             if (!path.empty()) {
                 if (plan_.completion==CheckpointCompletion::launch) {
@@ -258,6 +270,12 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
             }
         }
         if (stage_==CheckpointStage::moving && pending_.empty()) {
+            if (plan_.camera) {
+                auto actions=game::camera_actions(*plan_.camera);
+                const auto lifetime=std::min(plan_.timeout-(c.now-started_.now),input_lifetime(actions));
+                pending_=tasks.submit(scope_,TaskClass::travel,std::move(actions),lifetime);
+                return;
+            }
             if (awaiting_view_) {
                 if (motion?c.now<minimum_:!fresh) return;
                 awaiting_view_=false;

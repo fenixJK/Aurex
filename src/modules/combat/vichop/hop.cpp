@@ -139,7 +139,7 @@ public:
                     sky_steps_+=steps; sky_checked_=true; phase_=Phase::night_view;
                     camera_started_=view.context.now;
                     controller_->status("Checking the sky for night");
-                    return MoveCamera{{Key::pitch_down,steps}};
+                    return MoveCamera{{Key::pitch_down,steps,game::CameraInput::automatic,game::CameraFinish::observation}};
                 }
                 if (view.context.now-since_>=Time(5000)) { finish_visit(Controller::Result::skipped,"Night could not be confirmed"); return Wait{Time(100),"Trying another server"}; }
                 return Wait{Time(50),"Checking for night"};
