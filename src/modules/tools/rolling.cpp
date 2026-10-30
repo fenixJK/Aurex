@@ -15,6 +15,7 @@ protected:
     bool acted_{};
     Step waiting(const View& view,const char* message) {
         if (view.context.now>=deadline_) { report_.status="Could not read the result; no further roll submitted"; publish(); return Done{report_.status}; }
+        if (report_.status!=message) { report_.status=message; publish(); }
         return Wait{Time(100),message};
     }
     bool fresh(const View& view,bool confirmation=false) {
@@ -36,7 +37,6 @@ protected:
 public:
     Rolling(std::shared_ptr<RollProgress> progress):progress_(std::move(progress)) {
         if (!progress_) throw std::invalid_argument("Roll progress is required");
-        report_.status="Waiting for the open result"; publish();
     }
     RunConfig config() const override { return {std::chrono::hours(8),28,{},true,true}; }
     game::ObservationNeeds observation_needs() const override { return {game::ObservationKind::confirmation}; }
@@ -58,6 +58,7 @@ public:
     Ssa(SsaPlan plan,std::shared_ptr<RollProgress> progress):Rolling(std::move(progress)),plan_(std::move(plan)) {
         validate(plan_.filter);
         if (!plan_.honey_billions || plan_.honey_billions>1000000) throw std::invalid_argument("Set a finite honey limit in billions");
+        publish();
     }
     std::vector<Rect> text_regions() const override { return number_regions_; }
     std::vector<game::FixedLabelQuery> fixed_labels() const override {
@@ -118,6 +119,7 @@ public:
             throw std::invalid_argument("Select a bee and set a Basic Egg limit");
         inventory_=inventory_target(plan_.inventory,plan_.target);
         jelly_=plan_.start_with_jelly;
+        publish();
     }
     std::vector<Rect> text_regions() const override { return {}; }
     std::vector<game::FixedLabelQuery> fixed_labels() const override {
@@ -178,6 +180,7 @@ public:
                 throw std::invalid_argument("Automatic Neonberries need mutation rolling, a selected bee and a Neonberry limit");
             inventory_=inventory_target(plan_.inventory,*plan_.target);
         }
+        publish();
     }
     std::vector<Rect> text_regions() const override { return stage_==Stage::result && plan_.require_mutation?std::vector<Rect>{{.2,.15,.6,.8}}:std::vector<Rect>{}; }
     std::vector<game::FixedLabelQuery> fixed_labels() const override {

@@ -18,14 +18,19 @@ Slimline is a narrow side-to-side sweep. These are different movement patterns.
 
 `next(view)` returns one movement or key operation. `camera` operations accept
 `rotate-left`, `rotate-right`, `pitch-up` or `pitch-down` and a `steps` count.
-They use held key presses by default. Optional `input = 'tapped'` sends the
-requested taps without a hold delay; the pattern supplies its settling pause.
+They use taps with one settling interval by default. Optional `input = 'tapped'`
+sends the requested taps without that interval; the pattern supplies its settling pause.
 Kettle alone opts into this mode, retaining its 35 ms turn and 45 ms tilt pauses.
 Balance pitch changes within a cycle; the host also restores outstanding pitch
 when a timed, bag, objective or priority interrupt ends gathering. `cycle_end` marks a safe point
 for optional correction. The host controls real movement speed, input release,
 backpack/time limits, interrupts, return and recovery. A script does not need to
 implement them. The files use the same sandbox as custom Lua patterns.
+
+A `walk` can include `settle_ms` (0–250 whole milliseconds, default 0) to stop
+movement briefly after the leg while keeping the gathering tool held. This runs
+within the same input job, avoiding a separate pattern-step handoff. Kettle uses
+it for the original AHK's 20 ms between walks; other patterns keep their authored timings.
 
 The twelve Natro-derived files are attributed in `licenses/Natro-ports.txt`.
 

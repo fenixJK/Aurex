@@ -536,6 +536,7 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
         const auto remaining=config_.duration-progress_.elapsed;
         Action action;
         if (auto* walk=std::get_if<Walk>(&*step_)) {
+            if (walk->settle<Time{} || walk->settle>Time(250)) throw std::invalid_argument("Invalid walk settling interval");
             action=game::paced_walk(walk->leg,speed_,c,walk->tool,walk->distance);
             progress_.message="Following pattern";
         } else { const auto& hold=std::get<Hold>(*step_); action={"Pattern action",hold.keys,std::min(hold_left_,remaining),hold.pointer}; }
@@ -546,7 +547,12 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
         }
         const auto lifetime=action.pacing?std::min(Time(600000),config_.duration-progress_.elapsed+Time(1000)):action.duration+Time(1000);
         std::vector<Action> actions;
-        if (action.pacing) actions.push_back(std::move(action));
+        if (action.pacing) {
+            const auto& walk=std::get<Walk>(*step_);
+            action.continue_movement=walk.settle>Time{};
+            actions.push_back(std::move(action));
+            if (walk.settle>Time{}) actions.push_back({"Settling movement",walk.tool?std::vector{Key::primary}:std::vector<Key>{},walk.settle,{}});
+        }
         else {
             const bool continuous=!action.pointer && std::all_of(action.held.begin(),action.held.end(),[](Key key) {
                 return (key>=Key::forward && key<=Key::jump) || key==Key::primary;

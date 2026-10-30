@@ -852,7 +852,8 @@ void ExtensionsUi::render_page(const std::string& id) {
     auto& page=extension_pages_.at(id);
     const auto& entry=host_.entries().at(id);
     const bool busy=busy_();
-    if (page->persisted!=entry.settings) {
+    const bool settings_changed=page->persisted!=entry.settings;
+    if (settings_changed) {
         for (const auto& field:entry.manifest.settings) {
             const auto& value=entry.settings.at(field.id);
             if (const auto old=page->persisted.find(field.id);old!=page->persisted.end() && old->second==value) continue;
@@ -877,7 +878,7 @@ void ExtensionsUi::render_page(const std::string& id) {
         }
         page->update_conditions(entry.manifest,busy);
         page->busy=busy;
-    }
+    } else if (settings_changed) page->update_conditions(entry.manifest,busy);
     if (page->plot) {
         const auto state=entry.plot_progress();
         page->plot_status->setText(state.message.empty()?"Choose a duration, then run the simulation.":q(state.message));

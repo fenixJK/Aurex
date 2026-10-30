@@ -128,7 +128,7 @@ extensions::Manifest module_manifest() {
             auto name=bee; std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c) { return char(std::tolower(c)); });
             setting.icons.emplace(bee,":/bees/"+name+".png");
         }
-        if (setting.id=="ssa-sides") { setting.enabled_by="ssa-double"; setting.help="Choose acceptable second passives, different from the main. Leave empty to accept any second passive. Either order matches."; }
+        if (setting.id=="ssa-sides") { setting.enabled_by="ssa-double"; setting.excluded_by="ssa-main"; setting.help="Choose acceptable second passives. The main passive is unavailable here. Leave empty to accept any second passive. Either order matches."; }
         if (setting.id=="neon-limit") setting.enabled_by="bitter-neon";
         if (setting.id=="jelly-neon-limit") setting.enabled_by="jelly-neon";
         if (setting.id=="jelly-neon") setting.help="When mutation rolling, feed one Neonberry before rolling and refresh after 11 minutes. Stops at your Neonberry limit.";

@@ -226,7 +226,8 @@ public:
             input.mi.dwFlags=down?MOUSEEVENTF_LEFTDOWN:MOUSEEVENTF_LEFTUP;
             if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Mouse button input was blocked by Windows");
             primary_down_=down;
-            if (!down) Sleep(mouse_delay);
+            // Click/drag settling belongs to the action timeline. A sleep here
+            // also stalls every gathering movement that releases the tool.
             return;
         }
         if (key==Key::select_all) {

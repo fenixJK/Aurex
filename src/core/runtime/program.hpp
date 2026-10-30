@@ -66,6 +66,8 @@ struct Walk {
     // reports the distance actually travelled, including cancellation mid-leg.
     std::function<bool()> until;
     std::shared_ptr<game::DistanceIntegrator> distance;
+    // A short stationary interval in the same input job; keep the tool held.
+    Time settle{};
 };
 struct MoveCamera { game::CameraMove movement; };
 struct SetHeading { unsigned heading{}; };

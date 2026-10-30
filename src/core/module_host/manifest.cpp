@@ -156,7 +156,7 @@ Manifest read_manifest(const QString& path) {
     require(obj["settings"].isArray() && obj["settings"].toArray().size()<=static_cast<qsizetype>(maximum_settings),"Invalid settings"); seen.clear();
     for (const auto& value : obj["settings"].toArray()) {
         require(value.isObject(),"Setting must be an object"); auto s=value.toObject();
-        keys(s,{"id","label","type","default","min","max","choices","ordered","inline","help","hidden","suffix","decimals","groups","enabled_by","step","step_toggle","checked_step","icons","enabled_values","dependent_labels"});
+        keys(s,{"id","label","type","default","min","max","choices","ordered","inline","help","hidden","suffix","decimals","groups","enabled_by","step","step_toggle","checked_step","icons","enabled_values","dependent_labels","excluded_by"});
         Setting field; field.id=text(s,"id",80); field.label=text(s,"label",80);
         require(identifier(field.id) && seen.insert(field.id).second,"Invalid or duplicate setting ID");
         const auto type=text(s,"type");
@@ -172,6 +172,7 @@ Manifest read_manifest(const QString& path) {
         field.inline_choices=s["inline"].toBool(); field.hidden=s["hidden"].toBool();
         if(s.contains("help")) field.help=text(s,"help",500);
         if(s.contains("enabled_by")) field.enabled_by=text(s,"enabled_by",80);
+        if(s.contains("excluded_by")) field.excluded_by=text(s,"excluded_by",80);
         if(s.contains("enabled_values")) {
             require(s["enabled_values"].isArray() && s["enabled_values"].toArray().size()<=64,"Invalid enabled values");
             for (const auto& value:s["enabled_values"].toArray()) { require(value.isString(),"Enabled values must be text"); field.enabled_values.push_back(value.toString().toStdString()); }
@@ -314,6 +315,12 @@ void validate_setup_profiles(const Manifest& manifest) {
     }
 }
 void validate_page(const Manifest& manifest) {
+    for (const auto& field:manifest.settings) if (!field.excluded_by.empty()) {
+        require(field.inline_choices && std::holds_alternative<SettingSelection>(field.initial),"Choice exclusion requires an inline selection");
+        const auto source=std::find_if(manifest.settings.begin(),manifest.settings.end(),[&](const auto& setting) { return setting.id==field.excluded_by; });
+        require(source!=manifest.settings.end() && !source->hidden && source->enabled_by.empty()
+            && std::holds_alternative<std::string>(source->initial),"Choice exclusion must refer to an independent visible choice");
+    }
     for (const auto& setting:manifest.settings) if (!setting.icons.empty()) {
         require(setting.inline_choices && std::holds_alternative<SettingSelection>(setting.initial)
             && setting.icons.size()==setting.choices.size(),"Icon selection needs an icon for each choice");

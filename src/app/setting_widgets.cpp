@@ -196,6 +196,7 @@ class InlineSelection final : public QWidget, public SelectionValue {
     std::vector<std::pair<std::string,QAbstractButton*>> choices_;
     SettingSelection order_;
     bool ordered_;
+    std::string excluded_;
 public:
     InlineSelection(const extensions::Setting& field,const SettingSelection& selected,bool compact,unsigned columns=0):ordered_(field.ordered) {
         const auto& choices=field.choices; const bool ordered=field.ordered;
@@ -242,7 +243,7 @@ public:
         if(!ordered && choices.size()>4) {
             auto buttons=new QHBoxLayout; buttons->setSpacing(8);
             auto all=new QToolButton; all->setText("All"); auto none=new QToolButton; none->setText("None"); buttons->addWidget(all); buttons->addWidget(none); buttons->addStretch(); layout->addLayout(buttons);
-            connect(all,&QToolButton::clicked,this,[this,choices] { setValue(choices); });
+            connect(all,&QToolButton::clicked,this,[this,choices] { auto available=choices; std::erase(available,excluded_); setValue(available); });
             connect(none,&QToolButton::clicked,this,[this] { setValue({}); });
         }
         setValue(selected);
@@ -256,6 +257,17 @@ public:
         for(const auto& name:selected) if(std::any_of(choices_.begin(),choices_.end(),[&](const auto& choice) { return choice.first==name; })) order_.push_back(name);
         for(const auto& [name,check]:choices_) { QSignalBlocker block(check); check->setChecked(std::find(order_.begin(),order_.end(),name)!=order_.end()); }
         if(changed) changed();
+    }
+    void exclude(const std::string& choice,const std::string& source_label) {
+        excluded_=choice;
+        std::erase(order_,excluded_);
+        for(const auto& [name,check]:choices_) {
+            const QSignalBlocker block(check);
+            const bool excluded=name==excluded_;
+            if(excluded) check->setChecked(false);
+            check->setEnabled(!excluded);
+            check->setToolTip(excluded?q("Selected as "+source_label):q(name));
+        }
     }
 };
 class SelectionControl final : public QPushButton, public SelectionValue {
@@ -366,6 +378,11 @@ void update_setting_conditions(std::span<const extensions::Setting> schema,const
     const auto checked=[&](const std::string& id) {
         return controls.contains(id)?static_cast<QCheckBox*>(controls.at(id))->isChecked():std::get<bool>(baseline.at(id));
     };
+    for (const auto& field:schema) if (!field.excluded_by.empty() && controls.contains(field.id)) {
+        const auto source=std::find_if(schema.begin(),schema.end(),[&](const auto& setting) { return setting.id==field.excluded_by; });
+        const auto value=controls.contains(field.excluded_by)?static_cast<ChoiceControl*>(controls.at(field.excluded_by))->value():std::get<std::string>(baseline.at(field.excluded_by));
+        static_cast<InlineSelection*>(controls.at(field.id))->exclude(value,source->label);
+    }
     for (const auto& field:schema) if (!field.enabled_by.empty() && controls.contains(field.id)) {
         bool active;
         if (field.enabled_values.empty()) active=checked(field.enabled_by);

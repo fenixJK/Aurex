@@ -27,6 +27,8 @@ struct Setting {
     std::vector<std::string> enabled_values;
     std::map<std::string,std::string> dependent_labels;
     std::string minimum_label;
+    // Inline selections cannot include the value chosen by this choice setting.
+    std::string excluded_by;
 };
 void validate_setting(const Setting& setting,const Value& value);
 void validate_settings(std::span<const Setting> schema,const Settings& settings);

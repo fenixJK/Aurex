@@ -21,8 +21,7 @@ return {
             steps[#steps + 1] = {kind = 'press', key = 'primary', milliseconds = ms}
         end
         local function walk(tiles, direction, second)
-            steps[#steps + 1] = {kind = 'walk', direction = direction, second = second, tiles = tiles * size, tool = true}
-            pause(20)
+            steps[#steps + 1] = {kind = 'walk', direction = direction, second = second, tiles = tiles * size, tool = true, settle_ms = 20}
         end
         local function sequence(moves)
             for _, move in ipairs(moves) do walk(move[1], move[2], move[3]) end

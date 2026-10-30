@@ -217,6 +217,11 @@ Walk walk_field(lua_State* state,int index,double speed) {
     index=lua_absindex(state,index);
     Walk result{{number_field(state,index,"tiles",0.001,1000),key(string_field(state,index,"direction")),{}},boolean_field(state,index,"tool")};
     if (has_field(state,index,"second")) result.leg.second=key(string_field(state,index,"second"));
+    if (has_field(state,index,"settle_ms")) {
+        const auto settle=number_field(state,index,"settle_ms",0,250);
+        if (settle!=std::floor(settle)) throw std::runtime_error("Walk settling time must be whole milliseconds");
+        result.settle=Time(static_cast<Time::rep>(settle));
+    }
     game::movement_slice(result.leg,result.leg.tiles,speed); return result;
 }
 game::TextTarget target_field(lua_State* state,int index,const char* name,Rect region={.2,0,.6,.3}) {
@@ -256,7 +261,7 @@ std::vector<game::WalkLeg> checkpoint_path(lua_State* state,int index,const char
         lua_rawgeti(state,-1,static_cast<lua_Integer>(i));
         if (!lua_istable(state,-1)) throw std::runtime_error("Invalid checkpoint walk leg");
         const auto walk=walk_field(state,-1,speed);
-        if (walk.tool) throw std::runtime_error("Checkpoint cannot use the tool");
+        if (walk.tool || walk.settle>Time{}) throw std::runtime_error("Checkpoint walk cannot use the tool or a settling interval");
         result.push_back(walk.leg); lua_pop(state,1);
     }
     lua_pop(state,1); return result;
