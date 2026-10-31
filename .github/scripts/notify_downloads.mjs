@@ -92,41 +92,70 @@ export function readState(content) {
   if (state.version !== 1 || !state.assets || typeof state.assets !== 'object' || Array.isArray(state.assets)
       || !Number.isSafeInteger(state.total) || state.total < 0
       || Object.entries(state.assets).some(([id, count]) => !/^\d+$/.test(id) || !Number.isSafeInteger(count) || count < 0)
-      || Object.values(state.assets).reduce((sum, count) => sum + count, 0) !== state.total)
+      || Object.values(state.assets).reduce((sum, count) => sum + count, 0) !== state.total
+      || (state.excludedAssets !== undefined && (!Array.isArray(state.excludedAssets)
+        || new Set(state.excludedAssets).size !== state.excludedAssets.length
+        || state.excludedAssets.some(id => typeof id !== 'string' || !Object.hasOwn(state.assets, id)))))
     throw new Error('Download ledger is invalid; refusing to reset it or replay old downloads.');
   return state;
 }
 
+function assetPlatform(name) {
+  if (/\.(exe|msi)$/i.test(name) || (/windows/i.test(name) && /\.zip$/i.test(name))) return 'Windows';
+  if (/\.(app|dmg|pkg)$/i.test(name) || (/macos/i.test(name) && /\.zip$/i.test(name))) return 'Mac';
+  return null;
+}
+
+function excludedAssets(state, assets) {
+  // Preserve the raw ledger and remember exclusions even after an asset is removed.
+  return new Set([...(state.excludedAssets ?? []),
+    ...assets.filter(asset => !assetPlatform(asset.name)).map(asset => String(asset.id))]);
+}
+
+function appTotal(state, excluded) {
+  return state.total - [...excluded].reduce((sum, id) => sum + (state.assets[id] ?? 0), 0);
+}
+
 export function notification(repository, state, assets, previous = null) {
   const format = count => count.toLocaleString('en-US');
+  const excluded = excludedAssets(state, assets);
   const releases = new Map();
   for (const asset of assets) {
-    const release = releases.get(asset.tag) ?? { total: 0, added: 0, platforms: new Map() };
+    const platform = assetPlatform(asset.name);
+    if (!platform || excluded.has(String(asset.id))) continue;
     const count = state.assets[asset.id] ?? 0;
-    const platform = /windows|\.exe$|\.msi$/i.test(asset.name) ? 'Windows'
-      : /macos|\.app$|\.dmg$/i.test(asset.name) ? 'Mac' : 'Other files';
-    release.total += count;
-    release.added += previous ? Math.max(0, count - (previous.assets[asset.id] ?? 0)) : 0;
-    release.platforms.set(platform, (release.platforms.get(platform) ?? 0) + count);
+    const added = previous ? Math.max(0, count - (previous.assets[asset.id] ?? 0)) : 0;
+    if (!added) continue;
+    const release = releases.get(asset.tag) ?? { added: 0, platforms: new Map() };
+    release.added += added;
+    release.platforms.set(platform, (release.platforms.get(platform) ?? 0) + added);
     releases.set(asset.tag, release);
   }
-  const added = previous ? state.total - previous.total : 0;
+  const total = appTotal(state, excluded);
+  const added = previous ? total - appTotal(previous, excluded) : 0;
+  const updates = [...releases].reverse().map(([tag, release]) =>
+    `**${tag.slice(0, 100)}** · **+${format(release.added)}** · `
+      + ['Windows', 'Mac'].filter(platform => release.platforms.has(platform))
+        .map(platform => `${platform} +${format(release.platforms.get(platform))}`).join(' · '));
+  const lines = [];
+  for (const line of updates) {
+    const remaining = updates.length - lines.length - 1;
+    const suffix = remaining ? `\n… ${format(remaining)} more updated versions` : '';
+    if ([...lines, line].join('\n').length + suffix.length > 4096) break;
+    lines.push(line);
+  }
+  if (lines.length < updates.length) lines.push(`… ${format(updates.length - lines.length)} more updated versions`);
   return {
     username: 'Aurex Downloads', avatar_url: avatar, allowed_mentions: { parse: [] },
     embeds: [{
-      title: `${format(state.total)} total downloads`,
+      title: previous ? `+${format(added)} new download${added === 1 ? '' : 's'}` : 'Download counter started',
       url: `https://github.com/${repository}/releases`,
       description: previous
-        ? `**${format(added)} new download${added === 1 ? '' : 's'}** since the last update.`
-        : 'Counter started from the current total. New downloads will be grouped into one update.',
-      fields: [...releases].slice(-25).reverse().map(([tag, release]) => ({
-        name: tag.slice(0, 100),
-        value: `**${format(release.total)}** downloads${release.added ? ` · **+${format(release.added)}** new` : ''}\n`
-          + [...release.platforms].map(([platform, count]) => `${platform} ${format(count)}`).join(' · '),
-        inline: true,
-      })),
+        ? lines.join('\n')
+        : 'Counter started from the current app downloads. Future increases will be grouped into timestamped updates.',
       color: 0xE8B947,
-      footer: { text: releases.size > 25 ? 'Aurex · Latest 25 versions shown · Total includes all versions' : 'Aurex · Total across all versions' },
+      footer: { text: `${format(total)} total app downloads · All versions` },
+      timestamp: new Date().toISOString(),
     }],
   };
 }
@@ -142,6 +171,8 @@ export async function runCounter({ repository, github, discord, initialize = fal
       state.assets[asset.id] = asset.download_count;
       state.total += asset.download_count;
     }
+    const excluded = excludedAssets(state, assets);
+    if (excluded.size) state.excludedAssets = [...excluded];
     const tree = await github('git/trees', { method: 'POST', body: {
       tree: [{ path: stateFile, mode: '100644', type: 'blob', content: JSON.stringify(state, null, 2) + '\n' }],
     } });
@@ -150,12 +181,15 @@ export async function runCounter({ repository, github, discord, initialize = fal
     } });
     await github('git/refs', { method: 'POST', body: { ref: `refs/heads/${stateBranch}`, sha: commit.sha } });
     await discord(notification(repository, state, assets));
-    log(`Initialized at ${state.total} downloads. Past downloads will not be replayed.`);
-    return { total: state.total, sent: 0 };
+    const total = appTotal(state, excluded);
+    log(`Initialized at ${total} app downloads. Past downloads will not be replayed.`);
+    return { total, sent: 0 };
   }
 
   const state = readState(stored.content);
   const next = { ...state, assets: { ...state.assets } };
+  const excluded = excludedAssets(state, assets);
+  if (excluded.size) next.excludedAssets = [...excluded];
   for (const asset of assets) {
     // Retain removed assets and ignore temporary downward API corrections.
     // New asset IDs start at zero, so new releases are included automatically.
@@ -163,18 +197,22 @@ export async function runCounter({ repository, github, discord, initialize = fal
     next.total += count - (state.assets[asset.id] ?? 0);
     next.assets[asset.id] = count;
   }
-  const added = next.total - state.total;
+  const total = appTotal(next, excluded);
+  // Apply newly learned exclusions to both sides, so migration cannot replay
+  // old downloads or count checksum growth as app downloads.
+  const added = total - appTotal(state, excluded);
   const sent = added > 0 ? 1 : 0;
-  if (added) {
-    await discord(notification(repository, next, assets, state));
-    // Save the whole batch only after Discord confirms the combined message.
+  if (added) await discord(notification(repository, next, assets, state));
+  if (JSON.stringify(next) !== JSON.stringify(state)) {
+    // App increases are saved only after delivery. Exclusions and checksum-only
+    // changes are saved silently without creating another history entry.
     await github(`contents/${stateFile}`, { method: 'PUT', body: {
-      branch: stateBranch, sha: stored.sha, message: `Download total: ${next.total}`,
+      branch: stateBranch, sha: stored.sha, message: `App download total: ${total}`,
       content: Buffer.from(JSON.stringify(next, null, 2) + '\n').toString('base64'),
     } });
   }
-  log(`Total: ${next.total}. New downloads: ${added}. Messages: ${sent}.`);
-  return { total: next.total, sent };
+  log(`Total: ${total}. New downloads: ${added}. Messages: ${sent}.`);
+  return { total, sent };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
