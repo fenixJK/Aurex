@@ -68,7 +68,6 @@ public:
             || !services_.arrival || !services_.joined_setup
             || !services_.enemy.observations || services_.enemy.hunt_fields.empty() || !controller_
             || duration<=Time{} || duration>std::chrono::hours(8)) throw std::invalid_argument("Vicious hunting needs search fields, travel, daylight and public servers");
-        services_.enemy.daylight=services_.daylight;
         services_.enemy.progress=std::make_shared<combat::FightProgress>();
     }
     ~ServerVisit() override { finished(automation::State::stopped); }

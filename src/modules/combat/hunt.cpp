@@ -1,6 +1,5 @@
 #include "plan.hpp"
 #include "chat.hpp"
-#include "search_daylight.hpp"
 #include "game/actions/field/shift_lock.hpp"
 #include "game/actions/hive/hive_setup.hpp"
 #include "game/detection/vicious.hpp"
@@ -15,7 +14,6 @@ constexpr Time search_budget=std::chrono::minutes(5);
 class Hunt final : public automation::Program {
     enum class Phase { choose,route,scan,travel,search,result,home,prepare,aligned };
     Enemy enemy_;
-    SearchDaylight daylight_;
     double speed_;
     automation::ProgramFactory prepare_,home_;
     HuntStart start_;
@@ -69,7 +67,6 @@ public:
         return {phase_==Phase::route?"Travelling":"Searching",enemy_.species+(field?" · "+field->name:"")};
     }
     void observe(const automation::View& view) override {
-        if (began_) daylight_.observe(enemy_.daylight,view.context,*began_);
         if (enemy_.vicious) {
             // The notification belongs to the whole hunt, including travel and
             // returns between fields. Keep this pixel channel requested
@@ -112,10 +109,6 @@ public:
             // still ends the search, without counting another player's kill.
             enemy_.progress->finish_unavailable(enemy_.cooldown);
             return Done{enemy_.species+" was defeated; ending the search"};
-        }
-        if (daylight_.ended()) {
-            enemy_.progress->finish(false);
-            return Done{"Daytime — ending Vicious Bee search"};
         }
         if (enemy_.vicious && !chat_ready_) {
             chat_opening_=true;
@@ -169,7 +162,7 @@ public:
                     }
                     ++route_step_;view_changed_=true;return Hold{{Key::interact},Time(100)};
                 }
-                ++route_step_;view_changed_=true;return FollowPath{std::get<workflows::CheckpointPlan>(step),[this] { return daylight_.ended() || defeat_seen_; }};
+                ++route_step_;view_changed_=true;return FollowPath{std::get<workflows::CheckpointPlan>(step),[this] { return defeat_seen_; }};
             }
             if (!segment_ || std::find(remaining_.begin(),remaining_.end(),field_)==remaining_.end()) {
                 next_segment();return Wait{Time(1),"Moving to the next field view"};
@@ -207,7 +200,7 @@ public:
         }
         if (phase_==Phase::travel) {
             field_entry_=false;travelled_=view.context.now;phase_=Phase::search;
-            return Navigate{field_+".entry",{},[this] { return daylight_.ended() || defeat_seen_; }};
+            return Navigate{field_+".entry",{},[this] { return defeat_seen_; }};
         }
         auto encounter_enemy=enemy_;
         encounter_enemy.scheduled={}; encounter_enemy.field=field_;
