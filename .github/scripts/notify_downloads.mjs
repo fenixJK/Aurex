@@ -134,14 +134,14 @@ export function notification(repository, state, assets, previous = null) {
   const total = appTotal(state, excluded);
   const added = previous ? total - appTotal(previous, excluded) : 0;
   const updates = [...releases].reverse().map(([tag, release]) =>
-    `**${tag.slice(0, 100)}** · **+${format(release.added)}** · `
+    `**${tag.slice(0, 100)} — +${format(release.added)}**\n`
       + ['Windows', 'Mac'].filter(platform => release.platforms.has(platform))
-        .map(platform => `${platform} +${format(release.platforms.get(platform))}`).join(' · '));
+        .map(platform => `${platform} +${format(release.platforms.get(platform))}`).join(' / '));
   const lines = [];
   for (const line of updates) {
     const remaining = updates.length - lines.length - 1;
-    const suffix = remaining ? `\n… ${format(remaining)} more updated versions` : '';
-    if ([...lines, line].join('\n').length + suffix.length > 4096) break;
+    const suffix = remaining ? `\n\n… ${format(remaining)} more updated versions` : '';
+    if ([...lines, line].join('\n\n').length + suffix.length > 4096) break;
     lines.push(line);
   }
   if (lines.length < updates.length) lines.push(`… ${format(updates.length - lines.length)} more updated versions`);
@@ -151,7 +151,7 @@ export function notification(repository, state, assets, previous = null) {
       title: previous ? `+${format(added)} new download${added === 1 ? '' : 's'}` : 'Download counter started',
       url: `https://github.com/${repository}/releases`,
       description: previous
-        ? lines.join('\n')
+        ? lines.join('\n\n')
         : 'Counter started from the current app downloads. Future increases will be grouped into timestamped updates.',
       color: 0xE8B947,
       footer: { text: `${format(total)} total app downloads · All versions` },
