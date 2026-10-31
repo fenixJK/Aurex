@@ -11,6 +11,21 @@ struct NectarLevels {
     Rect bar;
     std::size_t known() const;
 };
+struct NectarEstimate {
+    std::optional<double> percent;
+    bool estimated{};
+};
+// A display estimate, kept separate from raw observations used by automation.
+// Missing pixels are not evidence that a previously observed nectar expired.
+class NectarTracker {
+    struct Reading { double percent{},uncertainty{}; Time at{}; };
+    struct State { std::optional<Reading> accepted,pending; Time confirmed{}; };
+    std::array<State,5> states_{};
+    std::optional<Time> observed_;
+public:
+    void observe(Time captured,const NectarLevels& levels);
+    std::array<NectarEstimate,5> estimate(Time now) const;
+};
 Observation<NectarLevels> read_nectar(const DetectionInput& input);
 struct NectarDetection final : Detection { Observation<NectarLevels> levels; };
 class NectarSource {

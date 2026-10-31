@@ -34,12 +34,12 @@ RemoteReply status_reply(const Report& report) {
     reply.inline_fields=true;
     if (!snapshot.activity.isEmpty()) reply.description+="\n"+snapshot.activity;
     const auto money=[](auto value) { return value?amount(double(*value)):QString("Unavailable"); };
-    reply.fields={{"Session",duration(report.session_ms)},{"Honey",money(snapshot.honey)},
+    reply.fields={{"Session",duration(report.session_ms)},{report.honey.current_age_ms>2*sample_interval_ms?"Last known honey":"Honey",money(report.honey.current)},
         {"Honey/hour",money(report.honey.hourly)},{"Session honey",money(report.honey.session)},
         {"Backpack",snapshot.trend.percent?QString::number(std::clamp(*snapshot.trend.percent,0.,100.),'f',0)+"%":QString("Unavailable")}};
     QStringList nectars;
     for (const auto& gauge:snapshot.gauges)
-        if (gauge.percent && std::isfinite(*gauge.percent)) nectars.append(gauge.name+" "+QString::number(std::clamp(*gauge.percent,0.,100.),'f',0)+"%");
+        if (gauge.percent && std::isfinite(*gauge.percent)) nectars.append(gauge.name+(gauge.estimated?" ~":" ")+QString::number(std::clamp(*gauge.percent,0.,100.),'f',0)+"%");
     if (!nectars.isEmpty()) reply.fields.append({"Nectar",nectars.join(" · ")});
     return reply;
 }

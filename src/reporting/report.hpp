@@ -15,7 +15,7 @@ inline constexpr qint64 sample_interval_ms=10000;
 struct Metric { QString label,value; std::optional<double> progress; QColor color; QImage icon; QString icon_value; };
 struct Section { QString name; QList<Metric> metrics; QString id; std::vector<Counter> counters; };
 struct Level { std::optional<double> value; double maximum{100}; };
-struct Gauge { QString name; std::optional<double> percent; QString id; std::optional<double> floor; std::optional<Level> level; QImage icon; QColor color; QString chart_group; };
+struct Gauge { QString name; std::optional<double> percent; QString id; std::optional<double> floor; std::optional<Level> level; QImage icon; QColor color; QString chart_group; bool estimated{}; };
 struct Snapshot {
     QString state,activity;
     QList<Section> sections;
@@ -35,7 +35,7 @@ struct HoneyReport {
     std::optional<qint64> period,session;
     std::optional<double> hourly;
     QList<Sample> rates;
-    qint64 observed_ms{},baseline_delay{};
+    qint64 observed_ms{},baseline_delay{},current_age_ms{};
 };
 enum class ReportTheme { forest,midnight,graphite,black,plum,paper };
 struct ReportThemeChoice { ReportTheme id; QString name; QColor swatch; };

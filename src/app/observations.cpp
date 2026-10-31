@@ -101,8 +101,30 @@ QStringList ReportObservations::errors() const {
 void ReportObservations::configure(const DetectionSources& sources) {
     reporting_honey_=sources.at("honey"); reporting_nectar_=sources.at("nectar");
     reporting_buffs_=sources.at("movement-buffs"); reporting_upkeep_=sources.at("buff-upkeep");
+    reading_session_.reset(); nectar_tracker_={}; honey_={};
+}
+void ReportObservations::update_readings(const SessionSnapshot& snapshot) const {
+    if (reading_session_!=snapshot.session_id) {
+        reading_session_=snapshot.session_id; nectar_tracker_={}; honey_={};
+    }
+    const ObservationContext context{snapshot.window,snapshot.generation,snapshot.now};
+    if (reporting_honey_) if (const auto packet=reporting_honey_->peek();packet && packet->error.empty()) {
+        const auto* value=dynamic_cast<const game::HoneyDetection*>(packet->value.get());
+        if (value && value->amount.has_value(context,Time(2*reporting::sample_interval_ms))
+            && (!honey_.has_value(context,Time(2*reporting::sample_interval_ms)) || value->amount.captured>honey_.captured))
+            honey_=value->amount;
+    }
+    if (reporting_nectar_) if (const auto packet=reporting_nectar_->peek()) {
+        const Observation<bool> stamp{Knowledge::present,true,packet->context.now,packet->context.window,packet->context.generation};
+        if (stamp.has_value(context,Time(5000))) {
+            const auto* value=dynamic_cast<const game::NectarDetection*>(packet->value.get());
+            nectar_tracker_.observe(stamp.captured,packet->error.empty() && value && value->levels.has_value(context,Time(5000))
+                ?value->levels.value:game::NectarLevels{});
+        }
+    }
 }
 void ReportObservations::request(const SessionSnapshot& snapshot,const QStringList& selected) const {
+    update_readings(snapshot);
     if (snapshot.status.state==hive::RunState::running && reporting_nectar_) {
         if (reporting_honey_) {
             const auto reading=reporting_honey_->peek();
@@ -124,6 +146,7 @@ void ReportObservations::request(const SessionSnapshot& snapshot,const QStringLi
     }
 }
 reporting::Snapshot ReportObservations::snapshot(const SessionSnapshot& snapshot,const game::ObservedState& readings,QString state,QString activity,const std::vector<extensions::ModuleReport>& modules) const {
+    update_readings(snapshot);
     hive::reporting::Snapshot report{std::move(state),std::move(activity),{}};
     std::map<std::string,double> thresholds;
     for (const auto& module:modules) {
@@ -136,12 +159,9 @@ reporting::Snapshot ReportObservations::snapshot(const SessionSnapshot& snapshot
         {"rejoins","Successful rejoins",snapshot.recovery.rejoins,snapshot.session_id}};
     const hive::ObservationContext context{snapshot.window,snapshot.generation,snapshot.now};
     report.trend.name="Backpack";
-    if (reporting_honey_) if (const auto packet=reporting_honey_->peek()) {
-        const auto* value=dynamic_cast<const hive::game::HoneyDetection*>(packet->value.get());
-        if (value && value->amount.has_value(context,hive::Time(2*hive::reporting::sample_interval_ms))) {
-            report.honey=value->amount.value;
-            report.honey_age_ms=(context.now-value->amount.captured).count();
-        }
+    if (honey_.has_value(context,Time(2*reporting::sample_interval_ms))) {
+        report.honey=honey_.value;
+        report.honey_age_ms=(context.now-honey_.captured).count();
     }
     if (readings.state.backpack_percent.has_value(context,hive::Time(5000))) report.trend.percent=readings.state.backpack_percent.value;
     for (const auto* name:{"Comforting","Refreshing","Satisfying","Motivating","Invigorating"}) {
@@ -150,10 +170,10 @@ reporting::Snapshot ReportObservations::snapshot(const SessionSnapshot& snapshot
         report.gauges.back().color=buff_style(name).color;
         report.gauges.back().icon=reporting::report_icon(q(id));
     }
-    if (reporting_nectar_) if (const auto result=reporting_nectar_->peek()) {
-        const auto* nectar=dynamic_cast<const hive::game::NectarDetection*>(result->value.get());
-        if (nectar && nectar->levels.has_value(context,hive::Time(5000)))
-            for (int i=0;i<5;++i) report.gauges[i].percent=nectar->levels.value.percent[i];
+    const auto nectar=nectar_tracker_.estimate(context.now);
+    for (int i=0;i<5;++i) {
+        report.gauges[i].percent=nectar[i].percent;
+        report.gauges[i].estimated=nectar[i].estimated;
     }
     for (const auto& type:hive::game::tracked_buffs()) {
         const auto name=QString::fromUtf8(type.name.data(),qsizetype(type.name.size()));

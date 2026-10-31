@@ -11,6 +11,10 @@ using DetectionSources=std::map<std::string,std::shared_ptr<const game::Detectio
 std::vector<game::DetectorConfig> game_detectors(std::shared_ptr<game::InventoryRequests> inventory_requests);
 class ReportObservations {
     std::shared_ptr<const game::DetectionSource> reporting_nectar_,reporting_buffs_,reporting_upkeep_,reporting_honey_;
+    mutable std::optional<std::uint64_t> reading_session_;
+    mutable game::NectarTracker nectar_tracker_;
+    mutable Observation<std::uint64_t> honey_;
+    void update_readings(const SessionSnapshot& snapshot) const;
 public:
     Observation<game::NectarLevels> nectar() const;
     QStringList errors() const;

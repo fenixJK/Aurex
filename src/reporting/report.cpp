@@ -211,7 +211,7 @@ void nectar_summary(QPainter& p,QRectF area,const QList<GaugeHistory>& nectar,co
             p.drawImage(QRectF(ring.center().x()-size.width()/2.,ring.center().y()-size.height()/2.,size.width(),size.height()),icon);
         }
         if(icon.isNull()) text(p,ring,gauge.name.left(3),11,colors.muted,true,Qt::AlignCenter);
-        text(p,{x,area.center().y()+31,cell,20},known?QString::number(*gauge.percent,'f',0)+"%":"—",13,colors.foreground,true,Qt::AlignCenter);
+        text(p,{x,area.center().y()+31,cell,20},known?(gauge.estimated?"~":"")+QString::number(*gauge.percent,'f',0)+"%":"—",13,colors.foreground,true,Qt::AlignCenter);
     }
 }
 bool visible_metric(const Metric& metric) {
@@ -352,6 +352,8 @@ QImage render_report(const Report& report,const QImage* cached_background) {
     if (report.alerts) notes.append(QString("%1 alerts").arg(report.alerts));
     if (partial) notes.append("Tracked "+duration(report.tracked_ms)+" of this session");
     else if (report.honey.baseline_delay>30000) notes.append("Honey starts "+duration(report.honey.baseline_delay)+" into the session");
+    if (report.honey.current && report.honey.current_age_ms>2*sample_interval_ms)
+        notes.append("Honey last read "+duration(report.honey.current_age_ms)+" ago");
     if (std::any_of(buffs.begin(),buffs.end(),[&](const auto* trace) { return report.window_ms && trace->observed_ms<report.window_ms*9/10; }))
         notes.append("* Uptime uses readable samples; gaps are unknown");
     if (panels.size()>4 || (style.totals && counts.size()>shown)) notes.append("Additional activity omitted");
@@ -394,7 +396,7 @@ QImage render_report(const Report& report,const QImage* cached_background) {
     const auto money=[](auto value) { return value?amount(double(*value)):QString("—"); };
     const auto gain=[&](auto value) { return value && *value>0?"+"+money(value):money(value); };
     card(p,{margin,50,content,double(summary_height)},colors);
-    const QStringList labels{"Hourly average","Current honey","Honey · "+duration(report.window_ms),partial?"Tracked session gain":"Session gain"};
+    const QStringList labels{"Hourly average",report.honey.current_age_ms>2*sample_interval_ms?"Last known honey":"Current honey","Honey · "+duration(report.window_ms),partial?"Tracked session gain":"Session gain"};
     const QStringList values{money(report.honey.hourly),money(report.honey.current),gain(report.honey.period),gain(report.honey.session)};
     for (int i=0;i<4;++i) {
         const double honey_width=style.activity && nectar_visible?276:split_summary?440:content-36;
@@ -419,7 +421,7 @@ QImage render_report(const Report& report,const QImage* cached_background) {
         if (i) {
             p.fillRect(QRectF(x,chart_y+16,3,8),accent(i,colors)); p.fillRect(QRectF(x+5,chart_y+12,3,12),accent(i,colors)); p.fillRect(QRectF(x+10,chart_y+18,3,6),accent(i,colors));
         } else { p.setPen(QPen(accent(i,colors),2)); p.drawLine(QPointF(x,chart_y+20),QPointF(x+16,chart_y+20)); }
-        text(p,{x+23,double(chart_y+9),130,22},i?"Honey / sec":"Backpack",12,accent(i,colors));
+        text(p,{x+23,double(chart_y+9),160,22},i?"Honey / sec (avg)":"Backpack",12,accent(i,colors));
     }
     honey_backpack_chart(p,{plot_left,double(chart_y+42),plot_width,90},report,rate_scale,colors);
     if (!rows.empty()) {

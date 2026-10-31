@@ -74,9 +74,8 @@ void History::sample(qint64 now,const Snapshot& snapshot) {
     counters({},snapshot.counters);
     for (const auto& section:snapshot.sections) counters(section.id.isEmpty()?section.name:section.id,section.counters);
     const HoneySample reading{now-std::max(qint64(0),snapshot.honey_age_ms),snapshot.honey};
-    if (reading.at>=began_) {
-        // OCR can finish after a newer sample recorded an unreadable frame.
-        // Keep capture order without letting that gap discard a valid balance.
+    if (reading.value && reading.at>=began_) {
+        // Late OCR is inserted by capture time. A miss never replaces a balance.
         auto at=std::lower_bound(honey_.begin(),honey_.end(),reading.at,[](const auto& sample,qint64 time) { return sample.at<time; });
         if (at==honey_.end() || at->at!=reading.at) at=honey_.insert(at,reading);
         else if (!at->value) at->value=reading.value;
@@ -142,27 +141,38 @@ Report History::report(Snapshot snapshot,qint64 session_ms,qint64 window_ms,qint
         result.counts[it.key().section(QChar(0x1f),0,0)].append({QString::fromStdString(it->last.label),period,it->session,QString::fromStdString(it->last.summary)});
     }
     result.honey.current=result.snapshot.honey;
+    result.honey.current_age_ms=std::max(qint64(0),result.snapshot.honey_age_ms);
     const HoneySample *first=nullptr,*last=nullptr,*previous=nullptr;
     for (const auto& sample:honey_) {
         if (sample.at>end) break;
+        if (!sample.value) continue;
         if (sample.at>=start) {
-            if (sample.value) { if (!first) first=&sample; last=&sample; }
+            if (!first) first=&sample;
+            last=&sample;
             std::optional<double> rate;
-            if (previous && previous->value && sample.value && sample.at>previous->at
-                && sample.at-previous->at<=continuity && *sample.value>=*previous->value)
+            // A rate is the measured average between two balances. Missing OCR
+            // frames between them do not invalidate that interval. Never extend
+            // a rate past its last measured endpoint or count spending as income.
+            if (previous && sample.at>previous->at && *sample.value>=*previous->value)
                 rate=double(*sample.value-*previous->value)*1000/(sample.at-previous->at);
             result.honey.rates.append({sample.at-start,rate});
         }
         previous=&sample;
     }
-    if (first && last) {
-        if (!result.honey.current && end-last->at<=2*sample_interval_ms) result.honey.current=last->value;
-        result.honey.period=qint64(*last->value)-qint64(*first->value); result.honey.observed_ms=last->at-first->at;
+    if (previous) {
+        if (!result.honey.current) {
+            result.honey.current=previous->value;
+            result.honey.current_age_ms=std::max(qint64(0),now-previous->at);
+        }
         if (first_honey_) {
-            result.honey.session=qint64(*last->value)-qint64(*first_honey_->value);
-            if (session_ms>0 && end-last->at<=30000) result.honey.hourly=double(*result.honey.session)*3600000/session_ms;
+            result.honey.session=qint64(*previous->value)-qint64(*first_honey_->value);
+            const auto measured_session_ms=session_ms-std::max(qint64(0),end-previous->at);
+            if (measured_session_ms>0) result.honey.hourly=double(*result.honey.session)*3600000/measured_session_ms;
             result.honey.baseline_delay=first_honey_->at-began_+std::max<qint64>(0,session_ms-result.tracked_ms);
         }
+    }
+    if (first && last) {
+        result.honey.period=qint64(*last->value)-qint64(*first->value); result.honey.observed_ms=last->at-first->at;
     }
     return result;
 }

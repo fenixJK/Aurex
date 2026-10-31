@@ -76,7 +76,7 @@ QJsonObject report_payload(const Report& report) {
     QJsonArray fields{
         QJsonObject{{"name","Honey · "+duration(report.window_ms)},{"value",money(report.honey.period)},{"inline",true}},
         QJsonObject{{"name","Honey/hour"},{"value",money(report.honey.hourly)},{"inline",true}},
-        QJsonObject{{"name","Balance"},{"value",money(report.honey.current)},{"inline",true}},
+        QJsonObject{{"name",report.honey.current_age_ms>2*sample_interval_ms?"Last known balance":"Balance"},{"value",money(report.honey.current)},{"inline",true}},
         QJsonObject{{"name","Session"},{"value",duration(elapsed_ms)+" · "+money(report.honey.session)+" honey"},{"inline",true}},
         QJsonObject{{"name",snapshot.state.isEmpty()?"Status":text(snapshot.state,80)},
             {"value",snapshot.activity.isEmpty()?"—":text(snapshot.activity,300)},{"inline",false}}};

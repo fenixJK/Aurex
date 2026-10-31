@@ -38,6 +38,43 @@ public:
 std::size_t NectarLevels::known() const {
     return std::count_if(percent.begin(),percent.end(),[](const auto& value) { return value.has_value(); });
 }
+namespace {
+double remaining_nectar(double percent,Time elapsed) {
+    // 100% is 24 hours; one percentage point lasts 864 seconds.
+    return std::max(0.,percent-std::max(Time{},elapsed).count()/864000.);
+}
+}
+void NectarTracker::observe(Time captured,const NectarLevels& levels) {
+    if (observed_ && captured<=*observed_) return;
+    observed_=captured;
+    for (std::size_t i=0;i<states_.size();++i) {
+        auto& state=states_[i]; const auto value=levels.percent[i];
+        if (!value || !std::isfinite(*value) || *value<0 || *value>100
+            || !std::isfinite(levels.uncertainty_percent) || levels.uncertainty_percent<0) {
+            state.pending.reset(); continue;
+        }
+        const Reading reading{*value,levels.uncertainty_percent,captured};
+        const auto agrees=[&](const Reading& previous) {
+            return std::abs(reading.percent-remaining_nectar(previous.percent,captured-previous.at))
+                <=std::max(reading.uncertainty,previous.uncertainty);
+        };
+        if (state.accepted && agrees(*state.accepted)) {
+            // Preserve the decay curve within the meter's pixel uncertainty.
+            // Replacing it with every quantized reading produces sawtooth spikes.
+            state.confirmed=captured; state.pending.reset();
+        } else if (state.pending && agrees(*state.pending)) {
+            state.accepted=reading; state.confirmed=captured; state.pending.reset();
+        } else state.pending=reading;
+    }
+}
+std::array<NectarEstimate,5> NectarTracker::estimate(Time now) const {
+    std::array<NectarEstimate,5> result{};
+    for (std::size_t i=0;i<states_.size();++i) if (const auto& state=states_[i];state.accepted && now>=state.accepted->at) {
+        result[i].percent=remaining_nectar(state.accepted->percent,now-state.accepted->at);
+        result[i].estimated=!observed_ || state.confirmed!=*observed_ || now-state.confirmed>Time(5000);
+    }
+    return result;
+}
 Observation<NectarLevels> read_nectar(const DetectionInput& input) {
     const auto& f=input.frame;
     Observation<NectarLevels> result{Knowledge::unknown,{},f.captured,f.window,input.generation};
