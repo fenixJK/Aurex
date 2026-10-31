@@ -160,11 +160,36 @@ export function notification(repository, state, assets, previous = null) {
   };
 }
 
-export async function runCounter({ repository, github, discord, initialize = false, log = console.log }) {
+async function resendLatest({ repository, github, discord, state, assets, log }) {
+  const excluded = excludedAssets(state, assets);
+  const snapshot = async ref => readState((await github(`contents/${stateFile}?ref=${ref}`)).content);
+  for (let page = 1; ; ++page) {
+    const commits = await github(`commits?sha=${stateBranch}&path=${stateFile}&per_page=100&page=${page}`);
+    if (!commits.length) throw new Error('No previous download update was found; nothing was resent.');
+    for (const commit of commits) {
+      const after = await snapshot(commit.sha);
+      const before = commit.parents.length ? await snapshot(commit.parents[0].sha) : null;
+      const total = appTotal(after, excluded);
+      // Exclusion-only migrations and silent checksum updates are not messages.
+      if (before && total <= appTotal(before, excluded)) continue;
+      const body = notification(repository, { ...after, excludedAssets: [...excluded] }, assets, before);
+      if (!body.embeds[0].description)
+        throw new Error('The last update references removed release assets; nothing was resent.');
+      body.embeds[0].timestamp = commit.commit.committer.date;
+      const message = await discord(body);
+      log(`Resent download update ${commit.sha}. Message: ${message}. Counter unchanged.`);
+      return { total, sent: 1 };
+    }
+  }
+}
+
+export async function runCounter({ repository, github, discord, initialize = false, resend = false, log = console.log }) {
+  if (initialize && resend) throw new Error('Choose initialization or resend, not both.');
   const stored = await github(`contents/${stateFile}?ref=${stateBranch}`, { allowMissing: true });
   if (!stored && !initialize)
     throw new Error('Download ledger is missing. Run this workflow once with Initialize enabled.');
   const assets = await releaseAssets(github);
+  if (resend) return resendLatest({ repository, github, discord, state: readState(stored.content), assets, log });
   if (!stored) {
     const state = { version: 1, total: 0, assets: {} };
     for (const asset of assets) {
@@ -222,6 +247,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       github: githubClient(process.env.GITHUB_REPOSITORY, process.env.GITHUB_TOKEN),
       discord: discordClient(process.env.DOWNLOAD_WEBHOOK_URL),
       initialize: process.env.INITIALIZE === 'true',
+      resend: process.env.RESEND_LATEST === 'true',
     });
   } catch (error) {
     // Never print request URLs, response bodies or stacks containing the webhook token.

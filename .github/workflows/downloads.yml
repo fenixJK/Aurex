@@ -9,6 +9,10 @@ on:
         description: Start from current totals (first setup only)
         type: boolean
         default: false
+      resend:
+        description: Resend the latest download update without changing the counter
+        type: boolean
+        default: false
 permissions:
   contents: write
 concurrency:
@@ -28,4 +32,5 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           DOWNLOAD_WEBHOOK_URL: ${{ secrets.DOWNLOAD_WEBHOOK_URL }}
           INITIALIZE: ${{ inputs.initialize }}
+          RESEND_LATEST: ${{ inputs.resend }}
         run: node .github/scripts/notify_downloads.mjs
