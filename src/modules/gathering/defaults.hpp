@@ -13,7 +13,7 @@ struct FieldDefaults {
     int minutes{};
 };
 inline constexpr FieldDefaults field_defaults[]{
-    {"Sunflower","Squares",3,100,{},0,false,20},
+    {"Sunflower","Squares",3,100,{},0,false,10},
     {"Dandelion","CornerXSnake",6,100,{-4.5,11.3},0,true},
     {"Mushroom","CornerXSnake",2,100,{-6.3,4.5},0,true},
     {"Blue Flower","CornerXSnake",7,100,{},2,false},
