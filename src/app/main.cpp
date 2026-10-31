@@ -730,6 +730,8 @@ public:
                 const auto reading=session_.observations();
                 const auto error=q(reading.error);
                 if (!error.isEmpty() && seen_observation_errors_.insert(error).second) log("Game reading: "+error);
+                for (const auto& error:report_observations_.errors())
+                    if (seen_observation_errors_.insert(error).second) log("Report reading: "+error);
             }
             const auto features=extensions_->enabled_features();
             auto state_text=state_name(status.state);

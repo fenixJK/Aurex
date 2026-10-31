@@ -17,6 +17,7 @@
 #include <exception>
 #include <optional>
 #include <stdexcept>
+#include <string_view>
 #include <thread>
 
 namespace hive {
@@ -194,8 +195,22 @@ public:
             ~Apartment() { winrt::uninit_apartment(); }
         } apartment;
         using namespace winrt::Windows;
-        thread_local auto engine=Media::Ocr::OcrEngine::TryCreateFromLanguage(Globalization::Language(L"en-US"));
-        if (!engine) throw std::runtime_error("Install an English Windows OCR language");
+        thread_local auto engine=[] {
+            using Media::Ocr::OcrEngine;
+            auto reader=OcrEngine::TryCreateFromLanguage(Globalization::Language(L"en-US"));
+            if (reader) return reader;
+            const auto languages=OcrEngine::AvailableRecognizerLanguages();
+            for (const auto& language:languages) {
+                const auto tag=language.LanguageTag();
+                if (std::wstring_view(tag).starts_with(L"en-"))
+                    if (auto english=OcrEngine::TryCreateFromLanguage(language)) return english;
+            }
+            if (auto preferred=OcrEngine::TryCreateFromUserProfileLanguages()) return preferred;
+            for (const auto& language:languages)
+                if (auto available=OcrEngine::TryCreateFromLanguage(language)) return available;
+            return reader;
+        }();
+        if (!engine) throw std::runtime_error("No Windows OCR language is available. Install a recognition language in Windows Settings.");
         return recognize_tiled({frame.width,frame.height,frame.rgba},static_cast<int>(Media::Ocr::OcrEngine::MaxImageDimension()),[&](const OcrImage& image) {
             Storage::Streams::DataWriter writer;
             std::vector<std::uint8_t> bgra(image.rgba.begin(),image.rgba.end());

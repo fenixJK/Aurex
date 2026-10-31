@@ -13,6 +13,7 @@ class ReportObservations {
     std::shared_ptr<const game::DetectionSource> reporting_nectar_,reporting_buffs_,reporting_upkeep_,reporting_honey_;
 public:
     Observation<game::NectarLevels> nectar() const;
+    QStringList errors() const;
     void configure(const DetectionSources& sources);
     void request(const SessionSnapshot& snapshot,const QStringList& selected) const;
     reporting::Snapshot snapshot(const SessionSnapshot& snapshot,const game::ObservedState& readings,

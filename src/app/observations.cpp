@@ -87,6 +87,15 @@ Observation<game::NectarLevels> ReportObservations::nectar() const {
         if (const auto* detection=dynamic_cast<const game::NectarDetection*>(packet->value.get())) return detection->levels;
     return {};
 }
+QStringList ReportObservations::errors() const {
+    QStringList result;
+    for (const auto& source:{reporting_honey_,reporting_nectar_,reporting_buffs_,reporting_upkeep_})
+        if (source) if (const auto reading=source->peek();reading && !reading->error.empty()) {
+            const auto error=q(reading->error);
+            if (!result.contains(error)) result.append(error);
+        }
+    return result;
+}
 void ReportObservations::configure(const DetectionSources& sources) {
     reporting_honey_=sources.at("honey"); reporting_nectar_=sources.at("nectar");
     reporting_buffs_=sources.at("movement-buffs"); reporting_upkeep_=sources.at("buff-upkeep");
