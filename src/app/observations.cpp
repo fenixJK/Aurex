@@ -46,6 +46,8 @@ BuffStyle buff_style(QString name) {
         const QDir directory(":/buffs");
         for (const auto& file:directory.entryList({"*.png"},QDir::Files))
             result[file.chopped(4)].icon=QImage(directory.filePath(file)).scaled(36,36,Qt::KeepAspectRatio,Qt::SmoothTransformation);
+        for (const auto* boost:{"blue-boost","red-boost","white-boost"})
+            result[boost].icon=result["pollen-boost"].icon;
         return result;
     }();
     return styles.value(name.toLower().replace(' ','-'));

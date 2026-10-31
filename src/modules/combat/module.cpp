@@ -240,10 +240,12 @@ public:
     std::optional<std::vector<extensions::Metric>> report_metrics() const override { return delegate_->report_metrics(); }
     std::vector<Counter> report_counters() const override {
         auto result=delegate_->report_counters();
+        // A visit can clear several enemies. Do not label visits as kill counts.
+        for (auto& counter:result) counter.summary="Visits";
         if(hop_enabled_) {
             std::erase_if(result,[&](const auto& counter){return counter.id==hunt_id_;});
             const auto hunting=hunt_->read();
-            result.push_back({"vicious-hunt-kills","Vicious Bee kills",hunting.kills,hunting.epoch});
+            result.push_back({"vicious-hunt-kills","Vicious Bee kills",hunting.kills,hunting.epoch,"Vicious Bee kills"});
         }
         return result;
     }

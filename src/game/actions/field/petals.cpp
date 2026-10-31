@@ -1,7 +1,6 @@
 #include "petals.hpp"
 #include "shift_lock.hpp"
 #include "game/data/fields.hpp"
-#include "game/detection/menus.hpp"
 #include "game/detection/nearest_target.hpp"
 #include <algorithm>
 
@@ -9,10 +8,10 @@ namespace hive::automation {
 namespace {
 double distance(Point a,Point b) { return std::hypot(a.x-b.x,a.y-b.y); }
 class Petals final : public Program {
-    enum class Stage { lock,prepare,travel,point,zoom_in,camera,zoom_out,settle,select,forward,right,approach,gather,loot,recenter,home,convert,done };
+    enum class Stage { prepare,travel,lock,zoom_in,zoom_out,camera,settle,select,forward,right,approach,gather,loot,recenter,home,convert,done };
     PetalPlan plan_;
     std::vector<game::WalkLeg> loot_;
-    Stage stage_{Stage::lock};
+    Stage stage_{Stage::prepare};
     game::Bloom target_;
     Point origin_,forward_,right_;
     Point displacement_;
@@ -102,27 +101,24 @@ public:
             if (stage_<=Stage::travel) return Done{"Petal objective already complete; travel skipped"};
             return home("Petal objective complete");
         }
-        if (stage_==Stage::lock) { stage_=Stage::prepare; return RunProgram{[] { return set_shift_lock(false); }}; }
         if (stage_==Stage::prepare) { stage_=Stage::travel; return RunProgram{plan_.prepare}; }
-        if (stage_==Stage::travel) { stage_=Stage::point; return Navigate{plan_.field}; }
-        if (stage_==Stage::point) {
-            stage_=Stage::zoom_in; return Hold{{},Time(1),game::pointer_rest(c,view.observations?*view.observations:game::State{})};
+        if (stage_==Stage::travel) { stage_=Stage::lock; return Navigate{plan_.field}; }
+        if (stage_==Stage::lock) { stage_=Stage::zoom_in; return RunProgram{[] { return set_shift_lock(false); }}; }
+        // Establish the final third-person distance before clamping overhead.
+        // Travel/zoom must not replace the pitch we use for bloom geometry.
+        if (stage_==Stage::zoom_in) { stage_=Stage::zoom_out; return MoveCamera{{Key::zoom_in,10}}; }
+        if (stage_==Stage::zoom_out) {
+            stage_=Stage::camera;
+            return MoveCamera{{Key::zoom_out,5}};
         }
-        // Use the same zoom baseline as hive setup before applying pitch.
-        // Routes can leave the third-person camera against nearby scenery.
-        if (stage_==Stage::zoom_in) { stage_=Stage::camera; return MoveCamera{{Key::zoom_in,10}}; }
         if (stage_==Stage::camera) {
-            stage_=Stage::zoom_out;
+            stage_=Stage::settle;
             auto move=game::pitch_limit(Key::pitch_up);
             // Bloom geometry needs the full overhead view. Keep its original
             // longer key holds independently of faster hive/transport turns.
             move.hold=game::CameraHold{Time(100),Time(50)};
-            move.finish=game::CameraFinish::input_only;
+            move.finish=game::CameraFinish::geometry;
             return MoveCamera{move};
-        }
-        if (stage_==Stage::zoom_out) {
-            stage_=Stage::settle;
-            return MoveCamera{{Key::zoom_out,5,game::CameraInput::automatic,game::CameraFinish::geometry}};
         }
         if (stage_==Stage::settle) {
             stage_=Stage::select;

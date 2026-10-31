@@ -17,7 +17,7 @@ public:
             return Wait{Time(25),"Reading shift lock"};
         last_=reading.captured;
         if (reading.value==enabled_) {
-            if (!enabled_ && sent_) {
+            if (!enabled_) {
                 parked_=true; return Hold{{},Time(1),game::pointer_rest(view.context,*view.observations)};
             }
             return Done{"Shift lock confirmed"};

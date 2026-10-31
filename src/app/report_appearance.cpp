@@ -1,4 +1,5 @@
 #include "report_appearance.hpp"
+#include <tuple>
 #include <QDialog>
 #include <QFormLayout>
 #include <QVBoxLayout>
@@ -84,9 +85,10 @@ reporting::Report example_report(const reporting::ReportAppearance& appearance,c
         report.trend.append({i*10000LL,10.+std::fmod(i*2.7,85.)});
         report.honey.rates.append({i*10000LL,3000000.+1500000.*std::sin(i*.06)});
     }
-    for(const auto& name:{"Comforting","Satisfying","Refreshing"}) {
-        reporting::GaugeHistory trace; trace.current.name=name;trace.current.percent=85.;trace.current.floor=75.;
-        for(int i=0;i<=360;++i)trace.samples.append({i*10000LL,85.+10.*std::sin(i*.01)});
+    for(const auto& [name,color,percent]:std::initializer_list<std::tuple<const char*,const char*,double>>{
+        {"Comforting","#7e9eb3",87},{"Refreshing","#78b375",81},{"Satisfying","#b398a7",68},
+        {"Motivating","#937db3",57},{"Invigorating","#b35951",91}}) {
+        reporting::GaugeHistory trace; trace.current.name=name;trace.current.percent=percent;trace.current.color=QColor(color);
         trace.observed_ms=trace.active_ms=trace.target_ms=report.window_ms;
         report.nectar.append(trace);
     }
@@ -103,9 +105,9 @@ reporting::Report example_report(const reporting::ReportAppearance& appearance,c
         trace.current.level->value=trace.samples.back().level;
         report.buffs.append(trace);
     }
-    report.snapshot.sections={{"Planters",{{"Tacky · Pine Tree","Growing",.72},{"Pesticide · Spider","Growing",.46}},"planters"},
-        {"Quests",{{"Polar Bear","Collect blue pollen",.65}},"quests"}};
-    report.counts[{}]={{"Vicious Bee defeats",3,7},{"Planters harvested",4,9},{"Quests completed",2,5}};
+    report.snapshot.sections={{"Planters",{{"Pine Tree","Tacky · 1h 10m",72},{"Spider","Pesticide · 2h 30m",46}},"planters"},
+        {"Quests",{{"Polar Bear","Collect blue pollen",65}},"quests"}};
+    report.counts[{}]={{"Combat · visits",24,57},{"Combat · Vicious Bee kills",3,7},{"Planters harvested",4,9},{"Quests completed",2,5}};
     return report;
 }
 void show_report_appearance(QWidget* parent,reporting::ReportAppearance& appearance,const QString& directory,std::function<bool()> save,

@@ -90,16 +90,11 @@ Reading<Point> read_open_menu(const Frame& frame,const HudFeatures& hud,std::uin
     // A panel with an obscured toggle stays unknown, never closed.
     return result;
 }
-Point pointer_rest(const ObservationContext& c,const State& state) {
-    Point rest{350/c.window.bounds.width,150/c.window.bounds.height};
-    if (state.menus.has_value(c,Time(2000))) {
-        const auto& menus=state.menus.value;
-        const auto inventory=std::find_if(menus.begin(),menus.end(),[](const auto& m) { return m.tab==MenuTab::inventory; });
-        const auto quests=std::find_if(menus.begin(),menus.end(),[](const auto& m) { return m.tab==MenuTab::quests; });
-        if (inventory!=menus.end() && quests!=menus.end() && quests->center().x>inventory->center().x)
-            rest={inventory->center().x+6*(quests->center().x-inventory->center().x),inventory->center().y};
-    }
-    return {std::clamp(rest.x,0.01,0.95),std::clamp(rest.y,0.01,0.95)};
+Point pointer_rest(const ObservationContext&,const State&) {
+    // Rest in the game view, away from sidebar tabs, the shop and buff tooltips.
+    // This is also Roblox's locked-pointer origin: parking at the menu row
+    // while in first person or shift lock can pan the camera itself.
+    return {.5,.5};
 }
 std::vector<MenuControl> menu_controls(const DetectionInput& input,std::optional<Rect> search,std::span<const MenuControl> hints) {
     const auto& f=input.frame;

@@ -1,6 +1,16 @@
 Natro Macro behavior and data ports
 https://github.com/NatroTeam/natro
 
+The square report icons in assets/buffs (baby-love, balloon-aura, bear-morph,
+bomb-combo, festive-mark, focus, guiding-star, haste, honey-mark, inspire,
+jelly-bean-sharing, melody, pollen-boost, pollen-mark, pop-star and reindeer-fetch)
+are decoded without modification from NatroTeam/NatroMacro's
+nm_image_assets/statmonitor/bitmaps.ahk at
+094f9c7b97e27f05e23f04beebecb7396bff5fd9.
+Source: https://github.com/NatroTeam/NatroMacro/blob/094f9c7b97e27f05e23f04beebecb7396bff5fd9/nm_image_assets/statmonitor/bitmaps.ahk
+Natro Macro contributors; distributed under GNU GPL v3 (see GPL-3.0.txt).
+The depicted Bee Swarm Simulator artwork belongs to its original creators.
+
 The field cannon routes in src/automation/cannon_routes.cpp follow the
 gtf and gtp routes for Mountain Top, Pine Tree, Cactus, Pumpkin, Pineapple,
 Stump, Rose and Bamboo, using the shared movement and transport workflows.

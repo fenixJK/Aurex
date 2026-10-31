@@ -52,9 +52,12 @@ return function(p)
     end
     local function zoom(n) camera("zoom_out",n) end
     local function scout_camera(zoomed)
-        flush();path[#path+1]={kind="shift_lock",enabled=true}
+        -- FixRot in the source establishes pitch/zoom before spawnToPepper
+        -- enables shift lock. Keep that order, including a neutral pointer.
+        flush();path[#path+1]={kind="shift_lock",enabled=false}
         if not zoomed then camera("zoom_in",10) end
         pitch(4);zoom(5)
+        path[#path+1]={kind="shift_lock",enabled=true}
     end
     if p.from=="hive" then
         assert(p.slot>=1 and p.slot<=6,"Confirmed hive slot required")
