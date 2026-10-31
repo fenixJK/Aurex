@@ -17,6 +17,7 @@ struct Metric {
     std::string label, value;
     std::optional<double> progress;
     std::string group,color_key;
+    std::string icon_key,icon_value; // Optional report icon and the value shown beside it.
     bool operator==(const Metric&) const=default;
 };
 struct HotbarUse {

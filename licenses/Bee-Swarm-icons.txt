@@ -118,3 +118,9 @@ tadpole.png
 https://static.wikia.nocookie.net/bee-swarm-simulator/images/5/54/Tadpole_Bee.png/revision/latest?format=original
 vector.png
 https://static.wikia.nocookie.net/bee-swarm-simulator/images/a/a6/Vector_Bee.png/revision/latest?format=original
+
+Report nectar and planter icons (assets/report-icons/):
+Game UI artwork copied from nm_image_assets/ptimers/nectars and
+nm_image_assets/ptimers/planters in the local Natro Macro checkout
+at d33899a74d67dee31dd52fcb33d89733688ee588.
+These retain the attribution and licensing described in Natro-ports.txt.

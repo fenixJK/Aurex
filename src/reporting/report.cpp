@@ -160,39 +160,62 @@ void honey_backpack_chart(QPainter& p,QRectF plot,const Report& report,const Hon
     if (!honey && !backpack) text(p,plot,"Waiting for readings",15,colors.subtle,false,Qt::AlignCenter);
 }
 void activity_pie(QPainter& p,QRectF area,const Report& report,const Palette& colors) {
-    qint64 total=0;
-    for (const auto& activity:report.activities) total+=std::max(qint64(0),activity.milliseconds);
-    const QRectF pie(area.left(),area.top()+23,88,88);
-    text(p,{area.left(),area.top(),area.width(),20},"Activity · "+duration(report.window_ms),12,colors.muted);
-    p.setPen(Qt::NoPen); p.setBrush(colors.track); p.drawEllipse(pie);
+    qint64 total=0;for(const auto& item:report.activities)total+=std::max(qint64(0),item.milliseconds);
+    const QRectF pie(area.left()+std::max(0.,(area.width()-280)/2),area.center().y()-34,72,72);
+    const QRectF inner=pie.adjusted(12,12,-12,-12);
+    const double label_x=pie.right()+24,time_x=label_x+84,share_x=time_x+64;
+    text(p,{pie.left(),area.top(),90,18},"Activity",12,colors.muted);
+    text(p,{time_x,area.top(),60,18},"Time",10,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
+    text(p,{share_x,area.top(),36,18},"Share",10,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
+    QPainterPath ring;ring.addEllipse(pie);ring.addEllipse(inner);ring.setFillRule(Qt::OddEvenFill);
+    p.save();p.setClipPath(ring);p.setPen(Qt::NoPen);p.setBrush(colors.track);p.drawEllipse(pie);
     double angle=90;
-    const double row_height=std::min(19.,96./std::max(1,static_cast<int>(report.activities.size())));
-    for (qsizetype i=0;i<report.activities.size();++i) {
-        const auto& activity=report.activities[i];
-        const auto fraction=total?double(std::max(qint64(0),activity.milliseconds))/total:0.;
-        p.setPen(QPen(colors.panel,1)); p.setBrush(accent(i,colors));
-        p.drawPie(pie,int(std::lround(angle*16)),-int(std::lround(fraction*360*16))); angle-=fraction*360;
-        const double y=area.top()+23+i*row_height;
-        p.fillRect(QRectF(area.left()+105,y+(row_height-8)/2,8,8),accent(i,colors));
-        text(p,{area.left()+122,y,area.width()-190,row_height},activity.name,12,colors.muted);
-        text(p,{area.right()-62,y,62,row_height},QString::number(std::lround(fraction*100))+"%",12,colors.foreground,true,Qt::AlignRight|Qt::AlignVCenter);
+    for(qsizetype i=0;i<report.activities.size();++i) {
+        const double fraction=total?double(std::max(qint64(0),report.activities[i].milliseconds))/total:0.;
+        p.setPen(QPen(colors.panel,1));p.setBrush(accent(i,colors));
+        p.drawPie(pie,int(std::lround(angle*16)),-int(std::lround(fraction*360*16)));angle-=fraction*360;
     }
-    if (!total) text(p,{pie.right()+16,pie.top(),area.width()-104,pie.height()},"No activity recorded",12,colors.subtle);
+    p.restore();
+    text(p,{inner.left(),pie.center().y()-17,inner.width(),24},duration(report.window_ms),duration(report.window_ms).size()>3?11:18,colors.foreground,true,Qt::AlignCenter);
+    text(p,{inner.left(),pie.center().y()+5,inner.width(),14},"report",9,colors.subtle,false,Qt::AlignCenter);
+    if (report.activities.empty()) text(p,{label_x,pie.top(),area.right()-label_x,pie.height()},"No activity recorded",11,colors.subtle);
+    const double row_height=std::min(22.,(area.height()-24)/std::max(1,static_cast<int>(report.activities.size())));
+    const double top=pie.center().y()-row_height*report.activities.size()/2;
+    for(qsizetype i=0;i<report.activities.size();++i) {
+        const auto& item=report.activities[i];const double fraction=total?double(std::max(qint64(0),item.milliseconds))/total:0.;
+        const double y=top+i*row_height;
+        p.fillRect(QRectF(label_x-12,y+(row_height-7)/2,7,7),accent(i,colors));
+        text(p,{label_x,y,82,row_height},item.name,11,colors.muted);
+        text(p,{time_x,y,60,row_height},duration(item.milliseconds),11,colors.foreground,true,Qt::AlignRight|Qt::AlignVCenter);
+        text(p,{share_x,y,36,row_height},QString::number(std::lround(fraction*100))+"%",11,colors.muted,false,Qt::AlignRight|Qt::AlignVCenter);
+    }
 }
 void nectar_summary(QPainter& p,QRectF area,const QList<GaugeHistory>& nectar,const Palette& colors) {
-    card(p,area,colors);
-    const auto count=std::min(qsizetype(6),nectar.size());
-    text(p,{area.left()+16,area.top()+7,72,20},"Nectar",13,colors.foreground,true);
-    text(p,{area.left()+16,area.top()+28,72,18},"Current",11,colors.subtle);
-    const double cell=(area.width()-100)/count;
-    for (qsizetype i=0;i<count;++i) {
-        const auto& gauge=nectar[i].current;
-        const double x=area.left()+100+i*cell,w=cell-18;
+    const auto count=nectar.size();if(!count)return;
+    text(p,{area.left()+8,area.top(),area.width()-16,18},"Nectar",12,colors.muted);
+    const double cell=area.width()/count;
+    for(qsizetype i=0;i<count;++i) {
+        const auto& gauge=nectar[i].current;const double x=area.left()+i*cell;
         const auto color=gauge.color.isValid()?colors.ink(gauge.color):accent(i,colors);
-        text(p,{x,area.top()+6,w,19},gauge.name,12,colors.muted);
-        text(p,{x,area.top()+25,w,20},gauge.percent?QString::number(*gauge.percent,'f',0)+"%":"—",16,color,true);
-        bar(p,{x,area.top()+49,w,4},gauge.percent,color,colors);
+        const QRectF ring(x+(cell-46)/2,area.center().y()-21,46,46);
+        p.save();p.setBrush(Qt::NoBrush);p.setPen(QPen(colors.track,4.5));p.drawEllipse(ring);
+        const bool known=gauge.percent && std::isfinite(*gauge.percent) && *gauge.percent>=0 && *gauge.percent<=100;
+        if(known) {
+            p.setPen(QPen(color,4.5,Qt::SolidLine,Qt::RoundCap));
+            p.drawArc(ring,90*16,-int(std::lround(std::clamp(*gauge.percent,0.,100.)*3.6*16)));
+        }
+        p.restore();
+        const auto& icon=gauge.icon;
+        if(!icon.isNull()) {
+            const auto size=icon.size().scaled(24,24,Qt::KeepAspectRatio);
+            p.drawImage(QRectF(ring.center().x()-size.width()/2.,ring.center().y()-size.height()/2.,size.width(),size.height()),icon);
+        }
+        if(icon.isNull()) text(p,ring,gauge.name.left(3),11,colors.muted,true,Qt::AlignCenter);
+        text(p,{x,area.center().y()+31,cell,20},known?QString::number(*gauge.percent,'f',0)+"%":"—",13,colors.foreground,true,Qt::AlignCenter);
     }
+}
+bool visible_metric(const Metric& metric) {
+    return metric.progress.has_value() || !metric.icon.isNull() || !metric.icon_value.isEmpty();
 }
 double buff_ceiling(const GaugeHistory& trace) {
     const auto maximum=std::max(1.,trace.current.level->maximum);
@@ -288,18 +311,20 @@ QImage render_report(const Report& report,const QImage* cached_background) {
             buffs.append(&trace);
     const auto& style=report.appearance; auto colors=palette(style.theme);
     const bool nectar_visible=style.nectar && !report.nectar.empty();
-    const int summary_height=style.activity?132:70;
-    const int nectar_y=50+summary_height+12;
-    const int chart_y=nectar_y+(nectar_visible?74:0),buffs_y=chart_y+144;
+    const bool split_summary=style.activity || nectar_visible;
+    const int summary_height=split_summary?std::max(132,style.activity?48+14*int(report.activities.size()):0):70;
+    const int chart_y=50+summary_height+12,buffs_y=chart_y+144;
     const auto rows=buff_rows(buffs,buffs_y+20,style.chart_height);
     const double plot_left=std::any_of(buffs.begin(),buffs.end(),[](const auto* trace) { return trace->current.icon.isNull(); })?144:92;
     QList<const Section*> panels;
     for (const auto& section:snapshot.sections)
-        if (style.modules && std::any_of(section.metrics.begin(),section.metrics.end(),[](const auto& metric) { return metric.progress.has_value(); })) panels.append(&section);
-    int panel_height=0;
+        if (style.modules && std::any_of(section.metrics.begin(),section.metrics.end(),visible_metric)) panels.append(&section);
+    QList<int> detail_heights;
     for (const auto* section:panels.first(std::min(qsizetype(4),panels.size()))) {
-        int rows=0; for (const auto& metric:section->metrics) if (metric.progress) ++rows;
-        panel_height+=(panel_height?12:0)+34+std::min(6,rows)*43;
+        int height=32,count=0;
+        for(const auto& metric:section->metrics) if(visible_metric(metric) && count++<6)
+            height+=metric.icon.isNull()?48:40;
+        detail_heights.append(height);
     }
     const int chart_bottom=rows.empty()?buffs_y-12:int(rows.back().top+rows.back().height-(rows.back().ceiling==1?8:18));
     const int buff_height=chart_bottom-buffs_y+36;
@@ -311,7 +336,17 @@ QImage render_report(const Report& report,const QImage* cached_background) {
     for (const auto& count:report.counts.value({})) if (count.session || count.period) counts.append(count);
     const int shown=style.totals?std::min(10,int(counts.size())):0;
     const int stats_height=shown?38+shown*22:0;
-    const int bottom=details_y+std::max(panel_height,stats_height);
+    if(shown)detail_heights.append(stats_height);
+    QList<QRectF> details;int bottom=details_y;
+    const qsizetype columns=detail_heights.size()==4?2:3;
+    for(qsizetype first=0;first<detail_heights.size();first+=columns) {
+        const auto count=std::min(columns,detail_heights.size()-first);
+        int height=0;for(qsizetype i=0;i<count;++i)height=std::max(height,detail_heights[first+i]);
+        const auto cell=(content-12.*(count-1))/count;
+        for(qsizetype i=0;i<count;++i)details.append({margin+i*(cell+12),double(bottom),cell,double(height)});
+        bottom+=height+12;
+    }
+    if(!details.empty())bottom-=12;
     const bool partial=report.tracked_ms+30000<report.session_ms;
     QStringList notes;
     if (report.alerts) notes.append(QString("%1 alerts").arg(report.alerts));
@@ -362,16 +397,22 @@ QImage render_report(const Report& report,const QImage* cached_background) {
     const QStringList labels{"Hourly average","Current honey","Honey · "+duration(report.window_ms),partial?"Tracked session gain":"Session gain"};
     const QStringList values{money(report.honey.hourly),money(report.honey.current),gain(report.honey.period),gain(report.honey.session)};
     for (int i=0;i<4;++i) {
-        const double x=margin+18+(style.activity?i%2*255:i*content/4.);
-        const double y=style.activity?57+i/2*60:57;
-        text(p,{x,y,230,19},labels[i],12,colors.muted);
-        text(p,{x,y+21,230,30},values[i],26,i==0?accent(1,colors):i==2?accent(report.honey.period && *report.honey.period<0?4:0,colors):colors.foreground,true);
+        const double honey_width=style.activity && nectar_visible?276:split_summary?440:content-36;
+        const double cell=honey_width/(split_summary?2:4);
+        const double x=margin+18+(split_summary?i%2:i)*cell;
+        const double y=59+(split_summary?i/2*57:0);
+        text(p,{x,y,cell-10,19},labels[i],12,colors.muted);
+        text(p,{x,y+20,cell-10,30},values[i],25,i==0?accent(1,colors):i==2?accent(report.honey.period && *report.honey.period<0?4:0,colors):colors.foreground,true);
     }
-    if (style.activity) {
-        p.setPen(colors.divider); p.drawLine(QPointF(556,66),QPointF(556,166));
-        activity_pie(p,{576,59,380,111},report,colors);
+    if(split_summary) {
+        p.setPen(colors.divider);
+        const double divider=style.activity && nectar_visible?324:496;
+        p.drawLine(QPointF(divider,66),QPointF(divider,50+summary_height-16));
+        if(style.activity && nectar_visible)
+            p.drawLine(QPointF(634,66),QPointF(634,50+summary_height-16));
+        if(style.activity) activity_pie(p,nectar_visible?QRectF(342,62,276,summary_height-24):QRectF(516,62,440,summary_height-24),report,colors);
+        if(nectar_visible) nectar_summary(p,style.activity?QRectF(646,62,314,summary_height-24):QRectF(516,62,440,summary_height-24),report.nectar,colors);
     }
-    if (nectar_visible) nectar_summary(p,{margin,double(nectar_y),content,62},report.nectar,colors);
     card(p,{margin,double(chart_y),content,double(buffs_y+buff_height-chart_y)},colors);
     for (int i=0;i<2;++i) {
         const double x=40+i*122;
@@ -428,34 +469,45 @@ QImage render_report(const Report& report,const QImage* cached_background) {
         if (!observed) text(p,plot,"Waiting for readings",11,colors.subtle,false,Qt::AlignCenter);
     }
     time_axis(p,{plot_left,double(chart_bottom)-26,plot_width,26},report.window_ms,end,colors);
-    const int columns=(!panels.empty()?1:0)+(shown?1:0);
-    const double detail_width=columns?(content-12.*(columns-1))/columns:content;
-    const double panel_x=margin;
-    const double totals_x=panel_x+(!panels.empty()?detail_width+12:0);
-    int side_y=details_y;
+    qsizetype panel_index=0;
     for (const auto* section:panels.first(std::min(qsizetype(4),panels.size()))) {
-        QList<Metric> metrics; for (const auto& metric:section->metrics) if (metric.progress && metrics.size()<6) metrics.append(metric);
-        const int height=34+metrics.size()*43;
-        card(p,{panel_x,double(side_y),detail_width,double(height)},colors);
-        text(p,{panel_x+16,double(side_y+7),detail_width-32,24},section->name,15,colors.foreground,true);
-        for (int i=0;i<metrics.size();++i) {
-            const auto& metric=metrics[i]; const double y=side_y+35+i*43;
-            text(p,{panel_x+16,y,106,20},metric.label,13,colors.muted);
-            text(p,{panel_x+128,y,detail_width-144,20},metric.value,13,colors.foreground,true,Qt::AlignRight|Qt::AlignVCenter);
-            bar(p,{panel_x+16,y+26,detail_width-32,4},metric.progress,metric.color.isValid()?colors.ink(metric.color):accent(i,colors),colors);
+        const auto area=details[panel_index++];card(p,area,colors);
+        text(p,{area.left()+12,area.top()+7,area.width()-24,24},section->name,15,colors.foreground,true);
+        int count=0;double y=area.top()+32;
+        for(const auto& metric:section->metrics) {
+            if(!visible_metric(metric))continue;
+            if(count++==6)break;
+            const auto color=metric.color.isValid()?colors.ink(metric.color):accent(count-1,colors);
+            if(!metric.icon.isNull()) {
+                const auto size=metric.icon.size().scaled(32,32,Qt::KeepAspectRatio);
+                p.drawImage(QRectF(area.left()+12+(32-size.width())/2.,y+(32-size.height())/2.,size.width(),size.height()),metric.icon);
+                const double x=area.left()+54,w=area.width()-66;
+                const auto value=metric.icon_value.isEmpty()?metric.value:metric.icon_value;
+                font(p,12);
+                const double value_width=std::clamp(double(p.fontMetrics().horizontalAdvance(value)+4),75.,w*.55);
+                text(p,{x,y,w-value_width-6,20},metric.label,13,colors.foreground,true);
+                text(p,{x+w-value_width,y,value_width,20},value,12,colors.muted,false,Qt::AlignRight|Qt::AlignVCenter);
+                bar(p,{x,y+26,w,4},metric.progress,color,colors);
+                y+=40;
+            } else {
+                text(p,{area.left()+12,y,area.width()-24,17},metric.label,12,colors.muted);
+                text(p,{area.left()+12,y+17,area.width()-24,20},metric.value,13,colors.foreground,true);
+                bar(p,{area.left()+12,y+39,area.width()-24,4},metric.progress,color,colors);
+                y+=48;
+            }
         }
-        side_y+=height+12;
     }
-    if (shown) {
-        card(p,{totals_x,double(details_y),detail_width,double(stats_height)},colors);
-        text(p,{totals_x+16,double(details_y+7),detail_width-164,22},"Completed",15,colors.foreground,true);
-        text(p,{totals_x+detail_width-139,double(details_y+9),58,20},duration(report.window_ms),11,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
-        text(p,{totals_x+detail_width-74,double(details_y+9),58,20},"Session",11,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
-        for (int i=0;i<shown;++i) {
-            const auto& count=counts[i]; const double y=details_y+32+i*22;
-            text(p,{totals_x+16,y,detail_width-162,20},count.label,12,colors.muted);
-            text(p,{totals_x+detail_width-139,y,58,20},amount(double(count.period)),13,colors.foreground,true,Qt::AlignRight|Qt::AlignVCenter);
-            text(p,{totals_x+detail_width-74,y,58,20},amount(double(count.session)),12,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
+
+    if(shown) {
+        const auto area=details.back();card(p,area,colors);
+        text(p,{area.left()+12,area.top()+7,area.width()-140,22},"Completed",15,colors.foreground,true);
+        text(p,{area.right()-108,area.top()+9,42,20},duration(report.window_ms),11,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
+        text(p,{area.right()-60,area.top()+9,44,20},"Session",11,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
+        for(int i=0;i<shown;++i) {
+            const auto& count=counts[i];const double y=area.top()+32+i*22;
+            text(p,{area.left()+12,y,area.width()-130,20},count.label,12,colors.muted);
+            text(p,{area.right()-108,y,42,20},amount(double(count.period)),13,colors.foreground,true,Qt::AlignRight|Qt::AlignVCenter);
+            text(p,{area.right()-60,y,44,20},amount(double(count.session)),12,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
         }
     }
     if (!notes.empty()) text(p,{margin,double(bottom+3),content,20},notes.join("   ·   "),11,colors.subtle);

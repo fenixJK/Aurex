@@ -1,0 +1,22 @@
+<RCC>
+  <qresource prefix="/report-icons">
+    <file alias="nectar/Comforting.png">../../assets/report-icons/nectar/Comforting.png</file>
+    <file alias="nectar/Invigorating.png">../../assets/report-icons/nectar/Invigorating.png</file>
+    <file alias="nectar/Motivating.png">../../assets/report-icons/nectar/Motivating.png</file>
+    <file alias="nectar/Refreshing.png">../../assets/report-icons/nectar/Refreshing.png</file>
+    <file alias="nectar/Satisfying.png">../../assets/report-icons/nectar/Satisfying.png</file>
+    <file alias="planters/BlueClayPlanter.png">../../assets/report-icons/planters/BlueClayPlanter.png</file>
+    <file alias="planters/CandyPlanter.png">../../assets/report-icons/planters/CandyPlanter.png</file>
+    <file alias="planters/FestivePlanter.png">../../assets/report-icons/planters/FestivePlanter.png</file>
+    <file alias="planters/HeatTreatedPlanter.png">../../assets/report-icons/planters/HeatTreatedPlanter.png</file>
+    <file alias="planters/HydroponicPlanter.png">../../assets/report-icons/planters/HydroponicPlanter.png</file>
+    <file alias="planters/PaperPlanter.png">../../assets/report-icons/planters/PaperPlanter.png</file>
+    <file alias="planters/PesticidePlanter.png">../../assets/report-icons/planters/PesticidePlanter.png</file>
+    <file alias="planters/PetalPlanter.png">../../assets/report-icons/planters/PetalPlanter.png</file>
+    <file alias="planters/PlanterOfPlenty.png">../../assets/report-icons/planters/PlanterOfPlenty.png</file>
+    <file alias="planters/PlasticPlanter.png">../../assets/report-icons/planters/PlasticPlanter.png</file>
+    <file alias="planters/RedClayPlanter.png">../../assets/report-icons/planters/RedClayPlanter.png</file>
+    <file alias="planters/TackyPlanter.png">../../assets/report-icons/planters/TackyPlanter.png</file>
+    <file alias="planters/TicketPlanter.png">../../assets/report-icons/planters/TicketPlanter.png</file>
+  </qresource>
+</RCC>

@@ -53,7 +53,7 @@ BuffStyle buff_style(QString name) {
     return styles.value(name.toLower().replace(' ','-'));
 }
 hive::reporting::Metric report_metric(const hive::extensions::Metric& metric) {
-    return {q(metric.label),q(metric.value),metric.progress,buff_style(q(metric.color_key)).color};
+    return {q(metric.label),q(metric.value),metric.progress,buff_style(q(metric.color_key)).color,reporting::report_icon(q(metric.icon_key)),q(metric.icon_value)};
 }
 }
 std::vector<game::DetectorConfig> game_detectors(std::shared_ptr<game::InventoryRequests> inventory_requests) {
@@ -148,6 +148,7 @@ reporting::Snapshot ReportObservations::snapshot(const SessionSnapshot& snapshot
         const auto id=std::string("nectar/")+name; const auto found=thresholds.find(id);
         report.gauges.append(hive::reporting::Gauge{name,{},q(id),found==thresholds.end()?std::nullopt:std::optional<double>(found->second)});
         report.gauges.back().color=buff_style(name).color;
+        report.gauges.back().icon=reporting::report_icon(q(id));
     }
     if (reporting_nectar_) if (const auto result=reporting_nectar_->peek()) {
         const auto* nectar=dynamic_cast<const hive::game::NectarDetection*>(result->value.get());

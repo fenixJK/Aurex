@@ -12,7 +12,7 @@
 
 namespace hive::reporting {
 inline constexpr qint64 sample_interval_ms=10000;
-struct Metric { QString label,value; std::optional<double> progress; QColor color; };
+struct Metric { QString label,value; std::optional<double> progress; QColor color; QImage icon; QString icon_value; };
 struct Section { QString name; QList<Metric> metrics; QString id; std::vector<Counter> counters; };
 struct Level { std::optional<double> value; double maximum{100}; };
 struct Gauge { QString name; std::optional<double> percent; QString id; std::optional<double> floor; std::optional<Level> level; QImage icon; QColor color; QString chart_group; };
@@ -65,6 +65,7 @@ struct Report {
     qint64 window_age_ms{};
     ReportAppearance appearance;
 };
+QImage report_icon(const QString& key);
 QString redact(QString text);
 QString duration(qint64 milliseconds);
 QString amount(double value);

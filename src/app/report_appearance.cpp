@@ -89,6 +89,7 @@ reporting::Report example_report(const reporting::ReportAppearance& appearance,c
         {"Comforting","#7e9eb3",87},{"Refreshing","#78b375",81},{"Satisfying","#b398a7",68},
         {"Motivating","#937db3",57},{"Invigorating","#b35951",91}}) {
         reporting::GaugeHistory trace; trace.current.name=name;trace.current.percent=percent;trace.current.color=QColor(color);
+        trace.current.icon=reporting::report_icon("nectar/"+trace.current.name);
         trace.observed_ms=trace.active_ms=trace.target_ms=report.window_ms;
         report.nectar.append(trace);
     }
@@ -105,7 +106,7 @@ reporting::Report example_report(const reporting::ReportAppearance& appearance,c
         trace.current.level->value=trace.samples.back().level;
         report.buffs.append(trace);
     }
-    report.snapshot.sections={{"Planters",{{"Pine Tree","Tacky · 1h 10m",72},{"Spider","Pesticide · 2h 30m",46}},"planters"},
+    report.snapshot.sections={{"Planters",{{"Pine Tree","Tacky · 1h 10m",72,{},reporting::report_icon("planters/TackyPlanter"),"1h 10m"},{"Spider","Pesticide · 2h 30m",46,{},reporting::report_icon("planters/PesticidePlanter"),"2h 30m"}},"planters"},
         {"Quests",{{"Polar Bear","Collect blue pollen",65}},"quests"}};
     report.counts[{}]={{"Combat · visits",24,57},{"Combat · Vicious Bee kills",3,7},{"Planters harvested",4,9},{"Quests completed",2,5}};
     return report;

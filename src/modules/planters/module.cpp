@@ -307,7 +307,7 @@ public:
             std::string name=plant.stats.planter;
             for (std::size_t i=1;i<name.size();++i) if (name[i]>='A' && name[i]<='Z' && name[i-1]!=' ') name.insert(i++,1,' ');
             result.push_back({plant.stats.field,name+" · "+(plant.missing?"Not confirmed":time),plant.missing?std::optional<double>{}:std::clamp(estimated_age(plant,now)/plant.stats.full_seconds*100.,0.,100.),
-                {},nectar_names()[static_cast<std::size_t>(plant.stats.nectar)]});
+                {},nectar_names()[static_cast<std::size_t>(plant.stats.nectar)],"planters/"+plant.stats.planter,plant.missing?"Not confirmed":time});
         }
         return result;
     }
