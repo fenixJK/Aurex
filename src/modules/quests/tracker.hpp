@@ -20,7 +20,7 @@ struct Card {
     std::vector<Objective> objectives;
     bool complete_view{};
 };
-struct Field { std::string name; std::set<Kind> pollen; };
+struct Field { std::string name; std::set<Kind> pollen; bool preferred_for_color{}; };
 struct Report {
     game::Requests requests;
     std::vector<game::FieldRequest> completed_fields;

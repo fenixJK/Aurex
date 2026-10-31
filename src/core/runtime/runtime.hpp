@@ -39,7 +39,7 @@ public:
     bool has_work() const;
     std::vector<TaskResult> take_results(std::uint64_t owner);
 private:
-    struct Pending { Job job; std::size_t index{}; Time remaining{}; bool begun{}, started{}; Time execution_time{},segment_start{}; };
+    struct Pending { Job job; std::size_t index{}; Time remaining{}; bool begun{}, started{}, drag_arrived{}; Time execution_time{},segment_start{}; };
     Input& input_;
     Window window_;
     Status status_;

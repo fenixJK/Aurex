@@ -26,9 +26,10 @@ RequestContracts game_request_contracts() {
         }},
         {"fields",[](const Settings& data) {
             const auto field=data.find("field"),alternatives=data.find("alternatives"),complete=data.find("complete"),slot=data.find("hotbar-slot"),interrupt=data.find("interrupt");
-            const auto menu=data.find("menu");
+            const auto menu=data.find("menu"),preferred=data.find("prefer-primary");
             if (field==data.end() || !std::holds_alternative<std::string>(field->second)
-                || data.size()!=1+unsigned(alternatives!=data.end())+unsigned(complete!=data.end())+unsigned(slot!=data.end())+unsigned(interrupt!=data.end())+unsigned(menu!=data.end())
+                || data.size()!=1+unsigned(alternatives!=data.end())+unsigned(complete!=data.end())+unsigned(slot!=data.end())+unsigned(interrupt!=data.end())+unsigned(menu!=data.end())+unsigned(preferred!=data.end())
+                || (preferred!=data.end() && !std::holds_alternative<bool>(preferred->second))
                 || (interrupt!=data.end() && !std::holds_alternative<bool>(interrupt->second))
                 || (slot!=data.end() && (!std::holds_alternative<int>(slot->second) || std::get<int>(slot->second)<0 || std::get<int>(slot->second)>7))
                 || (complete!=data.end() && !std::holds_alternative<bool>(complete->second))
@@ -71,6 +72,7 @@ RequestBatch channel_batch(const Requests& requests) {
         for (const auto& r : requests.fields) {
             Settings data{{"field",r.field},{"alternatives",r.alternatives},{"complete",r.complete},{"hotbar-slot",int(r.hotbar_slot)},{"interrupt",r.interrupt}};
             if (r.menu) data["menu"]=std::string(menu_names.at(unsigned(*r.menu)));
+            if (r.prefer_primary) data["prefer-primary"]=true;
             result.channels["fields"].push_back({r.id,r.priority,r.expires,std::move(data)});
         }
     }
@@ -100,7 +102,8 @@ std::vector<FieldGoal> RequestBroker::snapshot(Time now,std::uint64_t generation
             m.data.contains("complete") && std::get<bool>(m.data.at("complete")),
             m.data.contains("hotbar-slot")?unsigned(std::get<int>(m.data.at("hotbar-slot"))):0u,
             m.data.contains("interrupt") && std::get<bool>(m.data.at("interrupt")),
-            m.data.contains("menu")?std::optional(request_menu(m.data.at("menu"))):std::nullopt});
+            m.data.contains("menu")?std::optional(request_menu(m.data.at("menu"))):std::nullopt,
+            m.data.contains("prefer-primary") && std::get<bool>(m.data.at("prefer-primary"))});
     }
     return result;
 }

@@ -63,7 +63,6 @@ public:
         const auto& control=it->second;
         if (operation==Operation::place) {
             workflows::InventoryDragPlan search{control.inventory_names,field->second.target}; search.start_at_bottom=true;
-            search.use_recent_view=true;
             std::vector<automation::Step> steps{automation::DragInventoryItem{std::move(search),field->second.source,
                     std::make_shared<Observation<workflows::InventoryMatch>>()},
                 automation::AnswerDialog{{{},workflows::DialogChoice::yes,Time(10000),false}}};

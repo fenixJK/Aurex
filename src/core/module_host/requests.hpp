@@ -16,6 +16,7 @@ struct FieldRequest {
     unsigned hotbar_slot{};
     bool interrupt{};
     std::optional<MenuTab> menu;
+    bool prefer_primary{};
 };
 struct EnemyRequest {
     std::string id, enemy;

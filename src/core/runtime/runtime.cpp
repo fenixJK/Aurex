@@ -154,12 +154,18 @@ void Runtime::tick(Time now, const Snapshot& snapshot) {
         }
         if (active_ && active_->begun) {
             const auto& action=active_->job.actions.at(active_->index);
-            if (action.pointer_to) {
+            if (action.pointer_to && !active_->drag_arrived) {
                 const auto settle=std::min(Time(30),action.duration/5);
                 const auto part=std::clamp(double((now-active_->segment_start-settle).count())/(action.duration-2*settle).count(),0.0,1.0);
                 const auto from=*action.pointer,to=*action.pointer_to;
                 input_.pointer({window_.bounds.x+(from.x+(to.x-from.x)*part)*window_.bounds.width,
                     window_.bounds.y+(from.y+(to.y-from.y)*part)*window_.bounds.height});
+                if (part>=1.) {
+                    // A late tick must still let the game process the drop
+                    // position before mouse-up. Healthy ticks keep the same timing.
+                    active_->drag_arrived=true;
+                    end_=std::max(end_,input_clock.now()+settle);
+                }
             }
             if (now < end_) return;
             Time remaining{};
@@ -229,6 +235,7 @@ void Runtime::tick(Time now, const Snapshot& snapshot) {
             tap_release_->until=now+action.tap_duration;
         end_ = continuation_job==pending.job.id?continuation_end:now+duration;
         pending.begun = true;
+        pending.drag_arrived = false;
         pending.segment_start = now;
     } catch (const std::exception& error) { fault(error.what()); }
     catch (...) { fault("Unexpected input failure"); }

@@ -1,5 +1,4 @@
 #include "shift_lock.hpp"
-#include "game/detection/menus.hpp"
 namespace hive::automation {
 namespace {
 class ShiftLock final : public Program {
@@ -18,7 +17,9 @@ public:
         last_=reading.captured;
         if (reading.value==enabled_) {
             if (!enabled_) {
-                parked_=true; return Hold{{},Time(1),game::pointer_rest(view.context,*view.observations)};
+                // Camera setup can still be in first person after unlocking.
+                // Keep its neutral origin separate from the normal UI rest.
+                parked_=true; return Hold{{},Time(1),Point{.5,.5}};
             }
             return Done{"Shift lock confirmed"};
         }

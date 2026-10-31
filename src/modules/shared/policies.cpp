@@ -8,9 +8,13 @@ std::optional<std::string> DefaultFieldPolicy::choose(std::span<const game::Fiel
     const std::optional<std::string>& current_field) const {
     auto rank=[&](const game::FieldOption& option) {
         std::array<int,101> coverage{};
-        for (const auto& goal:option.goals) --coverage.at(100-goal.priority);
+        std::array<int,101> preferred{};
+        for (const auto& goal:option.goals) {
+            --coverage.at(100-goal.priority);
+            if (goal.prefer_primary && goal.field==option.field) --preferred.at(100-goal.priority);
+        }
         const bool goal=!option.goals.empty();
-        return std::tuple(coverage,goal && option.field!=current_field,
+        return std::tuple(coverage,preferred,goal && option.field!=current_field,
             goal?option.journey.estimate:Time::zero(),option.saved_order);
     };
     const game::FieldOption* selected=nullptr;

@@ -19,6 +19,7 @@ struct FieldGoal {
     unsigned hotbar_slot{};
     bool interrupt{};
     std::optional<MenuTab> menu;
+    bool prefer_primary{}; // Prefer field over alternatives when objective coverage ties.
 };
 void validate_field_targets(const std::string& field,std::span<const std::string> alternatives);
 bool accepts(const FieldGoal& goal,std::string_view field);

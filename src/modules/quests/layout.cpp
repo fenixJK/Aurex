@@ -243,6 +243,7 @@ std::vector<Field> default_fields() {
         if (field.id=="bamboo" || field.id=="blueflower" || field.id=="pinetree") value.pollen.insert(Kind::blue_pollen);
         else if (field.id=="mushroom" || field.id=="pepper" || field.id=="rose" || field.id=="strawberry") value.pollen.insert(Kind::red_pollen);
         else if (field.id=="pineapple" || field.id=="spider" || field.id=="sunflower") value.pollen.insert(Kind::white_pollen);
+        value.preferred_for_color=field.id=="pinetree";
         result.push_back(std::move(value));
     }
     return result;

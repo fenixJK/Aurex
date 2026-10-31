@@ -104,7 +104,12 @@ class Execution final : public automation::Program {
     }
     Step failed_placement(const View& view,const std::string& reason) {
         account_->defer_placement(selected_.planter,wall());
-        return defer_result(view,planter_target()+" · "+reason+"; this planter will retry in five minutes. Other planters can continue.");
+        settle_action();
+        controller_->interrupt();
+        pending_report_=ActivityStatus{"Planter deferred",planter_target()+" · "+reason
+            +"; retrying this planter in five minutes. Continuing with other planters."};
+        phase_=Phase::placed; publish(ExecutionStage::returning);
+        return next(view);
     }
     void observe_capacity(const View& view) {
         if (harvest_ || (phase_!=Phase::baseline && phase_!=Phase::acting && phase_!=Phase::confirming)) return;

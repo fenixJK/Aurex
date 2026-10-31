@@ -123,9 +123,17 @@ Report Tracker::report(const ObservationContext& c,bool retained_only) {
             for (const auto& field : fields_) if ((objective.kind==Kind::field_pollen || objective.kind==Kind::field_activity)?field.name==objective.field:
                 objective.kind==Kind::any_pollen || objective.kind==Kind::gather_activity || field.pollen.contains(objective.kind)) targets.push_back(field.name);
             if (targets.empty()) { result.blocked.push_back(giver+": no enabled field for objective"); continue; }
+            const auto preferred=std::find_if(fields_.begin(),fields_.end(),[&](const auto& field) {
+                return field.preferred_for_color && field.pollen.contains(objective.kind);
+            });
+            if (preferred!=fields_.end()) {
+                const auto first=std::find(targets.begin(),targets.end(),preferred->name);
+                std::rotate(targets.begin(),first,first+1);
+            }
             const auto id=giver+"/"+objective.id;
             if (id.size()>80 || result.requests.fields.size()+result.completed_fields.size()>=16) { result.blocked.push_back(giver+": request capacity reached"); continue; }
             game::FieldRequest request{id,targets.front(),priority_,expires};
+            request.prefer_primary=preferred!=fields_.end();
             request.alternatives.assign(targets.begin()+1,targets.end()); request.complete=finished;
             (finished?result.completed_fields:result.requests.fields).push_back(std::move(request));
         }
