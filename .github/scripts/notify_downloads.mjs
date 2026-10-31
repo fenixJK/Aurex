@@ -125,16 +125,16 @@ export function notification(repository, state, assets, previous = null) {
     if (!platform || excluded.has(String(asset.id))) continue;
     const count = state.assets[asset.id] ?? 0;
     const added = previous ? Math.max(0, count - (previous.assets[asset.id] ?? 0)) : 0;
-    if (!added) continue;
-    const release = releases.get(asset.tag) ?? { added: 0, platforms: new Map() };
+    const release = releases.get(asset.tag) ?? { total: 0, added: 0, platforms: new Map() };
+    release.total += count;
     release.added += added;
-    release.platforms.set(platform, (release.platforms.get(platform) ?? 0) + added);
+    if (added) release.platforms.set(platform, (release.platforms.get(platform) ?? 0) + added);
     releases.set(asset.tag, release);
   }
   const total = appTotal(state, excluded);
   const added = previous ? total - appTotal(previous, excluded) : 0;
-  const updates = [...releases].reverse().map(([tag, release]) =>
-    `**${tag.slice(0, 100)} — +${format(release.added)}**\n`
+  const updates = [...releases].reverse().filter(([, release]) => release.added > 0).map(([tag, release]) =>
+    `**${tag.slice(0, 100)} — +${format(release.added)}** (${format(release.total)} total)\n`
       + ['Windows', 'Mac'].filter(platform => release.platforms.has(platform))
         .map(platform => `${platform} +${format(release.platforms.get(platform))}`).join(' / '));
   const lines = [];
