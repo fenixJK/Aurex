@@ -46,7 +46,7 @@ std::string TaskBroker::submit(ModuleScope scope,TaskClass kind,std::vector<Acti
     if (actions.empty() || actions.size()>512 || lifetime<Time(1) || lifetime>std::chrono::minutes(10)) throw std::invalid_argument("Invalid module task bounds");
     Time duration{};
     for (const auto& a : actions) {
-        if (a.duration<Time(1) || a.duration>Time(250)) throw std::invalid_argument("Module actions must have checkpoints within 250 ms");
+        if (a.duration<Time(1) || a.duration>=lifetime) throw std::invalid_argument("Module action must fit within its task lifetime");
         duration+=a.pacing?Time(1):a.duration;
         if (a.concurrent_pointer && (a.concurrent_pointer->scope()!=scope || !grant.capabilities.contains(Capability::pointer) || !grant.capabilities.contains(Capability::interaction)))
             throw std::invalid_argument("Concurrent pointer interaction was not granted");
@@ -60,8 +60,36 @@ std::string TaskBroker::submit(ModuleScope scope,TaskClass kind,std::vector<Acti
         }
     }
     if (duration>=lifetime) throw std::invalid_argument("Task cannot finish before its deadline");
+    // Settling is a requested duration, not a module-level scheduling limit.
+    // Yield during long key-free waits without repeating their initial tap,
+    // pointer move or scroll. Actual holds retain their authored timing;
+    // Stop/focus guards still run every tick, and paced walking bounds its
+    // own feedback interval in Runtime.
+    std::vector<Action> scheduled;
+    scheduled.reserve(actions.size());
+    for (auto& action:actions) {
+        Time tail{};
+        const bool continuous=action.continue_movement;
+        if (action.held.empty() && !action.pacing && !action.pointer_to && action.duration>Time(250)) {
+            tail=action.duration-Time(250);
+            action.duration=Time(250);
+            // Empty slices share one timeline instead of accumulating a new
+            // tick's rounding delay at every scheduling boundary.
+            if (!action.pointer && !action.scroll && !action.tap) action.continue_movement=true;
+        }
+        const auto label=action.label;
+        const auto pointer=action.concurrent_pointer;
+        scheduled.push_back(std::move(action));
+        while (tail>Time{}) {
+            Action wait{label,{},std::min(tail,Time(250)),{}};
+            wait.concurrent_pointer=pointer;
+            tail-=wait.duration;
+            wait.continue_movement=tail>Time{} || continuous;
+            scheduled.push_back(std::move(wait));
+        }
+    }
     auto id=grant.name+"/"+std::to_string(next_task_++);
-    runtime_.enqueue({id,static_cast<int>(kind),now,now+lifetime,std::move(actions),scope.id});
+    runtime_.enqueue({id,static_cast<int>(kind),now,now+lifetime,std::move(scheduled),scope.id});
     return id;
 }
 std::vector<TaskResult> TaskBroker::results(ModuleScope scope) { check(scope); return runtime_.take_results(scope.id); }

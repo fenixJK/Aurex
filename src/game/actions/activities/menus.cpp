@@ -107,7 +107,10 @@ bool Runner::prepare_menu(const ObservationContext& c,const game::State& s) {
     menu_retry_delay_=std::min(Time(1000),std::max(Time(250),menu_retry_delay_*2));
     menu_waiting_=true;
     progress_.message=required?"Opening tracking menu":"Closing game menu";
-    const auto rest=game::pointer_rest(c,s);
+    // Camera setup may have just unlocked/centered the pointer. Closing a
+    // tracking panel must preserve that origin before zoom/pitch input; the
+    // ordinary UI rest belongs to movement and inventory work.
+    const auto rest=camera?Point{.5,.5}:game::pointer_rest(c,s);
     Action toggle{progress_.message,{Key::primary},Time(50),point}; toggle.changes_menu=true;
     menu_pending_=submit(scope_,TaskClass::interaction,
         {std::move(toggle),{"Move off menu",{},Time(50),rest}},Time(2000));
