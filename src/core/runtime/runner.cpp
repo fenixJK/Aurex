@@ -304,7 +304,7 @@ bool Runner::wait_window(Time now,const std::string& status) {
     // Client launch has its own bounded deadline; it is not workflow execution.
     last_=now;
     if (!status.empty()) progress_.message=status;
-    if (progress_.elapsed>=config_.duration) { finish(State::failed,"Workflow deadline reached during reconnect"); return false; }
+    if (!connection_recovering_ && progress_.elapsed>=config_.duration) { finish(State::failed,"Workflow deadline reached during reconnect"); return false; }
     return true;
 }
 void Runner::replace_window(const ObservationContext& c,ModuleScope scope) {
@@ -312,7 +312,7 @@ void Runner::replace_window(const ObservationContext& c,ModuleScope scope) {
         || !scope.id || scope.generation<=scope_.generation || c.generation!=scope.generation || c.now<last_)
         throw std::logic_error("Replacement window requires a suspended recovery and fresh scope");
     scope_=scope; context_=c; last_=prerequisites_started_=c.now; speed_->start(c);
-    if (progress_.elapsed>=config_.duration) { finish(State::failed,"Workflow deadline reached during reconnect"); return; }
+    if (!connection_recovering_ && progress_.elapsed>=config_.duration) { finish(State::failed,"Workflow deadline reached during reconnect"); return; }
     guard_=program_->guard(); if (!guard_) guard_=observation_guard(config_);
     clock_started_=true;
     start_recovery(replacement_,c,true); awaiting_window_=false; rejoin_requested_=false; window_replaced_=true;
@@ -355,9 +355,10 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
     if (view_suspended_) return;
     if (awaiting_window_) { wait_window(c.now); return; }
     if (!same_context(c) || c.now<last_) { finish(State::failed,"Session or window changed"); return; }
-    // A delayed UI observation pauses this step, not the entire game session.
-    // Preserve parent deadlines too when a nested camera step is waiting.
-    if (waiting_for_menu()) step_started_+=c.now-last_;
+    // Rejoining has its own timed workflow and retry budget. Do not let the
+    // interrupted action's remaining time cut it short. Keep local recovery
+    // and ordinary work bounded by their existing action deadlines.
+    if (waiting_for_menu() || connection_recovering_) step_started_+=c.now-last_;
     else if (clock_started_ && !waiting_for_game_view()) progress_.elapsed+=c.now-last_;
     last_=c.now;
     progress_.backpack_percent=backpack_reading(c,observations,context_.now);
@@ -380,7 +381,7 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
             }
         }
         if (recovery_) {
-            if (progress_.elapsed>=config_.duration) { finish(State::failed,"Workflow deadline reached during recovery"); return; }
+            if (!connection_recovering_ && progress_.elapsed>=config_.duration) { finish(State::failed,"Workflow deadline reached during recovery"); return; }
             recovery_->update(c,observations);
             const auto result=recovery_->progress(); progress_.message=result.message;
             if (result.state==State::completed) {
@@ -398,10 +399,11 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
                         finish(State::failed,"Game reconnected; interrupted work requires a fresh run"); return;
                     }
                 }
-            } else if (result.state==State::failed && (result.interruption==Interruption::disconnected || result.interruption==Interruption::client_rejoin)
+            } else if (result.state==State::failed && (connection_recovering_ || result.interruption==Interruption::disconnected || result.interruption==Interruption::client_rejoin)
                 && allow_rejoin_ && replacement_ && (!window_replaced_ || connection_attempts_<3)) {
                 // A failed replacement still belongs to this recovery. Preserve
-                // its arrival program and use the remaining consecutive attempts.
+                // its arrival program and use the remaining consecutive attempts,
+                // including a hive-setup deadline after loading has finished.
                 if (window_replaced_) ++connection_attempts_;
                 auto replacement=replacement_;
                 clear_operations(); replacement_=std::move(replacement); awaiting_window_=rejoin_requested_=true;
@@ -412,7 +414,13 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
             } else if (result.state==State::failed && (result.interruption==Interruption::disconnected || result.interruption==Interruption::client_rejoin) && !connection_recovering_) {
                 recovery_.reset();
                 interrupt(*result.interruption,c,observations,result.message);
-            } else if (result.state!=State::running) finish(State::failed,result.message,result.interruption);
+            } else if (result.state!=State::running) {
+                if (connection_recovering_)
+                    finish(State::failed,std::string(connection_attempts_>=3?
+                        "Bee Swarm recovery exhausted its retry limit. Last issue: ":"Could not restore Bee Swarm. Last issue: ")+result.message,
+                        Interruption::client_rejoin);
+                else finish(State::failed,result.message,result.interruption);
+            }
             return;
         }
         if (startup_pending_) {
