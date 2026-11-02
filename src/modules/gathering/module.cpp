@@ -378,6 +378,10 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
         if (collection!="fields") throw std::invalid_argument("Unknown gathering collection");
         return import_natro_field(choice,copied);
     };
+    result.collection_prefix=[](const std::string& collection,const std::string& choice) {
+        if (collection!="fields") throw std::invalid_argument("Unknown gathering collection");
+        return field_prefix(choice)+"-";
+    };
     result.page=extensions::PageLayout{{},true};
     if (!defaults.fields.empty()) result.page->sections.push_back({"fields","Field rotation","Select fields and arrange the order to visit them.",{"fields"},false,1});
     if (defaults.whirligig_return) {

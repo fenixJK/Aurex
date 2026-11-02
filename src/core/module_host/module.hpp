@@ -80,6 +80,9 @@ struct Manifest {
     // Optional native adapter for another application's collection settings.
     // The shared importer still validates the returned patch against this page.
     std::function<Settings(const std::string&,const std::string&,const Settings&)> import_collection;
+    // Optional scope for a collection choice's settings. Shared options stay out
+    // of the clipboard; portable exports omit this internal key prefix.
+    std::function<std::string(const std::string&,const std::string&)> collection_prefix;
 };
 struct SessionView {
     Status status;
