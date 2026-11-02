@@ -280,8 +280,13 @@ void Discord::enqueue(Message message) {
         message.game=message.game.scaled(1280,720,Qt::KeepAspectRatio,Qt::SmoothTransformation);
     message.expires=clock_.elapsed()+600000;
     const auto first=queue_.begin()+((reply_ || preparing_) && !queue_.empty()?1:0);
-    if (const auto duplicate=std::find_if(first,queue_.end(),[&](const auto& old) { return !message.key.isEmpty() && old.key==message.key; });duplicate!=queue_.end())
-        *duplicate=std::move(message);
+    if (const auto duplicate=std::find_if(first,queue_.end(),[&](const auto& old) { return !message.key.isEmpty() && old.key==message.key; });duplicate!=queue_.end()) {
+        if (message.key=="activity") {
+            // A newer activity belongs after the milestones that happened
+            // since the old one, even when Discord is slow to accept messages.
+            queue_.erase(duplicate); queue_.push_back(std::move(message));
+        } else *duplicate=std::move(message);
+    }
     else {
         if (queue_.size()>=16) queue_.erase(first);
         queue_.push_back(std::move(message));

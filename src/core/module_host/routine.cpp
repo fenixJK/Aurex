@@ -38,8 +38,8 @@ RoutineParticipation Routine::participation(const WorkSnapshot& schedule,std::si
         }
     return result;
 }
-bool Routine::should_yield(Host& host,const SessionView& view) const {
-    if (!active_ || !view.feature || view.feature->state!=automation::State::running) return false;
+std::optional<std::string> Routine::yield_reason(Host& host,const SessionView& view) const {
+    if (!active_ || !view.feature || view.feature->state!=automation::State::running) return {};
     const bool gathering=entries_[*active_].participation.fallback;
     const auto schedule=host.work_schedule()->read();
     const auto priority=participation(schedule,*active_).priority;
@@ -50,9 +50,13 @@ bool Routine::should_yield(Host& host,const SessionView& view) const {
         if (gathering?!requested.interrupt_gather:(!urgent && requested.priority<=priority)) continue;
         const auto work=readiness(host,view,schedule,i);
         if (work.eligible && work.pending && schedule.wait_until(entries_[i].id,view.now)<=view.now
-            && (gathering || urgent || !entries_[i].participation.demand_only || !pending_at_dispatch_[i])) return true;
+            && (gathering || urgent || !entries_[i].participation.demand_only || !pending_at_dispatch_[i])) {
+            auto reason=host.entries().at(entries_[i].id).manifest.name+" is ready";
+            if (estimate && !estimate->label.empty()) reason+=" · "+estimate->label;
+            return reason;
+        }
     }
-    return false;
+    return {};
 }
 void Routine::check(Time now) {
     if (now<last_ || now>Time::max()-std::chrono::hours(24)) throw std::runtime_error("Invalid routine clock");

@@ -46,7 +46,7 @@ public:
     std::map<std::string,std::shared_ptr<const game::DetectionSource>> configure_detectors(std::vector<game::DetectorConfig> detectors);
     void start_feature(Window window,automation::Launch launch);
     void run_feature(automation::Launch launch);
-    bool yield_feature(const std::string& module_id);
+    bool yield_feature(const std::string& module_id,std::string_view reason={});
     void stop_feature(const std::string& module_id,const std::string& reason);
     std::optional<automation::Progress> feature_progress();
     game::ObservedState observations();

@@ -99,7 +99,8 @@ bool Session::requested_rejoin(Time now) {
     const bool scheduled=continue_features_ && rejoin_schedule_.due(wall_time());
     const bool server_change=requested_server_ && requested_server_->expires>now && requested_server_->key!=joined_server_;
     const bool pending=server_change || scheduled;
-    if (pending && (scheduled || (refreshed && requested_server_->interrupt)) && feature_ && !feature_->waiting_for_game_view()) feature_->request_yield();
+    if (pending && (scheduled || (refreshed && requested_server_->interrupt)) && feature_ && !feature_->waiting_for_game_view())
+        feature_->request_yield(scheduled?"Scheduled rejoin":"Changing server");
     return pending;
 }
 

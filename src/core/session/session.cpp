@@ -285,9 +285,9 @@ void Session::launch_feature(Window window,automation::Launch launch,Time now) {
         if (!client_rejoin_) observer_.watch({window,tasks_.generation(),now},observation_needs());
     } catch (...) { clear_feature(); if (!continue_features_) runtime_.stop("Feature could not start"); throw; }
 }
-bool Session::yield_feature(const std::string& id) {
+bool Session::yield_feature(const std::string& id,std::string_view reason) {
     std::lock_guard lock(mutex_);
-    return feature_ && feature_id_==id && feature_->request_yield();
+    return feature_ && feature_id_==id && feature_->request_yield(reason);
 }
 void Session::stop_feature(const std::string& module_id,const std::string& reason) {
     std::lock_guard lock(mutex_);

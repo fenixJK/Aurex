@@ -144,10 +144,8 @@ Time Checkpoint::cancel_tasks(TaskPort& tasks,Time stopped) {
     tasks.cancel(scope_);
     for (const auto& result : tasks.results(scope_)) {
         if (result.outcome==TaskOutcome::faulted) throw std::runtime_error("Checkpoint input could not be released");
-        if (result.id==pending_ && distance_ && plan_.completion!=CheckpointCompletion::launch && result.execution_time>Time{}) {
-            auto context=started_; context.now=std::max(last_,result.finished); speed_->observe(context,{});
-            speed_->advance(*distance_,result.finished,result.execution_time);
-        }
+        // Paced walking integrates its final sample when cancelled. Advancing
+        // it here again would shorten the remaining search after a capture gap.
         stopped=std::max(stopped,result.finished);
     }
     return stopped;
@@ -192,13 +190,8 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
             if (plan_.camera) { confirm(result.finished); continue; }
             const auto& path=nudging_?plan_.nudge_path:plan_.path;
             if (!path.empty()) {
-                if (plan_.completion==CheckpointCompletion::launch) {
-                    distance_.reset();
-                    if (++index_==path.size()) confirm(result.finished);
-                } else {
-                    speed_->advance(*distance_,result.finished,result.execution_time);
-                    if (distance_->complete()) { distance_.reset(); if (++index_==path.size()) confirm(result.finished); }
-                }
+                distance_.reset();
+                if (++index_==path.size()) confirm(result.finished);
                 continue;
             }
             const auto& actions=nudging_?plan_.nudge:plan_.approach;
@@ -293,15 +286,9 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
                 if (!distance_) distance_=std::make_shared<game::DistanceIntegrator>(leg.tiles);
                 // Keep walking while observations arrive independently. Paced walking
                 // owns the distance bound; a seen prompt still cancels it immediately.
-                if (launch) {
-                    auto remaining=leg; remaining.tiles=distance_->remaining_tiles();
-                    pending_=tasks.submit(scope_,TaskClass::travel,
-                        {game::paced_walk(remaining,speed_,c,false,distance_)},plan_.timeout-(c.now-started_.now));
-                }
-                else {
-                    pending_=tasks.submit(scope_,TaskClass::travel,
-                        {game::movement_slice(leg,distance_->remaining_tiles(),speed_->current())},plan_.timeout-(c.now-started_.now));
-                }
+                auto remaining=leg; remaining.tiles=distance_->remaining_tiles();
+                pending_=tasks.submit(scope_,TaskClass::travel,
+                    {game::paced_walk(remaining,speed_,c,false,distance_)},plan_.timeout-(c.now-started_.now));
             } else if (plan_.continuous) {
                 auto sequence=actions;
                 for (std::size_t i=0;i<sequence.size();++i) {

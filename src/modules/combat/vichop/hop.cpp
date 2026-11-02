@@ -73,7 +73,7 @@ public:
     ~ServerVisit() override { finished(automation::State::stopped); }
     automation::RunConfig config() const override { return {duration_,services_.speed,{},false,false}; }
     bool server_change_ready() const noexcept override { return phase_==Phase::joining; }
-    bool request_yield() override {
+    bool request_yield(std::string_view={}) override {
         if(phase_!=Phase::select)return false;
         yield_requested_=true;return true;
     }

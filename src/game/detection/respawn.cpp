@@ -126,18 +126,19 @@ public:
     explicit ObservedRespawn(std::shared_ptr<const DetectionSource> source):source_(std::move(source)) {}
     Observation<RespawnView> read(const ObservationContext& context) const override {
         const auto reading=source_->read();
-        if (!reading || !reading->error.empty()) return {};
+        if (!reading) return {};
+        const auto& stamp=reading->context;
+        const Observation<bool> captured{Knowledge::present,true,stamp.now,stamp.window,stamp.generation};
+        if (!captured.has_value(context,respawn_menu_response_time)) return {};
+        if (!reading->error.empty())
+            return {Knowledge::unknown,{RespawnScreen::game,{},reading->error},stamp.now,stamp.window,stamp.generation};
         const auto packet=std::dynamic_pointer_cast<const Packet>(reading->value);
         if (!packet || packet->view.captured!=reading->context.now
             || packet->view.window.id!=reading->context.window.id || packet->view.window.process!=reading->context.window.process
             || packet->view.window.bounds!=reading->context.window.bounds || packet->view.generation!=reading->context.generation) return {};
-        // Preserve the capture stamp even when its contents are unrecognized.
-        // Callers still need has_value() to act, but can distinguish failed
-        // recognition from a capture that never arrived or became stale.
-        const Observation<bool> captured{Knowledge::present,true,packet->view.captured,packet->view.window,packet->view.generation};
-        const bool menu=packet->view.knowledge==Knowledge::present &&
-            (packet->view.value.screen==RespawnScreen::menu || packet->view.value.screen==RespawnScreen::confirmation);
-        if (!captured.has_value(context,menu?respawn_menu_response_time:Time(2000))) return {};
+        // Retain provenance through the response deadline, including unknown
+        // or delayed frames. The workflow separately enforces the shorter live
+        // game freshness budget and requires every control to follow its key.
         return packet->view;
     }
 };

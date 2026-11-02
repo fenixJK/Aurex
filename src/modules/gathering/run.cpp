@@ -93,24 +93,31 @@ class Gathering final : public automation::Program {
     bool gathered_{}, temporary_{},yielding_{};
     std::optional<unsigned> pattern_heading_;
     std::string gather_end_;
-    bool objective_complete_{};
+    std::string yield_reason_;
     std::optional<game::MenuTab> tracking_menu_;
-    game::FieldDecision choose(const automation::View& view) const {
+    game::FieldDecision choose(const automation::View& view,std::optional<std::string> departure={}) const {
         auto snapshot=source_->read(view.context,view.observations?*view.observations:game::State{});
         snapshot.field.route_position=view.route_position;
         const auto& c=snapshot.field.observation;
         if (c.generation!=view.context.generation || c.now!=view.context.now || c.window.id!=view.context.window.id
             || c.window.process!=view.context.window.process || c.window.bounds!=view.context.window.bounds)
             throw std::runtime_error("Gathering received a stale planning context");
+        if (departure) {
+            // A prospective departure is local to this planning query. It must
+            // never establish the player's position for navigation or input.
+            snapshot.field.location={Knowledge::present,*departure,c.now,c.window,c.generation};
+            snapshot.field.route_position.reset();
+        }
         auto ordered=preferences_;
         for (auto& field:ordered) if (!field.enabled)
             field.enabled=std::any_of(snapshot.goals.begin(),snapshot.goals.end(),[&](const auto& goal) {
                 return !goal.complete && goal.generation==c.generation && goal.expires>c.now && game::accepts(goal,field.field);
             });
         const auto& location=snapshot.field.location;
-        const bool tracked=view.route_position && view.route_position->usable(c);
-        const bool observed=location.has_value(c,Time(2000)) && (!tracked || location.captured>=view.route_position->context.now);
-        const auto at=observed?location.value:tracked?view.route_position->location:std::string{};
+        const auto& position=snapshot.field.route_position;
+        const bool tracked=position && position->usable(c);
+        const bool observed=location.has_value(c,Time(2000)) && (!tracked || location.captured>=position->context.now);
+        const auto at=observed?location.value:tracked?position->location:std::string{};
         snapshot.field.current_field.reset();
         for (const auto& field : preferences_) if (at==field.location) snapshot.field.current_field=field.field;
         std::rotate(ordered.begin(),ordered.begin()+rotation_,ordered.end());
@@ -199,23 +206,41 @@ public:
         const auto current=source_->goals(view.context,view.observations?*view.observations:game::State{});
         int priority=-1;
         for (const auto& goal:selected) if (!goal.complete) priority=std::max(priority,goal.priority);
-        if (std::any_of(current.begin(),current.end(),[&](const auto& goal) {
+        const auto interrupts=[&](const auto& goal) {
             const bool retargeted=goal.priority>=priority && std::any_of(selected.begin(),selected.end(),[&](const auto& previous) {
                 return previous.owner==goal.owner && previous.id==goal.id;
             });
             return goal.interrupt && !goal.complete && (goal.priority>priority || retargeted) && goal.generation==view.context.generation
                 && goal.expires>view.context.now && !game::accepts(goal,plan_.fields[selected_].preference.field)
                 && std::any_of(preferences_.begin(),preferences_.end(),[&](const auto& field) { return game::accepts(goal,field.field); });
-        })) { yielding_=true; return; }
+        };
+        if (std::any_of(current.begin(),current.end(),interrupts)) {
+            // Apply the same reachability, field protection and selection policy
+            // used for departure. A goal we cannot select must not repeatedly
+            // send us home as soon as gathering starts.
+            // This handoff returns to the hive before selecting another field;
+            // the moving gather pattern need not supply a stationary anchor.
+            const auto decision=choose(view,plan_.hive);
+            if (decision.field && *decision.field!=plan_.fields[selected_].preference.field
+                && std::any_of(current.begin(),current.end(),[&](const auto& goal) {
+                    return interrupts(goal) && game::accepts(goal,*decision.field);
+                })) {
+                yielding_=true; yield_reason_="Switching field to "+*decision.field; return;
+            }
+        }
         if (selected.empty()) return;
         if (std::all_of(selected.begin(),selected.end(),[&](const auto& goal) {
             return std::any_of(current.begin(),current.end(),[&](const auto& now) {
                 return now.owner==goal.owner && now.id==goal.id && now.complete
                     && now.generation==view.context.generation && now.expires>view.context.now;
             });
-        })) { yielding_=true; objective_complete_=true; }
+        })) { yielding_=true; yield_reason_="Objective complete"; }
     }
-    bool request_yield() override { if (stage_!=Stage::gathered) return false; yielding_=true; return true; }
+    bool request_yield(std::string_view reason={}) override {
+        if (stage_!=Stage::gathered) return false;
+        if (!yielding_) yield_reason_=reason.empty()?"Switching to other work":std::string(reason);
+        yielding_=true; return true;
+    }
     game::ObservationNeeds observation_needs() const override { return stage_<=Stage::arrived || stage_==Stage::converted?game::ObservationNeeds{game::ObservationKind::backpack}:game::ObservationNeeds{}; }
     automation::RunConfig config() const override { return plan_.config; }
     std::optional<game::MenuTab> movement_menu() const override {
@@ -305,7 +330,7 @@ public:
         }
         if (stage_==Stage::shift_enabled) {
             const auto& field=plan_.fields[selected_];
-            gathered_=true; stage_=Stage::gathered; phase(Phase::gathering); pattern_heading_.reset(); gather_end_.clear(); objective_complete_=false;
+            gathered_=true; stage_=Stage::gathered; phase(Phase::gathering); pattern_heading_.reset(); gather_end_.clear(); yield_reason_.clear();
             const auto hotbar=[this](const automation::View& current) {
                 if (yielding_) return 0u;
                 const auto goals=source_->goals(current.context,current.observations?*current.observations:game::State{});
@@ -370,7 +395,7 @@ public:
             const auto& end=*view.completed;
             const auto seconds=end.elapsed.count()/1000;
             const auto elapsed=std::to_string(seconds/60)+":"+(seconds%60<10?"0":"")+std::to_string(seconds%60);
-            const auto reason=objective_complete_?"Objective complete":end.message;
+            const auto reason=yielding_ && !yield_reason_.empty()?yield_reason_:end.message;
             gather_end_=plan_.fields[selected_].preference.field+" · "+elapsed+" · "+reason;
             if (end.backpack_percent) gather_end_+=" · Bag "+std::to_string(static_cast<int>(std::round(*end.backpack_percent)))+"%";
         }

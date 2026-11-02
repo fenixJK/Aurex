@@ -1,6 +1,7 @@
 #include "hive_setup.hpp"
 #include "game/actions/field/shift_lock.hpp"
 #include <algorithm>
+#include <utility>
 
 namespace hive::automation {
 namespace {
@@ -25,7 +26,7 @@ class HiveSurvey final : public Program {
     Stage stage_{Stage::zoom};
     std::shared_ptr<const game::HiveSlotsSource> source_;
     Time minimum_{},seen_{Time(-1)};
-    bool turned_{};
+    bool turned_{},reporting_{};
     std::string result_;
     HiveClaimOptions claim_;
     HiveCameraStart camera_start_;
@@ -90,7 +91,12 @@ class HiveSurvey final : public Program {
             result_="Owned hive slot "+std::to_string(selected_)+" confirmed";
             // The confirmed spawn route preserves yaw through the entire row
             // scan. Its owned-hive result completes that known camera setup.
-            heading_=owned; stage_=can_scan()?Stage::reference:Stage::done; return next(view);
+            heading_=owned; stage_=can_scan()?Stage::reference:Stage::done;
+            if (claim_attempts_) {
+                reporting_=true;
+                return ReportActivity{{"Hive claimed","Slot "+std::to_string(selected_)}};
+            }
+            return next(view);
         }
         if (pressed_>=Time{} && text.captured<pressed_+Time(750)) return wait();
         if (candidate==2) {
@@ -129,7 +135,11 @@ public:
     }
     std::vector<Rect> text_regions() const override { return stage_==Stage::check || stage_==Stage::claim?std::vector<Rect>{game::hive_claim_prompt().region}:std::vector<Rect>{}; }
     Step next(const View& view) override {
-        if (!started_) { if (claim_.result) claim_.result->reset(); started_=true; }
+        if (!started_) {
+            if (claim_.result) claim_.result->reset();
+            started_=reporting_=true;
+            return ReportActivity{{"Finding hive",{}}};
+        }
         switch (stage_) {
         case Stage::unlock: return RunProgram{[] { return set_shift_lock(false); }};
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
@@ -191,6 +201,7 @@ public:
         return Wait{Time(50),"Surveying hive slots from spawn"};
     }
     void step_completed(const View& view) override {
+        if (std::exchange(reporting_,false)) return;
         if (stage_==Stage::unlock || stage_==Stage::zoom) stage_=Stage::pitch;
         else if (stage_==Stage::reference) stage_=Stage::done;
         else if (stage_==Stage::restore) throw std::runtime_error("No empty hive was found; no claim was attempted");

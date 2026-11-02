@@ -4,7 +4,7 @@
 namespace hive::game {
 inline constexpr Time respawn_menu_response_time{8000};
 enum class RespawnScreen { menu,confirmation,game,respawning };
-struct RespawnView { RespawnScreen screen; std::optional<Point> target; };
+struct RespawnView { RespawnScreen screen; std::optional<Point> target; std::string error; };
 class RespawnSource {
 public:
     virtual ~RespawnSource()=default;

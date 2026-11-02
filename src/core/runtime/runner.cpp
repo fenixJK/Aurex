@@ -207,9 +207,9 @@ void Runner::finish(State state,std::string message,std::optional<Interruption> 
 }
 void Runner::stop(std::string reason) { if (progress_.state==State::running || progress_.state==State::paused) finish(State::stopped,std::move(reason)); }
 void Runner::fail(std::string reason) { if (progress_.state==State::running || progress_.state==State::paused) finish(State::failed,std::move(reason)); }
-bool Runner::request_yield() {
+bool Runner::request_yield(std::string_view reason) {
     if (progress_.state!=State::running) return false;
-    try { return program_->request_yield(); }
+    try { return program_->request_yield(reason); }
     catch (const std::exception& e) { fail(e.what()); }
     catch (...) { fail("Module could not yield"); }
     return false;

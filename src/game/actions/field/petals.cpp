@@ -79,7 +79,7 @@ public:
         if (stage_==Stage::home || stage_==Stage::convert || stage_==Stage::done) return {"Returning to hive",reason_};
         return {stage_==Stage::loot?"Collecting petals":"Collecting blooms",field()};
     }
-    bool request_yield() override { yield_=true; return true; }
+    bool request_yield(std::string_view={}) override { yield_=true; return true; }
     Step next(const View& view) override {
         const auto& c=view.context;
         if (stage_==Stage::home) return next_home();

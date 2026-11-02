@@ -8,7 +8,7 @@ class Reconnect final : public Program {
     std::shared_ptr<ReconnectResult> result_;
     Time minimum_{Time(-1)},started_{Time(-1)},last_{Time(-1)},retry_at_{};
     unsigned attempts_{};
-    bool clicked_{},issued_{},resuming_{};
+    bool clicked_{},issued_{},resuming_{},completed_{};
 public:
     explicit Reconnect(std::shared_ptr<const game::RespawnSource> source,bool joining=false,std::shared_ptr<ReconnectResult> result={})
         :source_(std::move(source)),result_(std::move(result)),clicked_(joining) {
@@ -20,6 +20,7 @@ public:
     bool expects_respawn() const noexcept override { return true; }
     bool expects_reconnect() const noexcept override { return true; }
     Step next(const View& view) override {
+        if (completed_) return Done{"Game view returned after reconnect"};
         const auto& c=view.context;
         if (minimum_<Time{}) started_=minimum_=c.now;
         if (c.now-started_>=game_loading_timeout) throw ClientRejoinRequired("Game view did not return after waiting for reconnect");
@@ -55,7 +56,8 @@ public:
             && !(state.alive.has_value(c,Time(2000)) && !state.alive.value)
             ) {
             if (result_) result_->joined={Knowledge::present,clicked_,c.now,c.window,c.generation};
-            return Done{"Game view returned after reconnect"};
+            completed_=true;
+            return ReportActivity{{"Joined Bee Swarm","Game loaded"}};
         }
         if (!clicked_ && c.now-minimum_>=Time(10000)) throw ClientRejoinRequired("Reconnect button or returned game view could not be confirmed");
         return Wait{Time(100),clicked_?"Waiting for game to reconnect":"Reading reconnect state"};

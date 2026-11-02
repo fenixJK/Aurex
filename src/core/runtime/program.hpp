@@ -19,6 +19,7 @@
 #include <variant>
 #include <set>
 #include <functional>
+#include <string_view>
 
 namespace hive::automation {
 using Value = SettingValue;
@@ -145,7 +146,7 @@ public:
     // An explicit server tool may switch only at an input-free boundary.
     virtual bool server_change_ready() const noexcept { return false; }
     virtual ProgramFactory server_arrival() const { return {}; }
-    virtual bool request_yield() { return false; }
+    virtual bool request_yield(std::string_view={}) { return false; }
     virtual void observe(const View&) {}
     virtual void step_completed(const View&) {}
     virtual void finished(State) {}

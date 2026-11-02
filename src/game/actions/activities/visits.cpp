@@ -258,7 +258,7 @@ public:
         }
     }
     RunConfig config() const override { return plan_.config; }
-    bool request_yield() override { yield_=true; return true; }
+    bool request_yield(std::string_view={}) override { yield_=true; return true; }
     std::vector<Rect> text_regions() const override {
         if (index_>=plan_.visits.size() || (phase_!=Phase::arriving && phase_!=Phase::action && phase_!=Phase::settling)) return {};
         auto regions=arrived_?availability_->text_regions(plan_.visits[index_].id):std::vector<Rect>{};

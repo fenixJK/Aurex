@@ -22,7 +22,7 @@ class Routine {
 public:
     Routine(std::vector<RoutineEntry> entries,std::unique_ptr<automation::ActivityPolicy> policy);
     void launch_failed() { active_.reset(); }
-    bool should_yield(Host& host,const SessionView& view) const;
+    std::optional<std::string> yield_reason(Host& host,const SessionView& view) const;
     std::optional<automation::Launch> next(Host& host,const SessionView& view,bool allow_launch=true);
 };
 }

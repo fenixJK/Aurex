@@ -82,7 +82,8 @@ SessionView RoutineRun::tick() {
             if (current.status.state==RunState::paused) { session_.stop(current.status.reason); current=view(); }
             state_=RoutineState::stopped; reason_=current.status.reason; return current;
         }
-        if (state_==RoutineState::running && schedule_.should_yield(host_,current)) session_.yield_feature(current.feature->module_id);
+        if (state_==RoutineState::running) if (const auto reason=schedule_.yield_reason(host_,current))
+            session_.yield_feature(current.feature->module_id,*reason);
         if (auto launch=schedule_.next(host_,current,state_!=RoutineState::pausing)) {
             const auto id=launch->module_id;
             try { session_.run_feature(std::move(*launch)); }

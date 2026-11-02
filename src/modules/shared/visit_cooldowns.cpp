@@ -58,7 +58,7 @@ public:
     std::vector<Rect> text_regions() const override { return run_.program->text_regions(); }
     std::vector<game::FixedLabelQuery> fixed_labels() const override { return run_.program->fixed_labels(); }
     std::unique_ptr<automation::RunGuard> guard() const override { return run_.program->guard(); }
-    bool request_yield() override { return run_.program->request_yield(); }
+    bool request_yield(std::string_view reason={}) override { return run_.program->request_yield(reason); }
     bool resume_after_reconnect(const automation::View& view) override { return run_.program->resume_after_reconnect(view); }
     bool expects_respawn() const noexcept override { return run_.program->expects_respawn(); }
     void observe(const automation::View& view) override { start(view); run_.program->observe(view); flush(); }

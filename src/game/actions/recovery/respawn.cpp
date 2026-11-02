@@ -5,8 +5,12 @@ namespace hive::automation {
 namespace {
 std::string unreadable_respawn(const Observation<game::RespawnView>& reading,const View& view,Time minimum) {
     const Observation<bool> captured{Knowledge::present,true,reading.captured,reading.window,reading.generation};
-    if (captured.has_value(view.context,game::respawn_menu_response_time,minimum+Time(1)))
+    if (captured.has_value(view.context,game::respawn_menu_response_time,minimum+Time(1))) {
+        if (!reading.value.error.empty()) return "Respawn observation failed: "+reading.value.error;
+        if (reading.knowledge==Knowledge::present)
+            return "Respawn view stopped updating after the shortcut";
         return "Respawn controls were not recognized in the latest capture";
+    }
     if (view.observations && !view.observations->observation_error.empty())
         return "Respawn observation failed: "+view.observations->observation_error;
     return "No fresh respawn view arrived after the shortcut";
@@ -103,7 +107,7 @@ class Respawn final : public Program {
     Stage stage_{Stage::locate};
     Time started_{Time(-1)},minimum_{},transition_{Time(-1)};
     RespawnCompletion completion_;
-    bool issued_{};
+    bool issued_{},announced_{};
     bool retried_{};
     unsigned shortcut_{};
     unsigned key_retries_{};
@@ -141,25 +145,25 @@ public:
         if (stage_==Stage::locate) completion_.begin(c.now);
         completion_.observe_origin(view);
         if (stage_==Stage::done) return Done{"Respawn finished; confirming the hive"};
+        // Start on-demand capture with Escape, rather than after both keys.
+        // Reading is non-blocking; only a visible menu authorizes R/Enter.
+        const auto reading=source_->read(c);
+        if (!announced_) {
+            announced_=true;
+            return ReportActivity{{"Resetting character",{}}};
+        }
         if (shortcut_<2 && view.observations && view.observations->alive.has_value(c,Time(2000))
             && !view.observations->alive.value) {
             stage_=Stage::transition; shortcut_=2; started_=c.now; transition_=view.observations->alive.captured;
         }
-        // Escape and R can run immediately. Enter activates the focused control,
-        // so it must follow a fresh confirmation view, even on the first attempt.
-        // If R was dropped, Enter on the main menu can open the Robux shop.
-        if (shortcut_<2) {
+        // Opening the menu may take longer than the key's 50 ms release gap.
+        // Do not send R into that animation; each key follows its own page.
+        if (shortcut_==0) {
             issued_=true;
-            switch (shortcut_++) {
-            case 0:
-                stage_=Stage::select; requested_from_=game::RespawnScreen::game;
-                return TapMenuKey{Key::game_menu,"Open game menu"};
-            default:
-                stage_=Stage::confirm; requested_from_=game::RespawnScreen::menu;
-                return TapMenuKey{Key::respawn,"Select respawn"};
-            }
+            ++shortcut_;
+            stage_=Stage::select; requested_from_=game::RespawnScreen::game;
+            return TapMenuKey{Key::game_menu,"Open game menu"};
         }
-        const auto reading=source_->read(c);
         const bool fresh=reading.has_value(c,Time(2000),minimum_+Time(1));
         const auto* state=view.observations;
         const bool live=state && state->alive.has_value(c,Time(2000),minimum_) && state->alive.value
@@ -221,11 +225,11 @@ public:
             // Retrying Enter must not move the start of this reset attempt
             // past a death frame that was captured while the menu was fading.
             if (transition_<Time{}) transition_=c.now;
-            stage_=Stage::transition; issued_=true;
+            stage_=Stage::transition; shortcut_=2; issued_=true;
             return TapMenuKey{Key::confirm,"Confirm respawn",press};
         }
         if (screen==game::RespawnScreen::menu) {
-            stage_=Stage::confirm; issued_=true;
+            stage_=Stage::confirm; shortcut_=2; issued_=true;
             return TapMenuKey{Key::respawn,"Select respawn",press};
         }
         return Wait{Time(50),"Waiting for respawn controls"};

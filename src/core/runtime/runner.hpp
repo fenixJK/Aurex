@@ -41,7 +41,7 @@ public:
     bool suspend_window(Time now);
     bool wait_window(Time now,const std::string& status={});
     void replace_window(const ObservationContext& context,ModuleScope scope);
-    bool request_yield();
+    bool request_yield(std::string_view reason={});
     game::ObservationNeeds observation_needs() const;
     bool needs_movement_speed() const;
     std::vector<Rect> text_regions() const;
