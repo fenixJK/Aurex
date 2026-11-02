@@ -36,7 +36,8 @@ public:
             || (state.alive.has_value(c,Time(2000)) && !state.alive.value)
             || (state.connection.has_value(c,Time(2000)) && state.connection.value==game::Connection::disconnected)) return view;
         view.available.insert("hive.slot."+std::to_string(*setup->claimed_slot));
-        if (!setup->camera_prepared) return view;
+        // An owned-hive prompt establishes location independently of facing.
+        // Only departure routes require the separately prepared camera.
         auto& anchor=view.observations.anchor;
         if (!anchor.has_value(c,Time(2000))) {
             const auto found=view.observations.checkpoints.find("hive.proximity");
@@ -46,7 +47,8 @@ public:
             if (seen.has_value(c,Time(2000)) && seen.value)
                 anchor={Knowledge::present,"hive.proximity",seen.captured,seen.window,seen.generation};
         }
-        if (anchor.has_value(c,Time(2000)) && anchor.value=="hive.proximity") view.available.insert("hive.camera.prepared");
+        if (setup->camera_prepared && anchor.has_value(c,Time(2000)) && anchor.value=="hive.proximity")
+            view.available.insert("hive.camera.prepared");
         return view;
     }
 };

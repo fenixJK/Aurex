@@ -210,12 +210,24 @@ public:
     std::optional<extensions::RoutineParticipation> routine() const override { return browser_?std::optional(extensions::RoutineParticipation{80,Time{},false,true,true,interrupt_gather_}):std::nullopt; }
     bool pending_work(const extensions::SessionView& view) const override {
         return started_ && browser_ && (!cycle_ || !cycle_->givers.empty())
-            && view.status.state==RunState::running && (needs_scan(view.now) || due_visit(view.now) || pending_action());
+            && view.status.state==RunState::running && (needs_scan(view.now) || ready_visit(view.now) || due_visit(view.now) || pending_action());
     }
     std::optional<extensions::WorkEstimate> next_work(const extensions::SessionView& view) const override {
         if (!pending_work(view)) return {};
+        if (ready_visit(view.now)) return extensions::WorkEstimate{"Turn in quest",{},Time{},view.now,{}};
         if (needs_scan(view.now)) return extensions::WorkEstimate{"Read quests",{},Time{},view.now,{}};
         return extensions::WorkEstimate{pending_action()?"Complete quest objective":"Talk to quest giver",{},Time{},view.now,{}};
+    }
+    bool ready_visit(Time now) const {
+        if (!cycle_) return false;
+        const auto visits=cycle_results_->read();
+        for (const auto& giver:report_.ready) {
+            const auto visit=visits.find(giver);
+            if (visit!=visits.end() && visit->second.next_visit>now) continue;
+            const auto& npc=game::npc(giver);
+            if (!cycle_->cooldowns || cycle_->cooldowns->remaining(npc.id,npc.quest_interval)<=Time{}) return true;
+        }
+        return false;
     }
     bool pending_action() const {
         if (!cycle_) return false;
