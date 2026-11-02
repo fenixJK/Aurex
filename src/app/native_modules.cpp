@@ -71,9 +71,16 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
     if(service.sprinklers) service.sprinklers->equipment=modules.sprinklers;
     const auto setup=[movement=modules.movement_setup,hive,speed=*speed](automation::HiveStart start) -> automation::ProgramFactory {
         return [movement,hive,speed,start] {
+            // Initial launch uses the same verified loaded-game handoff as
+            // reconnects, before movement setup or hive acquisition begins.
+            automation::TravelArrival arrival;
+            if (start==automation::HiveStart::reset && hive.recovery) {
+                arrival.prepare=[source=hive.recovery] { return automation::wait_for_reconnect(source); };
+                arrival.pending=[result=hive.result] { return result->join_pending(); };
+            }
             return automation::prepare_travel(movement,[hive,speed,start] {
                 return automation::acquire_hive(hive.slot_source,hive.spawn,hive.reference,hive.proximity,hive.options(speed),start);
-            },speed);
+            },speed,true,std::move(arrival));
         };
     };
     service.plan.hive_setup=setup(automation::HiveStart::locate);

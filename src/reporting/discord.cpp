@@ -158,9 +158,12 @@ void Discord::set_history_requested(bool requested) {
 void Discord::update(RunState state,std::uint64_t session_id,const QString& reason,const QString& activity) {
     const bool new_session=session_id && session_id!=session_id_;
     const auto now=clock_.elapsed();
-    if (new_session) update_live(false);
+    if (new_session) {
+        update_live(false);
+        ++live_revision_; live_message_.clear(); live_failed_=false; next_live_=0;
+    }
     update_live(settings_.enabled && settings_.live_honey && !blocked_ && state==RunState::running
-        && (activity=="Gathering" || activity=="Converting"));
+        && (activity=="Gathering" || (activity=="Converting" && !live_message_.isEmpty())));
     if (new_session && active(state)) { history_.reset(now); next_sample_=0; last_activity_={}; }
     if (settings_.enabled || history_requested_) {
         history_.observe(now,state==RunState::paused?"Paused":activity.isEmpty()?"Session setup":activity,active(state));
@@ -179,7 +182,9 @@ void Discord::update(RunState state,std::uint64_t session_id,const QString& reas
 }
 void Discord::update_live(bool active) {
     if (live_active_!=active) {
-        live_active_=active; ++live_revision_; live_message_.clear(); next_live_=0; live_failed_=false;
+        // Travel, collection and short conversions must not create another
+        // live message. Its identity belongs to the macro session.
+        live_active_=active; next_live_=0;
         const auto first=queue_.begin()+((reply_ || preparing_) && !queue_.empty()?1:0);
         queue_.erase(std::remove_if(first,queue_.end(),[](const auto& message) { return message.live_revision!=0; }),queue_.end());
     }
@@ -383,7 +388,9 @@ void Discord::completed(QNetworkReply* reply,std::uint64_t revision) {
     if (reply->rawHeader("X-RateLimit-Remaining")=="0")
         next_send_=std::max(next_send_,now+seconds(reply->rawHeader("X-RateLimit-Reset-After").toDouble()));
     if (http>=200 && http<300 && reply->error()==QNetworkReply::NoError) {
-        if (queue_.front().live_revision==live_revision_ && live_active_ && live_message_.isEmpty()) {
+        // A POST may finish after gathering ends. Retain that message for the
+        // next gathering/conversion, unless a new session has since started.
+        if (queue_.front().live_revision==live_revision_ && live_message_.isEmpty()) {
             const auto id=QJsonDocument::fromJson(reply->readAll()).object()["id"].toString();
             if (QRegularExpression("^[0-9]{16,22}$").match(id).hasMatch()) live_message_=id;
             else live_failed_=true;

@@ -231,6 +231,7 @@ class Window final : public QMainWindow {
                 refresh();const auto old=selected()?desktop_->inspect(selected()).window:hive::Window{};
                 stop_run();auto rejoin=session_.connect_client(hive::monotonic_now(),old);
                 start_run();initial_join_=std::move(rejoin);
+                status_page_->event({"Joining Bee Swarm",{}});
                 return RemoteReply{"Rejoin","Rejoining the configured server, then restarting the routine."};
             }},
             {"start","Start the farming routine",true,[this](const RemoteArguments&) { return RemoteReply{"Start",start_run()}; }},
@@ -620,7 +621,10 @@ public:
                         if (++focus_attempts_>8) throw std::runtime_error("Roblox did not come to the foreground");
                         return;
                     }
-                    if (!selected()) initial_join_.emplace(session_.connect_client(hive::monotonic_now()));
+                    if (!selected()) {
+                        initial_join_.emplace(session_.connect_client(hive::monotonic_now()));
+                        status_page_->event({"Joining Bee Swarm",{}});
+                    }
                 }
                 if(initial_join_) {
                     const auto check=desktop_->inspect(selected());
@@ -650,20 +654,6 @@ public:
         connect(timer,&QTimer::timeout,this,[this,data,stop,run_routine,start_macro,player_speed,equipment,existing_hive,reconnect_hours,reconnect_minute] {
             const auto snapshot=session_.snapshot();
             follow_window(snapshot);
-            if (snapshot.feature && hive::automation::can_handoff(*snapshot.feature)) {
-                const auto name=extensions_->feature_name(snapshot.feature->module_id);
-                const bool skipped=snapshot.feature->state!=hive::automation::State::completed;
-                const auto outcome=name+(snapshot.feature->state==hive::automation::State::failed?" attempt interrupted · ":
-                    skipped?" deferred · ":" · ")+q(snapshot.feature->message);
-                if (name!=q(snapshot.feature->module_id) && outcome!=last_outcome_) {
-                    log(outcome);
-                    if (snapshot.feature->state==hive::automation::State::failed && routine_)
-                        discord_->activity_event({(name+" interrupted").toStdString(),snapshot.feature->message+"\nContinuing with other work.",hive::ActivityKind::recovery});
-                    else if (snapshot.feature->state==hive::automation::State::failed) discord_->error(outcome);
-                    else if (skipped) discord_->notice(outcome);
-                    last_outcome_=outcome;
-                }
-            }
             hive::extensions::SessionView view{snapshot.status,snapshot.now,snapshot.generation,snapshot.feature,snapshot.pause_requests,{},snapshot.session_id,snapshot.server,snapshot.reconnecting,snapshot.restoring_window};
             bool routine_failed=false;
             if (routine_ && !start_timer_.isActive()) {
@@ -697,30 +687,47 @@ public:
             const auto reason=status.state!=hive::RunState::running && !status.reason.empty()?q(status.reason):
                 view.feature && view.feature->state==hive::automation::State::failed?q(view.feature->message):q(status.reason);
             const auto failure=current_activity.isEmpty()?reason:current_activity+"\n"+reason;
+            const auto state_key=QString::number(static_cast<int>(status.state));
+            const bool state_changed=state_key!=last_status_;
+            if (state_changed && status.state==hive::RunState::running) {
+                log("Macro started"); discord_->activity("Macro started");
+            }
+            // Runtime milestones happened before the terminal snapshot. Drain
+            // them before publishing its outcome, including a startup failure.
+            for (const auto& event:session_.take_activity_events()) {
+                if (event.status.is_alert() && event.frame)
+                    hive::app::save_failure_frame(QDir(data).filePath("last-action-failure.png"),event.frame,q(event.status.text()));
+                const auto& reporting=discord_->settings();
+                const bool photo=event.image_region.has_value() || (event.status.is_alert() && reporting.errors && reporting.error_screenshots);
+                status_page_->event(event.status,reporting.enabled && photo?hive::app::game_image(event.frame,event.image_region):QImage{});
+            }
+            if (snapshot.feature && hive::automation::can_handoff(*snapshot.feature)) {
+                const auto name=extensions_->feature_name(snapshot.feature->module_id);
+                const bool skipped=snapshot.feature->state!=hive::automation::State::completed;
+                const auto outcome=name+(snapshot.feature->state==hive::automation::State::failed?" attempt interrupted · ":
+                    skipped?" deferred · ":" · ")+q(snapshot.feature->message);
+                if (name!=q(snapshot.feature->module_id) && outcome!=last_outcome_) {
+                    log(outcome);
+                    if (snapshot.feature->state==hive::automation::State::failed && routine_)
+                        discord_->activity_event({(name+" interrupted").toStdString(),snapshot.feature->message+"\nContinuing with other work.",hive::ActivityKind::recovery});
+                    else if (snapshot.feature->state==hive::automation::State::failed) discord_->error(outcome);
+                    else if (skipped) discord_->notice(outcome);
+                    last_outcome_=outcome;
+                }
+            }
             discord_->set_history_requested(remote_ && remote_->settings().enabled);
             discord_->update(status.state,view.session_id,failure,activity);
             if (routine_failed || (status.state!=hive::RunState::running && view.feature && view.feature->state==hive::automation::State::failed && !hive::automation::can_handoff(*view.feature))) {
                 if (failure!=last_failure_) { discord_->error(failure); last_failure_=failure; }
             } else last_failure_.clear();
-            const auto state_key=QString::number(static_cast<int>(status.state));
-            if (state_key!=last_status_) {
-                if (status.state==hive::RunState::running) { log("Macro started"); discord_->activity("Macro started"); }
-                else if (status.state!=hive::RunState::idle) {
+            if (state_changed) {
+                if (status.state!=hive::RunState::running && status.state!=hive::RunState::idle) {
                     const auto message=state_name(status.state)+(current_activity.isEmpty()?QString{}:" · "+current_activity)+(reason.isEmpty()?QString{}:" — "+reason);
                     log(message);
                     if (last_failure_.isEmpty() && status.state!=hive::RunState::faulted) discord_->activity(message);
                 }
                 last_status_=state_key;
                 if (status.state!=hive::RunState::running) { status_page_->clear_activity(); seen_observation_errors_.clear(); }
-            }
-            for (const auto& event:session_.take_activity_events()) {
-                // Keep one original game frame for diagnosing failures that a
-                // resized Discord JPEG cannot reproduce. No desktop recapture.
-                if (event.status.is_alert() && event.frame)
-                    hive::app::save_failure_frame(QDir(data).filePath("last-action-failure.png"),event.frame,q(event.status.text()));
-                const auto& reporting=discord_->settings();
-                const bool photo=event.image_region.has_value() || (event.status.is_alert() && reporting.errors && reporting.error_screenshots);
-                status_page_->event(event.status,reporting.enabled && photo?hive::app::game_image(event.frame,event.image_region):QImage{});
             }
             if (status.state==hive::RunState::running && view.feature && view.feature->state==hive::automation::State::running) {
                 last_outcome_.clear();

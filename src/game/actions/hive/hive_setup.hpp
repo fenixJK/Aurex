@@ -26,6 +26,7 @@ public:
     void reset();
     void joined(const Window& window,Time now);
     void clear_join();
+    bool join_pending() const;
     bool consume_join(const ObservationContext& context);
     void invalidate_camera();
     void begin_preparation(const ObservationContext& context);

@@ -67,23 +67,29 @@ class HiveSurvey final : public Program {
         const auto& ocr=view.observations->text;
         const bool visual_caption=visual.has_value(c,Time(2000),minimum_) && visual.captured>=ocr.captured;
         const auto& text=visual_caption?visual:ocr;
-        if (!text.has_value(c,Time(2000),minimum_)) {
+        const bool readable=text.has_value(c,Time(2000),minimum_);
+        const auto& banner=view.observations->interaction_banner;
+        const auto& hud=view.observations->game_hud;
+        const bool empty_banner=banner.has_value(c,Time(2000),minimum_) && banner.value==game::InteractionBanner::none
+            && hud.has_value(c,Time(2000),minimum_) && hud.value;
+        const auto search_empty=[&]() -> Step {
             // Occupied pads can have no banner and no OCR words. A fresh
             // visual absence permits the existing bounded search, unless a
             // submitted claim is still awaiting its ownership confirmation.
-            const auto& banner=view.observations->interaction_banner;
-            const auto& hud=view.observations->game_hud;
-            if (claim_attempts_ || !banner.has_value(c,Time(2000),minimum_) || banner.value!=game::InteractionBanner::none
-                || !hud.has_value(c,Time(2000),minimum_) || !hud.value) return wait();
+            // A separate OCR job may return unrelated words (or an empty
+            // result). A newer visual absence is still valid row evidence.
+            if (claim_attempts_ || !empty_banner) return wait();
             if (corrections_<approach_.attempts && !approach_.nudge_path.empty()) {
                 stage_=Stage::correct; return next(view);
             }
             return advance_slot(view);
-        }
-        if (!expired && text.captured<=seen_) return wait();
-        seen_=text.captured;
+        };
+        if (!readable) return search_empty();
         const auto owned=game::read_prompt_landmark(c,text,game::hive_proximity_prompt());
         const auto available=game::read_prompt_landmark(c,text,game::hive_claim_prompt());
+        if (!owned.value && !available.value && empty_banner && banner.captured>=text.captured) return search_empty();
+        if (!expired && text.captured<=seen_) return wait();
+        seen_=text.captured;
         if (owned.value && available.value) return wait();
         const int candidate=owned.value?1:available.value?2:0;
         if (candidate==1) {

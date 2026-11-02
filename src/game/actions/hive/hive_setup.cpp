@@ -17,6 +17,7 @@ void HiveSetupResult::joined(const Window& window,Time now) {
     std::lock_guard lock(mutex_); value_.reset(); joined_=std::pair{window,now};
 }
 void HiveSetupResult::clear_join() { std::lock_guard lock(mutex_); joined_.reset(); }
+bool HiveSetupResult::join_pending() const { std::lock_guard lock(mutex_); return joined_.has_value(); }
 bool HiveSetupResult::consume_join(const ObservationContext& c) {
     std::lock_guard lock(mutex_);
     const auto joined=std::exchange(joined_,std::nullopt);

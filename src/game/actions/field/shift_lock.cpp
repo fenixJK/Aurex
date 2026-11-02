@@ -1,12 +1,22 @@
 #include "shift_lock.hpp"
 namespace hive::automation {
 namespace {
+constexpr Time shift_lock_timeout{5000};
+class ShiftLockGuard final : public RunGuard {
+public:
+    GuardDecision evaluate(const View& view,Time) override {
+        if (view.elapsed>=shift_lock_timeout)
+            return {GuardState::failed,"Shift lock state could not be confirmed before camera setup",Interruption::lost_observations};
+        return {};
+    }
+};
 class ShiftLock final : public Program {
     bool enabled_,sent_{},toggle_pending_{},parked_{};
     Time last_{Time(-1)},minimum_{};
 public:
     explicit ShiftLock(bool enabled):enabled_(enabled) {}
-    RunConfig config() const override { return {Time(5000),28,{},true,true}; }
+    RunConfig config() const override { return {shift_lock_timeout,28,{},true,true}; }
+    std::unique_ptr<RunGuard> guard() const override { return std::make_unique<ShiftLockGuard>(); }
     game::ObservationNeeds observation_needs() const override { return {game::ObservationKind::shift_lock}; }
     Step next(const View& view) override {
         if (parked_) return Done{"Shift lock confirmed"};
