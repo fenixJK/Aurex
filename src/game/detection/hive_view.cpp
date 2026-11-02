@@ -67,6 +67,35 @@ std::optional<Rect> centered_honeycomb(const Frame& f) {
         }
         cells.push_back(box);
     }
+    // Equipment can cover the middle column of an otherwise frontal hive.
+    // Two level cells on opposite sides, backed by a vertical neighbor,
+    // establish the same centered honeycomb without requiring a visible
+    // central cell. Keep size and spacing checks to reject oblique views.
+    for (std::size_t i=0;i<cells.size();++i) for (std::size_t j=i+1;j<cells.size();++j) {
+        const auto& a=cells[i]; const auto& b=cells[j];
+        const double ax=a.x+a.width*.5,bx=b.x+b.width*.5;
+        const double ay=a.y+a.height*.5,by=b.y+b.height*.5;
+        const double width=(a.width+b.width)*.5,height=(a.height+b.height)*.5;
+        if (std::min(ax,bx)>=gold.cols*.44 || std::max(ax,bx)<=gold.cols*.56
+            || std::abs((ax+bx)*.5-gold.cols*.5)>gold.cols*.035
+            || std::min(a.width,b.width)<std::max(a.width,b.width)*.8
+            || std::min(a.height,b.height)<std::max(a.height,b.height)*.8
+            || std::abs(ay-by)>height*.25 || std::abs(ax-bx)<width*2 || std::abs(ax-bx)>width*4.25) continue;
+        for (std::size_t k=0;k<cells.size();++k) {
+            if (k==i || k==j) continue;
+            const auto& neighbor=cells[k];
+            const double nx=neighbor.x+neighbor.width*.5,ny=neighbor.y+neighbor.height*.5;
+            if (neighbor.width<width*.8 || neighbor.width>width*1.25
+                || neighbor.height<height*.8 || neighbor.height>height*1.25) continue;
+            const auto aligned=[&](double x,double y) {
+                return std::abs(nx-x)<width*.3 && std::abs(ny-y)>height*.7 && std::abs(ny-y)<height*1.5;
+            };
+            if (!aligned(ax,ay) && !aligned(bx,by)) continue;
+            const auto region=a|b|neighbor;
+            return Rect{double(region.x)/gold.cols,double(region.y)/gold.rows,
+                double(region.width)/gold.cols,double(region.height)/gold.rows};
+        }
+    }
     return {};
 }
 class HiveView final : public Detector {
