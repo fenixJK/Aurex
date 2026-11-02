@@ -32,6 +32,13 @@ public:
     }
     Step next(const View& view) override {
         if (!phase_) {
+            // Recovery or a completed return may already have prepared this
+            // hive. Movement, death and a replaced session invalidate it.
+            if (reentry_==Reentry::reset) {
+                const auto ready=result_->read(view.context,view.observations);
+                if (ready && ready->claimed_slot && ready->camera_prepared)
+                    return Done{"Hive view is already prepared"};
+            }
             if (reentry_==Reentry::reconnect) result_->reset();
             else result_->begin_preparation(view.context);
             return RunProgram{reset_};
@@ -231,7 +238,9 @@ public:
                 options_.confirmed_spawn=options_.result->consume_join(view.context) || options_.confirmed_spawn;
                 const auto& current=view.context;
                 const auto previous=options_.result->read(current,view.observations);
-                if (start_==HiveStart::locate && previous && previous->claimed_slot && previous->camera_prepared)
+                // Startup can resume after recovery has already claimed and
+                // aligned the hive. Reuse that verified result in both modes.
+                if (previous && previous->claimed_slot && previous->camera_prepared)
                     return Done{"Hive view is already prepared"};
                 options_.result->begin_preparation(current);
             }

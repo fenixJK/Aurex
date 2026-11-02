@@ -101,13 +101,16 @@ std::shared_ptr<const workflows::RouteCatalog> ant_routes(double speed,std::shar
     std::vector<workflows::ExecutableRoute> routes;
     for (unsigned kind:{0u,1u,2u}) {
         const bool dispenser=kind==0,purchase=kind==2;
+        const bool challenge=!dispenser && !purchase;
         auto approach=recipes->path("ant",{{"dispenser",dispenser},{"purchase",purchase}},speed);
         const std::string destination=dispenser?"station.ant-pass":purchase?"station.ant-pass-paid":"challenge.ant";
-        approach.push_back({destination,{},{},Time(5000),Time(2000),0});
+        // As with NPC routes, completed movement supplies the destination;
+        // the shared E detector confirms interaction range without OCR.
+        approach.push_back({challenge?"interaction.prompt":destination,{},{},Time(5000),Time(2000),0});
         Time timeout{1500}; for (const auto& step:approach) timeout+=step.timeout;
         const auto estimate=detail::estimate(approach)+Time(1500);
         routes.push_back({{dispenser?"hive-ant-pass":purchase?"hive-ant-pass-paid":"hive-ant","hive.proximity",destination,estimate,{},
-            game::RouteArrival::observed,{"hive.camera.prepared"},timeout},std::move(approach)});
+            challenge?game::RouteArrival::estimated:game::RouteArrival::observed,{"hive.camera.prepared"},timeout},std::move(approach)});
     }
     auto locations=detail::locations(routes);
     return std::make_shared<workflows::RouteCatalog>(std::move(locations),std::move(routes));
