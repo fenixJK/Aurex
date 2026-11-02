@@ -129,7 +129,7 @@ std::vector<PromptAnchor> interaction_anchors() {
     for (const auto& npc : npcs()) result.push_back({npc.location(),npc.prompt()});
     for (const auto& station : stations()) {
         result.push_back({station.location,station_target(station.name),station_target(station.name,true)});
-        if (station.name=="Free Ant Pass Dispenser") result.back().prompt=PromptLandmark{{"Free Ant Pass Dispenser","You already have 10 Ant Passes","You already have 10/10 Ant Passes"},{.2,0,.6,.3},.7f,PromptMatch::phrase,true};
+        if (station.name=="Free Ant Pass Dispenser") result.back().prompt=PromptLandmark{{"Free Ant Pass Dispenser","You already have 10 or More Ant Passes","You already have 10 Ant Passes","You already have 10/10 Ant Passes"},{.2,0,.6,.3},.7f,PromptMatch::phrase,true};
     }
     return result;
 }

@@ -96,7 +96,7 @@ public:
             return {Knowledge::present,true,view.context.now,view.context.window,view.context.generation};
         if (id=="Free Ant Pass Dispenser" && view.observations) {
             const auto full=game::read_prompt_landmark(view.context,view.observations->text,
-                {{"You already have 10 Ant Passes","You already have 10/10 Ant Passes","10/10 Ant Passes"},{.2,0,.6,.3},.7f,game::PromptMatch::phrase});
+                {{"You already have 10 or More Ant Passes","You already have 10 Ant Passes","You already have 10/10 Ant Passes","10/10 Ant Passes"},{.2,0,.6,.3},.7f,game::PromptMatch::phrase});
             if (full.has_value(view.context,Time(2000)))
                 return {Knowledge::present,false,full.captured,full.window,full.generation};
         }

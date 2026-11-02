@@ -48,6 +48,7 @@ class Feeding final : public Program {
     Time minimum_{},deadline_{},frame_{Time(-1)};
     unsigned amount_{};
     bool action_{};
+    std::optional<Rect> quantity_region_;
     std::shared_ptr<FeedReceipt> receipt_;
     Step wait(const View& view,const std::string& message) {
         if (view.context.now>=deadline_) throw std::runtime_error(message+" timed out; no additional feed was submitted");
@@ -66,7 +67,8 @@ public:
     }
     RunConfig config() const override { return {std::chrono::minutes(6),28,{},true,true}; }
     std::vector<Rect> text_regions() const override {
-        return stage_==Stage::dialog || stage_==Stage::verify?std::vector<Rect>{{.2,.15,.6,.75}}:std::vector<Rect>{};
+        return stage_==Stage::verify?
+            std::vector<Rect>{quantity_region_.value_or(Rect{.2,.15,.6,.75})}:std::vector<Rect>{};
     }
     std::vector<game::FixedLabelQuery> fixed_labels() const override {
         return stage_==Stage::dialog || stage_==Stage::verify || stage_==Stage::closing?
@@ -95,7 +97,9 @@ public:
             if (inventory.value.open && inventory.value.toggle) return UseControl{{Knowledge::present,*inventory.value.toggle,inventory.captured,c.window,c.generation},0,"Close inventory",{},true};
             return Done{"Feeding finished; quest progress must be checked"};
         }
-        const auto dialog=game::read_feeding_dialog(c,*view.observations);
+        if (!quantity_region_ && (stage_==Stage::dialog || stage_==Stage::verify))
+            if (const auto region=game::feeding_quantity_region(c,*view.observations)) quantity_region_=region;
+        const auto dialog=game::read_feeding_dialog(c,*view.observations,stage_!=Stage::dialog);
         if (!dialog.usable(c,Time(2000),minimum_) || dialog.captured<=frame_) return wait(view,"Reading feeding dialog");
         frame_=dialog.captured;
         if (stage_==Stage::closing) {

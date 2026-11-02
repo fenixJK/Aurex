@@ -118,7 +118,7 @@ bool banner_color(const Frame& frame,int x,int y) {
     return (b>=100 && b>r*1.3 && b>g*1.15) || (r>=100 && r>g*1.3 && r>b*1.15);
 }
 struct PromptRegion { Rect bounds; bool key; };
-enum class CaptionSearch { none, cooldowns, all };
+enum class CaptionSearch { none, status, all };
 std::optional<Rect> colored_caption(const Frame& frame,CaptionSearch captions);
 std::optional<PromptRegion> locate_prompt(const Frame& frame,CaptionSearch captions) {
     if (!frame.valid() || frame.region.x!=0 || frame.region.y!=0 || frame.region.width!=1 || frame.region.height<upper_hud_region.height) return {};
@@ -272,8 +272,12 @@ std::optional<Rect> colored_caption(const Frame& frame,CaptionSearch captions) {
         if (box.height<viewport_height*.018 || cv::contourArea(contour)<box.area()*.8) continue;
         // A solid panel or world geometry is not a text-bearing action banner.
         const Rect region{double(box.x)/frame.width,double(box.y)/frame.height,double(box.width)/frame.width,double(box.height)/frame.height};
-        if (cooldown_caption(frame,region) || (captions==CaptionSearch::all && interaction_label(interaction_text_image(frame,region))))
-            found.push_back(region);
+        if (cooldown_caption(frame,region)) found.push_back(region);
+        else {
+            const auto label=interaction_label(interaction_text_image(frame,region),
+                captions==CaptionSearch::all?"":"Ant Passes Full");
+            if (label) found.push_back(region);
+        }
 
     }
     return found.size()==1?std::optional(found.front()):std::nullopt;
@@ -292,9 +296,9 @@ Reading<InteractionBanner> read_interaction_banner(const Frame& frame,std::uint6
     if (!frame.valid() || !generation || frame.region.x!=0 || frame.region.y!=0 || frame.region.width!=1 || frame.region.height<upper_hud_region.height) return {};
     Reading<InteractionBanner> result{Knowledge::present,InteractionBanner::none,frame.captured,frame.window,generation};
     // E and the HUD locate the panel even when its color merges into the scenery.
-    // Generic readiness needs only E or a cooldown. Reading unrelated captions
+    // Generic readiness needs E, a cooldown, or a recognized capacity notice. Reading unrelated captions
     // here delays negative observations while approaching an interaction pad.
-    if (const auto prompt=locate_prompt(frame,caption?CaptionSearch::all:CaptionSearch::cooldowns)) {
+    if (const auto prompt=locate_prompt(frame,caption?CaptionSearch::all:CaptionSearch::status)) {
         // Known captions use the same visual matcher as OCR's prompt crop,
         // but can reach controls while unrelated OCR is still processing.
         const auto label=caption?interaction_label(interaction_text_image(frame,prompt->bounds)):std::optional<TextLine>{};
@@ -310,6 +314,10 @@ Reading<InteractionBanner> read_interaction_banner(const Frame& frame,std::uint6
         }
         const auto name=caption?label:interaction_label(interaction_text_image(frame,prompt->bounds));
         if (name && name->text=="Trade Request") return result;
+        if (name && name->text=="Ant Passes Full") {
+            result.value=InteractionBanner::unavailable;
+            return result;
+        }
         if (cooldown_caption(frame,prompt->bounds)) {
             result.value=InteractionBanner::cooldown;
             return result;
@@ -384,6 +392,8 @@ std::optional<TextLine> interaction_label(const Frame& image,const std::string& 
     enum class Match { whole,first_line,phrase,first_word,words };
     struct Label { const char* text; cv::Mat pattern; Match match; float minimum{.9f}; unsigned prefix_words{}; };
     static const std::array labels{
+        Label{"Ant Passes Full",reference(detail::ant_pass_full_width,detail::ant_pass_full_height,detail::ant_pass_full),Match::phrase,.85f},
+        Label{"Ant Passes Full",reference(detail::ant_pass_full_small_width,detail::ant_pass_full_small_height,detail::ant_pass_full_small),Match::phrase,.85f},
         Label{"Make Honey",reference(detail::make_honey_width,detail::make_honey_height,detail::make_honey),Match::whole},
         Label{"Claim Hive",reference(detail::claim_hive_width,detail::claim_hive_height,detail::claim_hive),Match::whole},
         Label{"Trade Request",reference(detail::trade_request_width,detail::trade_request_height,detail::trade_request),Match::first_line},

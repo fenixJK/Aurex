@@ -9,7 +9,7 @@ enum class HivePrompt { make_honey, stop_making_honey, none, collect_pollen };
 enum class Connection { connected, disconnected };
 struct TextSnapshot { int width{},height{}; std::vector<TextLine> lines; };
 struct InteractionCaption { std::string label; bool cooldown{}; };
-enum class InteractionBanner { none, ready, cooldown };
+enum class InteractionBanner { none, ready, cooldown, unavailable };
 enum class ObservationKind { health, connection, menus, backpack, confirmation, shift_lock, interaction };
 using ObservationNeeds = std::set<ObservationKind>;
 struct DialogButtons { Point yes,no; };
