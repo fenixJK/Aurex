@@ -10,7 +10,8 @@ void validate(const WorkEstimate& work) {
         throw std::invalid_argument("Invalid work estimate");
 }
 void validate(const WorkWindow& window) {
-    if (window.label.empty() || window.label.size()>160 || window.until<Time{}) throw std::invalid_argument("Invalid work window");
+    if (window.label.empty() || window.label.size()>160 || window.until<Time{} || window.allowed_modules.size()>32
+        || std::any_of(window.allowed_modules.begin(),window.allowed_modules.end(),[](const auto& id) { return id.empty() || id.size()>80; })) throw std::invalid_argument("Invalid work window");
 }
 const WorkEstimate* WorkSnapshot::find(const std::string& owner) const {
     const auto found=std::find_if(offers.begin(),offers.end(),[&](const auto& offer) { return offer.owner==owner; });
@@ -21,8 +22,13 @@ Time WorkSnapshot::wait_until(const std::string& owner,Time now) const {
     if (!work) return now;
     auto after=now;
     for (const auto& protected_work:windows)
-        if (protected_work.owner!=owner) after=std::max(after,protected_work.window.until);
-    if (work->finish_by) after=std::min(after,*work->finish_by-work->duration);
+        if (protected_work.owner!=owner && !protected_work.window.allowed_modules.contains(owner)
+            && !(protected_work.window.allow_requested_work && work->requested_by.contains(protected_work.owner)))
+        {
+            auto until=protected_work.window.until;
+            if (protected_work.window.allow_deadlines && work->finish_by) until=std::min(until,*work->finish_by-work->duration);
+            after=std::max(after,until);
+        }
     return std::max({now,work->ready,after});
 }
 bool WorkSnapshot::can_start_window(const std::string& owner,Time now,Time duration) const {

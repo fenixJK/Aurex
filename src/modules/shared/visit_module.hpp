@@ -12,6 +12,7 @@ automation::ProgramFactory station_request(automation::VisitPlan plan,const std:
     std::shared_ptr<Cooldowns> saved={});
 using RequestedVisits=std::map<std::string,std::set<std::string>>;
 using Demand=std::function<RequestedVisits(const ObservationContext&)>;
+using Interrupts=std::map<std::string,bool>;
 std::string selection_key(std::string_view identity);
 class AvailableSettings {
     std::set<std::string> unavailable_;
@@ -23,5 +24,5 @@ public:
 Settings migrate_selections(const Settings& values,const std::vector<std::string>& previous);
 extensions::Manifest manifest(const automation::VisitPlan& plan,std::string id,std::string provider,std::string name,automation::Permissions permissions);
 extensions::Factory factory(automation::VisitPlan defaults,automation::NavigationServices navigation,
-    std::shared_ptr<const automation::AvailabilitySource> availability,automation::Permissions permissions,Demand demand={},std::shared_ptr<Cooldowns> saved={});
+    std::shared_ptr<const automation::AvailabilitySource> availability,automation::Permissions permissions,Demand demand={},std::shared_ptr<Cooldowns> saved={},Interrupts interrupts={});
 }

@@ -152,7 +152,7 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
 }
 void register_native_modules(extensions::Host& host,const NativeModules& modules) {
     const auto navigation=modules.navigation;
-    if(modules.accounts) add(host,features::accounts::module_manifest(),features::accounts::module_factory(modules.accounts),Requirements{});
+    if(modules.accounts) add(host,features::accounts::module_manifest(),features::accounts::module_factory(modules.accounts,modules.field_boosts),Requirements{},features::accounts::migrate_settings);
     add(host,features::tools::module_manifest(),features::tools::module_factory(modules.collection.inventory),Requirements{},
         [](int,Settings settings) {
             settings.erase("ssa-delay");
@@ -264,13 +264,13 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
         requirements.destinations(navigation,destinations);
         requirements.need(bool(service.availability),"station availability detection");
         auto manifest=features::collection::module_manifest(service.configuration?*service.configuration:service.plan,"hive.native-collection","native-collection",true);
-        manifest.settings_version=9;
+        manifest.settings_version=10;
         manifest.name="Collection";
         manifest.description="Collect dispensers, play Memory Match, craft at the Blender and donate to the Wind Shrine. Activities spend only the items and amounts you select.";
         add(host,std::move(manifest),[service,navigation,requests=host.request_source()](const auto& manifest) {
             return features::collection::module_factory(service.plan,navigation,service.availability,service.cooldowns,requests,service.configuration)(manifest);
         },requirements,[](int version,const Settings& values) {
-            if (version<2 || version>8) throw std::invalid_argument("Unknown previous Collection settings version");
+            if (version<2 || version>9) throw std::invalid_argument("Unknown previous Collection settings version");
             auto result=version==2?features::visits::migrate_selections(values,{"Honey Dispenser"}):values;
             result.erase("follow-requests");
             for (const auto* name:{"Red Field Booster","Blue Field Booster","Mountain Field Booster"})

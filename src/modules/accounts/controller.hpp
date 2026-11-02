@@ -1,5 +1,6 @@
 #pragma once
 #include "coordination/connection.hpp"
+#include "coordination/discord_connection.hpp"
 #include <QJsonObject>
 
 namespace hive::features::accounts {
@@ -12,6 +13,8 @@ class Controller {
     Credentials credentials_;
     std::shared_ptr<coordination::State> state_;
     coordination::Connection connection_;
+    coordination::DiscordConnection discord_;
+    bool discord_mode_{};
     bool enabled_{},joined_{};
     QString issue_,name_,server_,epoch_;
     void activate(QJsonObject config,bool save);
@@ -26,15 +29,16 @@ public:
     const QString& server() const { return server_; }
     const QString& epoch() const { return epoch_; }
     std::function<QString()> suggested_server;
-    void join(QString name,QString invite);
+    void join(QString name,QString invite,QString discord_token={});
+    void host_discord(QString name,QString channel,QString bot_token,QString server={});
     void leave();
     void retry();
     bool enabled() const { return enabled_; }
     bool joined() const { return joined_; }
     QString name() const { return name_; }
     QString status() const;
-    QString invite() const { return enabled_?connection_.invite():QString{}; }
-    bool mapping_failed() const { return enabled_ && connection_.mapping_failed(); }
+    QString invite() const { return enabled_?(discord_mode_?discord_.invite():connection_.invite()):QString{}; }
+    bool mapping_failed() const { return enabled_ && !discord_mode_ && connection_.mapping_failed(); }
     const std::shared_ptr<coordination::State>& state() const { return state_; }
     std::function<void()> on_changed;
 };

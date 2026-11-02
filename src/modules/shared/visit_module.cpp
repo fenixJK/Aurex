@@ -145,7 +145,8 @@ class VisitModule final : public extensions::Module {
     mutable std::uint64_t accounted_run_{};
     mutable std::map<std::string,Time> retry_after_;
     std::map<std::string,Time> travel_costs_;
-    mutable std::string planned_visit_;
+    mutable std::string planned_visit_,interrupt_visit_;
+    Interrupts interrupts_;
     void sync_session(const extensions::SessionView& view) const {
         if (!view.session_id || session_==view.session_id) return;
         if (session_) { ready_.clear(); retry_after_.clear(); accounted_run_=report_run_; }
@@ -182,8 +183,8 @@ class VisitModule final : public extensions::Module {
     }
 public:
     VisitModule(const extensions::Manifest& m,automation::VisitPlan plan,std::shared_ptr<const game::RouteNetwork> network,
-        std::shared_ptr<const automation::AvailabilitySource> availability,const automation::Permissions& permissions,Demand demand,std::shared_ptr<Cooldowns> saved)
-        :id_(m.id),defaults_(std::move(plan)),network_(std::move(network)),availability_(std::move(availability)),demand_(std::move(demand)),saved_(std::move(saved)) {
+        std::shared_ptr<const automation::AvailabilitySource> availability,const automation::Permissions& permissions,Demand demand,std::shared_ptr<Cooldowns> saved,Interrupts interrupts)
+        :id_(m.id),defaults_(std::move(plan)),network_(std::move(network)),availability_(std::move(availability)),demand_(std::move(demand)),saved_(std::move(saved)),interrupts_(std::move(interrupts)) {
         const auto schema=settings(defaults_);
         if (id_.empty() || m.permissions!=permissions || !m.requests.empty() || !m.scripts.empty() || !m.sources.empty()
             || !m.bindings.empty() || m.settings.size()!=schema.size()) throw std::invalid_argument("Incompatible activity module manifest");
@@ -220,7 +221,7 @@ public:
         automation::visit_program(plan,network_,availability_);
         if (saved_) saved_->load();
         selected_=std::move(selected); interrupt_=std::get<bool>(values.at("interrupt-gather"));
-        plan_=std::move(plan); results_.reset(); ready_.clear(); retry_after_.clear(); session_=0; demand_context_.reset(); detail_.clear(); started_=true;
+        plan_=std::move(plan); interrupt_visit_.clear(); results_.reset(); ready_.clear(); retry_after_.clear(); session_=0; demand_context_.reset(); detail_.clear(); started_=true;
     }
     void update(const extensions::SessionView& view) override {
         if (!started_) throw std::logic_error("Activity module is stopped");
@@ -293,10 +294,13 @@ public:
         sync_session(view);
         remember_run(view.now);
         const auto requested=demand_?demand_({{},view.generation,view.now}):RequestedVisits{};
-        std::optional<extensions::WorkEstimate> next;
+        std::optional<extensions::WorkEstimate> next,pinned;
+        const bool gathering=view.feature && view.feature->state==automation::State::running && view.feature->activity==WorkActivity::gathering;
         for (const auto& visit:plan_.visits) {
             if (demand_ && !selected_.contains(visit.id) && !requested.contains(visit.id)) continue;
             if (visit.scheduled && !visit.scheduled({{},view.generation,view.now})) continue;
+            const auto permission=interrupts_.find(visit.id);
+            if (gathering && permission!=interrupts_.end() && !permission->second && !requested.contains(visit.id)) continue;
             const auto ready=ready_at(visit,{{},view.generation,view.now});
             Time duration=visit.settle+visit.loot_duration;
             if (const auto found=travel_costs_.find(visit.id);found!=travel_costs_.end()) duration+=found->second;
@@ -305,11 +309,21 @@ public:
             if (!visit.group.empty()) for (const auto& member:plan_.visits)
                 if (member.id!=visit.id && member.group==visit.group) duration+=std::get<automation::Pattern>(member.action).duration;
             extensions::WorkEstimate work{visit.id,visit.destination,duration,ready,{}};
+            if (permission!=interrupts_.end()) work.interrupt_gather=permission->second;
             if (const auto request=requested.find(visit.id);request!=requested.end()) work.requested_by=request->second;
             if (visit.scheduled) work.finish_by=ready+duration;
-            const auto order=[](const auto& work) { return std::tuple(work.ready,work.requested_by.empty(),work.duration,work.label); };
+            const auto order=[&](const auto& work) {
+                return std::tuple(work.ready,gathering && !interrupts_.empty() && work.interrupt_gather!=true,
+                    work.requested_by.empty(),work.duration,work.label);
+            };
+            if (work.label==interrupt_visit_ && work.ready<=view.now) pinned=work;
             if (!next || order(work)<order(*next)) next=std::move(work);
         }
+        // Keep the job that requested the handoff while gathering returns home.
+        // A cheaper non-interrupting visit must not replace it at dispatch.
+        if (pinned && (!gathering || pinned->interrupt_gather==true || !next || next->interrupt_gather!=true)) next=std::move(pinned);
+        else interrupt_visit_.clear();
+        if (!interrupts_.empty() && gathering && next && next->ready<=view.now) interrupt_visit_=next->label;
         planned_visit_=next?next->label:std::string{};
         return next;
     }
@@ -331,8 +345,11 @@ public:
                 while (first!=plan.visits.begin() && (first-1)->group==group) --first;
                 while (last!=plan.visits.end() && last->group==group) ++last;
             }
-            std::rotate(plan.visits.begin(),first,last);
+            // Per-job permissions must not authorize unrelated visits in the same run.
+            if (!interrupt_visit_.empty()) plan.visits=std::vector<automation::Visit>(first,last);
+            else std::rotate(plan.visits.begin(),first,last);
         }
+        interrupt_visit_.clear();
         auto run=automation::visit_program(std::move(plan),network_,std::move(source));
         report_counters(); ++report_run_; results_=run.results;
         return saved_?save_cooldowns(std::move(run),saved_):std::move(run.program);
@@ -356,12 +373,12 @@ extensions::Manifest manifest(const automation::VisitPlan& plan,std::string id,s
     return result;
 }
 extensions::Factory factory(automation::VisitPlan defaults,automation::NavigationServices navigation,
-    std::shared_ptr<const automation::AvailabilitySource> availability,automation::Permissions permissions,Demand demand,std::shared_ptr<Cooldowns> saved) {
+    std::shared_ptr<const automation::AvailabilitySource> availability,automation::Permissions permissions,Demand demand,std::shared_ptr<Cooldowns> saved,Interrupts interrupts) {
     if (!navigation.routes || !navigation.perception || !availability) throw std::invalid_argument("Activity module needs navigation and availability observations");
     auto network=std::make_shared<const game::RouteNetwork>(navigation.routes->network());
     settings(defaults); automation::visit_program(defaults,network,availability);
-    return [defaults=std::move(defaults),network=std::move(network),availability=std::move(availability),permissions=std::move(permissions),demand=std::move(demand),saved=std::move(saved)](const extensions::Manifest& m) {
-        return std::make_unique<VisitModule>(m,defaults,network,availability,permissions,demand,saved);
+    return [defaults=std::move(defaults),network=std::move(network),availability=std::move(availability),permissions=std::move(permissions),demand=std::move(demand),saved=std::move(saved),interrupts=std::move(interrupts)](const extensions::Manifest& m) {
+        return std::make_unique<VisitModule>(m,defaults,network,availability,permissions,demand,saved,interrupts);
     };
 }
 }

@@ -7,9 +7,19 @@ const automation::Permissions permissions{automation::Permission::movement,autom
 std::string item_key(bool blender,const std::string& item) {
     return std::string(blender?"blender-":"shrine-")+visits::selection_key(item).substr(7);
 }
+std::string interrupt_key(const std::string& station) {
+    if (station=="Blender") return "blender-interrupt-gather";
+    if (station=="Wind Shrine") return "shrine-interrupt-gather";
+    if (station=="Sticker Stack" || station=="Sticker Printer") return "activities-interrupt-gather";
+    return "pickups-interrupt-gather";
+}
 std::vector<extensions::Setting> item_settings(const Plan& plan) {
     std::vector<extensions::Setting> result{{"ant-purchases","Pass purchase limit",0,0,100}};
-    result.back().help="For Ant quests when no pass is available. Each costs 10 tickets. 0 disables purchases; limit is per macro session.";
+    for (const auto* key:{"pickups-interrupt-gather","activities-interrupt-gather","blender-interrupt-gather","shrine-interrupt-gather"}) {
+        result.push_back({key,"Gather interrupt",false});
+        result.back().help="Allow ready work in this tab to interrupt gathering.";
+    }
+    result.front().help="For Ant quests when no pass is available. Each costs 10 tickets. 0 disables purchases; limit is per macro session.";
     if (std::any_of(plan.stations.begin(),plan.stations.end(),[](const auto& station) { return station.id=="Sticker Printer"; })) {
         result.push_back({"printer-egg","Egg",plan.items.printer_egg,0,0,{"Basic Egg","Silver Egg","Gold Egg","Diamond Egg","Mythic Egg"}});
         result.back().help="Uses one selected egg per print. It never substitutes another egg.";
@@ -32,12 +42,13 @@ std::vector<extensions::Setting> item_settings(const Plan& plan) {
     }
     return result;
 }
-using Builder=std::function<std::unique_ptr<extensions::Module>(ItemOptions,const extensions::Manifest&)>;
+using Builder=std::function<std::unique_ptr<extensions::Module>(ItemOptions,const extensions::Manifest&,visits::Interrupts)>;
 class CollectionModule final : public extensions::Module {
     extensions::Manifest visits_;
     visits::AvailableSettings available_;
     std::vector<extensions::Setting> options_;
     ItemOptions defaults_;
+    std::map<std::string,std::string> interrupt_keys_;
     Builder build_;
     std::shared_ptr<ItemOrders> orders_;
     std::unique_ptr<extensions::Module> delegate_;
@@ -54,6 +65,8 @@ public:
             extensions::validate_setting(*found,found->initial);
             visits_.settings.erase(found);
         }
+        for (const auto& station:available.stations) interrupt_keys_[station.id]=interrupt_key(station.id);
+        visits_.settings.push_back({"interrupt-gather","Gather interrupt",false});
         visits_=available_.manifest(std::move(visits_)); delegate_=initial(visits_);
     }
     void start(const Settings& values) override {
@@ -79,7 +92,10 @@ public:
         if (values.contains("shrine-hours")) options.shrine_interval=std::chrono::hours(std::get<int>(values.at("shrine-hours")));
         if (values.contains("printer-egg")) options.printer_egg=std::get<std::string>(values.at("printer-egg"));
         ant_limit_=unsigned(std::get<int>(values.at("ant-purchases")));
-        auto next=build_(std::move(options),visits_); next->start(available_.values(std::move(settings))); delegate_=std::move(next); connected_=false;
+        visits::Interrupts interrupts;
+        for (const auto& [station,key]:interrupt_keys_) interrupts[station]=std::get<bool>(values.at(key));
+        settings["interrupt-gather"]=false;
+        auto next=build_(std::move(options),visits_,std::move(interrupts)); next->start(available_.values(std::move(settings))); delegate_=std::move(next); connected_=false;
     }
     void update(const extensions::SessionView& view) override {
         if (!connected_) {
@@ -122,6 +138,12 @@ public:
 };
 }
 Settings migrate_item_settings(Settings values) {
+    if (const auto old=values.find("interrupt-gather");old!=values.end()) {
+        const auto allowed=std::get<bool>(old->second);
+        for (const auto* key:{"pickups-interrupt-gather","activities-interrupt-gather","blender-interrupt-gather","shrine-interrupt-gather"})
+            values.try_emplace(key,allowed);
+        values.erase(old);
+    }
     for (const bool blender:{true,false}) {
         const auto old=values.find(blender?"blender-recipe":"shrine-item");
         if (old==values.end()) continue;
@@ -144,7 +166,7 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     for (const auto& station : plan.stations) for (auto& setting : manifest.settings)
         if (setting.id==features::visits::selection_key(station.id)) setting.initial=station.selected_by_default;
     extensions::PageSection pickups{"pickups","Pickups"}; pickups.tab="Pickups"; pickups.columns=3;
-    extensions::PageSection games{"games","Memory Match"}; games.tab="Activities";
+    extensions::PageSection games{"games","Memory Match"}; games.tab="Pickups";
     for (const auto& station:plan.stations) {
         if (station.id=="Blender" || station.id=="Wind Shrine") continue;
         if (station.id=="Sticker Printer" || station.id=="Sticker Stack") continue;
@@ -152,7 +174,14 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
     }
     manifest.page->compact=true;
     auto& sections=manifest.page->sections; sections.clear();
-    sections.push_back({"schedule","Options",{},{"interrupt-gather"},false,1});
+    std::erase_if(manifest.settings,[](const auto& setting) { return setting.id=="interrupt-gather"; });
+    for (const auto* tab:{"Pickups","Activities","Blender","Wind Shrine"}) {
+        if ((std::string(tab)=="Blender" || std::string(tab)=="Wind Shrine") &&
+            std::none_of(plan.stations.begin(),plan.stations.end(),[&](const auto& station) { return station.id==tab; })) continue;
+        const auto key=std::string(tab)=="Activities"?"activities-interrupt-gather":interrupt_key(tab);
+        extensions::PageSection schedule{key,"Options",{},{key},false,1};schedule.tab=tab;
+        sections.push_back(std::move(schedule));
+    }
     if (!pickups.settings.empty()) sections.push_back(std::move(pickups));
     if (!games.settings.empty()) sections.push_back(std::move(games));
     extensions::PageSection ant{"ant-purchases","Ant quests","0 uses free passes only. Each purchased pass costs 10 tickets.",{"ant-purchases"},false,1};
@@ -187,13 +216,19 @@ extensions::Manifest module_manifest(const Plan& plan,std::string id,std::string
             entry.collection=queue; entry.choice=item; sections.push_back(std::move(entry));
         }
     }
-    for (auto option:item_settings(plan)) manifest.settings.push_back(std::move(option));
+    for (auto option:item_settings(plan)) {
+        if (option.id.ends_with("-interrupt-gather")) option.hidden=std::none_of(sections.begin(),sections.end(),[&](const auto& section) {
+            return std::find(section.settings.begin(),section.settings.end(),option.id)!=section.settings.end();
+        });
+        manifest.settings.push_back(std::move(option));
+    }
     for (auto& setting:manifest.settings) {
         if (setting.id=="printer-egg") setting.enabled_by=features::visits::selection_key("Sticker Printer");
         if (setting.id=="shrine-hours" || setting.id=="shrine-orders") setting.enabled_by=features::visits::selection_key("Wind Shrine");
         if (setting.id=="blender-orders") setting.enabled_by=features::visits::selection_key("Blender");
     }
     sections.push_back({"run","Run limit",{},{"run-seconds"}});
+    for (const auto& option:manifest.settings) if (option.hidden && option.id.ends_with("-interrupt-gather")) sections.back().settings.push_back(option.id);
     for (auto& setting:manifest.settings) if (setting.id=="run-seconds") setting.hidden=true;
     sections.push_back({"overview","Progress",{},{},true,2,true});
     for (auto& section:sections) section.inline_labels=true;
@@ -227,9 +262,9 @@ extensions::Factory module_factory(Plan plan,automation::NavigationServices navi
     if (configuration) configuration->items=plan.items;
     const auto display=std::make_shared<const Plan>(configuration?std::move(*configuration):plan);
     const auto defaults=std::make_shared<const Plan>(std::move(plan));
-    Builder build=[defaults,navigation=std::move(navigation),availability=std::move(availability),demand=std::move(demand),saved=std::move(saved)](ItemOptions items,const extensions::Manifest& manifest) {
+    Builder build=[defaults,navigation=std::move(navigation),availability=std::move(availability),demand=std::move(demand),saved=std::move(saved)](ItemOptions items,const extensions::Manifest& manifest,visits::Interrupts interrupts) {
         auto configured=*defaults; configured.items=std::move(items); configure_items(configured);
-        return features::visits::factory(visit_plan(std::move(configured)),navigation,availability,permissions,demand,saved)(manifest);
+        return features::visits::factory(visit_plan(std::move(configured)),navigation,availability,permissions,demand,saved,std::move(interrupts))(manifest);
     };
     return [display,defaults,build=std::move(build),initial](const extensions::Manifest& manifest) { return std::make_unique<CollectionModule>(manifest,*display,*defaults,build,initial); };
 }

@@ -29,6 +29,8 @@ Routine::Readiness Routine::readiness(Host& host,const SessionView& view,const W
 }
 RoutineParticipation Routine::participation(const WorkSnapshot& schedule,std::size_t index) const {
     auto result=entries_[index].participation;
+    if (const auto* work=schedule.find(entries_[index].id); work && work->interrupt_gather)
+        result.interrupt_gather=*work->interrupt_gather;
     // Requested work keeps the requesting module's scheduling preferences.
     // Only the offered visit inherits them, not every task in its provider.
     if (const auto* work=schedule.find(entries_[index].id)) for (const auto& entry:entries_)

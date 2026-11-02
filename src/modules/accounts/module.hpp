@@ -1,8 +1,10 @@
 #pragma once
 #include "controller.hpp"
 #include "core/module_host/module.hpp"
+#include "game/detection/field_boosts.hpp"
 
 namespace hive::features::accounts {
 extensions::Manifest module_manifest();
-extensions::Factory module_factory(std::shared_ptr<Controller> controller);
+Settings migrate_settings(int version,Settings settings);
+extensions::Factory module_factory(std::shared_ptr<Controller> controller,std::shared_ptr<const game::DetectionSource> boosts={});
 }

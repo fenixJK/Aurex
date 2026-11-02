@@ -13,8 +13,16 @@ struct WorkEstimate {
     // A logical activity spanning several programs. Between successful parts,
     // reconsider priority instead of advancing the round to lower-priority work.
     bool continuous{};
+    // An individual job can override its module's gather-interrupt preference.
+    std::optional<bool> interrupt_gather;
 };
-struct WorkWindow { std::string label; Time until{}; };
+struct WorkWindow {
+    std::string label;
+    Time until{};
+    std::set<std::string> allowed_modules;
+    bool allow_requested_work{};
+    bool allow_deadlines{true};
+};
 struct WorkOffer { std::string owner; WorkEstimate work; };
 struct ProtectedWork { std::string owner; WorkWindow window; };
 struct WorkSnapshot {

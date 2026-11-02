@@ -286,7 +286,7 @@ public:
                 if(value.isEmpty())settings_.remove("accounts/"+q(key));
                 else settings_.setValue("accounts/"+q(key),value);
                 settings_.sync();
-                if(settings_.status()!=QSettings::NoError)throw std::runtime_error("Could not save Accounts settings.");
+                if(settings_.status()!=QSettings::NoError)throw std::runtime_error("Could not save Alt Sync settings.");
             }
         });
         native_modules_.accounts->suggested_server=[this] { return settings_.value("recovery/serverLink").toString(); };
