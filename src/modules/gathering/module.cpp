@@ -178,9 +178,12 @@ public:
             const auto field_key=field_prefix(field.preference.field)+"-";
             const auto prefix=controls_?field_key:std::string{};
             field.start_offset={std::get<int>(settings.at(prefix+"start-side"))/10.,std::get<int>(settings.at(prefix+"start-forward"))/10.};
-            if (plan.route_recovery) {
+            if (plan.supports_reset_return || plan.route_recovery) {
                 field.reset_return=std::get<std::string>(settings.at(prefix+"return-method"))=="Reset";
-                if (field.reset_return) field.return_setup=plan.route_recovery;
+                if (field.reset_return) {
+                    if (!plan.route_recovery) throw std::invalid_argument("Reset return is unavailable until game setup is ready.");
+                    field.return_setup=plan.route_recovery;
+                }
             }
             if (return_slot) {
                 field.return_item=[create=plan.whirligig_return,slot=return_slot](automation::ProgramFactory return_method) { return create(slot,std::move(return_method)); };
@@ -342,6 +345,7 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
         || defaults.config.duration>std::chrono::hours(8) || defaults.config.duration.count()%1000)
         throw std::invalid_argument("Invalid gathering module defaults");
     extensions::Manifest result;
+    const bool reset_returns=defaults.supports_reset_return || defaults.route_recovery;
     result.id=std::move(id); result.provider=std::move(provider); result.name="Gathering"; result.version="0.1.0";
     result.enabled_by_default=true;
     result.description="Follow the configured field rotation, gather, return to the hive and convert. Active field requests can temporarily change the selected field.";
@@ -360,7 +364,7 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
     if (!controls) result.settings.push_back({"shift-lock","Shift Lock",defaults.shift_lock});
     if (!controls) {
         position_settings(result.settings,"");
-        if (defaults.route_recovery) result.settings.push_back({"return-method","Return",std::string("Walk"),0,0,return_methods});
+        if (reset_returns) result.settings.push_back({"return-method","Return",std::string("Walk"),0,0,return_methods});
     }
     if (sprinklers) {
         if (!sprinklers->prepare) throw std::invalid_argument("Sprinkler controls need a setup factory");
@@ -392,7 +396,7 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
         {"start-forward","start-side"},false,2,true});
     result.page->sections.push_back({"run","Gathering",{},{"cycles","run-seconds"},false,2});
     if (!controls) result.page->sections.back().settings.push_back("shift-lock");
-    if (defaults.route_recovery && !controls) result.page->sections.back().settings.push_back("return-method");
+    if (reset_returns && !controls) result.page->sections.back().settings.push_back("return-method");
     if (controls) {
         std::set<std::string> ids;
         const auto names=choices(*controls);
@@ -400,7 +404,7 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
             const auto id=field_prefix(field.preference.field),prefix=id+"-";
             if (!ids.insert(id).second) throw std::invalid_argument("Gathering fields need unique setting identities");
             position_settings(result.settings,prefix,field.start_offset);
-            if (defaults.route_recovery) result.settings.push_back({prefix+"return-method","Return",std::string("Walk"),0,0,return_methods});
+            if (reset_returns) result.settings.push_back({prefix+"return-method","Return",std::string("Walk"),0,0,return_methods});
             if (sprinklers && sprinklers->recenter) result.settings.push_back({prefix+"recenter","FDC",false});
             const auto& name=field.preference.field;
             const auto* field_defaults=defaults_for(name);
@@ -425,7 +429,7 @@ extensions::Manifest module_manifest(const Plan& defaults,std::string id,std::st
             result.page->sections.push_back(std::move(basic));
             extensions::PageSection limits{id+"-limits","When to return",{},{prefix+"gather-minutes",prefix+"backpack-percent"},false,2};
             limits.collection="fields"; limits.choice=field.preference.field;
-            if (defaults.route_recovery) limits.settings.push_back(prefix+"return-method");
+            if (reset_returns) limits.settings.push_back(prefix+"return-method");
             if (defaults.whirligig_return) {
                 limits.columns=3;
                 limits.settings.insert(limits.settings.end(),{"use-whirligig","whirligig-slot"});

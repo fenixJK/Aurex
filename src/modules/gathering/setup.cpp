@@ -21,6 +21,7 @@ Services field_services(const game::RouteNetwork& routes,double speed,const std:
         return automation::recenter(source,speed);
     };
     service.plan.hive="hive.proximity"; service.plan.config.speed=speed;
+    service.plan.supports_reset_return=true;
     std::set<std::string> added;
     for (const auto& route : routes.routes()) {
         const auto* definition=game::field_at(route.to);

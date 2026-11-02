@@ -53,6 +53,8 @@ struct Plan {
     bool shift_lock{};
     std::shared_ptr<const game::DetectionSource> buffs,field_boosts;
     std::function<std::unique_ptr<automation::Program>(unsigned,automation::ProgramFactory)> whirligig_return;
+    // Keep configuration available before the runtime reset service is ready.
+    bool supports_reset_return{};
 };
 enum class Phase { waiting, travelling, preparing, gathering, returning, converting, finished, recovering };
 struct Report {
