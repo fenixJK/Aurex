@@ -7,6 +7,7 @@ namespace hive::automation {
 // location before issuing movement. Closing a menu alone does not prove reset.
 struct RespawnResult {
     Observation<bool> transition;
+    // A fresh owned-hive arrival can be verified even if death was not captured.
     Observation<bool> at_hive;
 };
 std::unique_ptr<Program> request_respawn(std::shared_ptr<const game::RespawnSource> source,

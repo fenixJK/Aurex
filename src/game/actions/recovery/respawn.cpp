@@ -28,7 +28,10 @@ public:
     bool transitioned() const { return transitioned_; }
     Observation<bool> hive_arrival(const View& view,Time minimum) const {
         if (!view.observations) return {};
-        const auto& arrival=view.observations->at_hive;
+        auto arrival=view.observations->at_hive;
+        const auto prompt=game::read_prompt_landmark(view.context,*view.observations,game::hive_proximity_prompt());
+        if (prompt.usable(view.context,Time(2000))
+            && (!arrival.usable(view.context,Time(2000)) || prompt.captured>=arrival.captured)) arrival=prompt;
         return arrival.has_value(view.context,Time(2000),std::max(minimum,last_dead_+Time(1))) && arrival.value
             ?arrival:Observation<bool>{};
     }
@@ -115,7 +118,7 @@ class Respawn final : public Program {
     Step complete(const View& view,bool confirmed) {
         if (result_) {
             result_->transition={Knowledge::present,confirmed,view.context.now,view.context.window,view.context.generation};
-            result_->at_hive=confirmed?completion_.hive_arrival(view,minimum_):Observation<bool>{};
+            result_->at_hive=completion_.hive_arrival(view,minimum_);
         }
         stage_=Stage::done;
         return Done{confirmed?"Respawn finished; confirming the hive":"Reset transition unseen; checking the return location"};
@@ -135,6 +138,9 @@ public:
     RunConfig config() const override { return {Time(50000),28,{},true,true}; }
     std::vector<Rect> text_regions() const override {
         return transition_<Time{}?std::vector<Rect>{}:std::vector<Rect>{game::hive_proximity_prompt().region};
+    }
+    game::ObservationNeeds observation_needs() const override {
+        return stage_==Stage::transition?game::ObservationNeeds{game::ObservationKind::menus,game::ObservationKind::interaction}:game::ObservationNeeds{};
     }
     bool expects_respawn() const noexcept override { return stage_!=Stage::done; }
     Step next(const View& view) override {
@@ -169,10 +175,18 @@ public:
         const bool live=state && state->alive.has_value(c,Time(2000),minimum_) && state->alive.value
             && state->game_hud.has_value(c,Time(2000),minimum_) && state->game_hud.value
             && !(state->connection.has_value(c,Time(2000)) && state->connection.value==game::Connection::disconnected);
+        // The sidebar observer independently checks Roblox's reset overlay.
+        // A readable sidebar state means the reset overlay was absent, whether
+        // the inventory itself is open or closed. It can outlive this on-demand
+        // channel; the HUD alone behind an overlay cannot authorize a handoff.
+        const bool closed=live && state->open_menu.usable(c,Time(2000),minimum_+Time(1))
+            && (!reading.usable(c,game::respawn_menu_response_time,minimum_+Time(1))
+                || state->open_menu.captured>reading.captured);
+        const bool game=closed || (fresh && reading.value.screen==game::RespawnScreen::game);
         // A slow detector can finish a post-key capture after the usual live
         // view budget. It still identifies the page awaiting our next key.
         // Never reuse a frame from before that key, another window, or session.
-        const bool menu=reading.has_value(c,game::respawn_menu_response_time,minimum_+Time(1)) && (reading.value.screen==game::RespawnScreen::menu
+        const bool menu=!closed && reading.has_value(c,game::respawn_menu_response_time,minimum_+Time(1)) && (reading.value.screen==game::RespawnScreen::menu
             || reading.value.screen==game::RespawnScreen::confirmation);
         // Each observed menu transition gets its own response deadline. A slow
         // Escape menu must not consume the time allowed for R and Enter.
@@ -184,16 +198,16 @@ public:
             if (completion_.ready(view,reading,minimum_,transition_)) {
                 return complete(view,true);
             }
-            if (!completion_.transitioned() && !fresh && c.now-started_>=game::respawn_menu_response_time)
-                throw ClientRejoinRequired(unreadable_respawn(reading,view,minimum_));
-            if (!completion_.transitioned() && live && fresh && reading.value.screen==game::RespawnScreen::game
+            if (!completion_.transitioned() && live && game
                 && c.now-transition_>=game::respawn_menu_response_time) {
-                // A reset at the unclaimed spawn platform has no hive prompt
-                // to return. Let the hive workflow survey the location before
-                // spending another reset, without claiming death was observed.
+                // Death may fall between captures. Verify the hive or spawn
+                // through the shared location workflow before resetting or
+                // rejoining again; this does not claim death was observed.
                 if (result_) return complete(view,false);
                 return retry(c.now,"Game returned without a confirmed respawn");
             }
+            if (!completion_.transitioned() && !fresh && !closed && c.now-started_>=game::respawn_menu_response_time)
+                throw ClientRejoinRequired(unreadable_respawn(reading,view,minimum_));
             if (c.now-transition_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return a readable live game view");
             return Wait{Time(100),"Waiting for player respawn"};
         }

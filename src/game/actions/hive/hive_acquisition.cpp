@@ -174,6 +174,8 @@ public:
     game::ObservationNeeds observation_needs() const override {
         auto needs=child_?child_->observation_needs():game::ObservationNeeds{};
         if (child_guard_) { const auto requested=child_guard_->observation_needs(); needs.insert(requested.begin(),requested.end()); }
+        if (!child_ && !options_.confirmed_spawn && (stage_==Stage::locate || stage_==Stage::observe))
+            needs.insert(game::ObservationKind::interaction);
         return needs;
     }
     std::vector<game::FixedLabelQuery> fixed_labels() const override { return child_?child_->fixed_labels():std::vector<game::FixedLabelQuery>{}; }
@@ -270,7 +272,7 @@ public:
             // The reset workflow may have just confirmed this arrival. Its
             // capture predates this phase's start, but remains valid evidence;
             // do not wait for an identical second OCR result before aligning.
-            if (reset_result_ && reset_result_->transition.has_value(c,Time::max()) && reset_result_->transition.value
+            if (reset_result_ && reset_result_->transition.has_value(c,Time::max())
                 && reset_result_->at_hive.has_value(c,Time(2000)) && reset_result_->at_hive.value)
                 return prepare_owned(view,reset_result_->at_hive);
             // Missing the death frame does not imply an unclaimed spawn. A
@@ -278,9 +280,8 @@ public:
             // reference must still succeed before any departure is allowed.
             if (verify_spawn_ && !options_.confirmed_spawn) {
                 if (view.observations) {
-                    const auto& text=view.observations->text;
-                    const auto owned=game::read_prompt_landmark(c,text,game::hive_proximity_prompt());
-                    const auto claim=game::read_prompt_landmark(c,text,game::hive_claim_prompt());
+                    const auto owned=game::read_prompt_landmark(c,*view.observations,game::hive_proximity_prompt());
+                    const auto claim=game::read_prompt_landmark(c,*view.observations,game::hive_claim_prompt());
                     if (owned.has_value(c,Time(2000)) && owned.value && !claim.value)
                         return prepare_owned(view,owned);
                 }
@@ -298,15 +299,16 @@ public:
                 return Wait{Time(50),recovered_?"Waiting for the hive prompt after respawn":"Reading hive interaction prompt"};
             };
             if (!view.observations) return wait_for_prompt();
-            const auto& text=view.observations->text;
+            const auto owned=game::read_prompt_landmark(c,*view.observations,game::hive_proximity_prompt());
+            const auto claim=game::read_prompt_landmark(c,*view.observations,game::hive_claim_prompt());
             // Neither a pre-reset capture nor the HUD behind the dying
             // character establishes where the player has respawned.
-            if (!text.has_value(c,Time(2000),recovered_?minimum_:Time{}))
+            if (!owned.usable(c,Time(2000),recovered_?minimum_:Time{})
+                || !claim.usable(c,Time(2000),recovered_?minimum_:Time{}))
                 return wait_for_prompt();
-            if (text.captured==seen_) return wait_for_prompt();
-            seen_=text.captured;
-            const auto owned=game::read_prompt_landmark(c,text,game::hive_proximity_prompt());
-            const auto claim=game::read_prompt_landmark(c,text,game::hive_claim_prompt());
+            const auto captured=std::min(owned.captured,claim.captured);
+            if (captured==seen_) return wait_for_prompt();
+            seen_=captured;
             if (owned.value && claim.value) {
                 return wait_for_prompt();
             }
@@ -327,8 +329,8 @@ public:
                 // A short gap while the owned hive loads is not an unclaimed
                 // spawn. Keep the existing prompt allowance for known owners.
                 if (!revived || (hive && hive->claimed_slot)) away_since_=Time(-1);
-                else if (away_since_<Time{}) away_since_=text.captured;
-                else if (text.captured-away_since_>=Time(300)) return locate_unknown(view);
+                else if (away_since_<Time{}) away_since_=captured;
+                else if (captured-away_since_>=Time(300)) return locate_unknown(view);
                 return wait_for_prompt();
             }
             return locate_unknown(view);
@@ -336,9 +338,8 @@ public:
         case Stage::observe: break;
         }
         if (view.observations && !options_.confirmed_spawn) {
-            const auto& text=view.observations->text;
-            const auto owned=game::read_prompt_landmark(c,text,game::hive_proximity_prompt());
-            const auto claim=game::read_prompt_landmark(c,text,game::hive_claim_prompt());
+            const auto owned=game::read_prompt_landmark(c,*view.observations,game::hive_proximity_prompt());
+            const auto claim=game::read_prompt_landmark(c,*view.observations,game::hive_claim_prompt());
             // Camera turns invalidate the view reference, not a fresh proximity prompt.
             if (owned.has_value(c,Time(2000)) && owned.value && !claim.value) {
                 return prepare_owned(view,owned);
