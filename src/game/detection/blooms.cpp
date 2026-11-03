@@ -84,11 +84,15 @@ public:
             cv::Scalar center_mean,center_deviation; cv::meanStdDev(hsv(inner_box),center_mean,center_deviation,disk);
             if (center_deviation[2]>12 || center_deviation[1]>20) continue;
             Bloom bloom{{double(p.x)/scene.cols,double(p.y+inset)/scene.rows},flower.radiusPx/scene.rows,{}};
-            if (bloom.center.x<.08 || bloom.center.x>.92) continue;
+            // Keep fully visible edge flowers; only clipped petals make their
+            // center/color unreliable. A fixed 8% margin discarded real blooms.
+            if (p.x<flower.radiusPx*2 || p.x+flower.radiusPx*2>=scene.cols) continue;
             if (std::any_of(overlays.begin(),overlays.end(),[&](const auto& box) {
                 return bloom.center.x>=box.x && bloom.center.x<=box.x+box.width && bloom.center.y>=box.y && bloom.center.y<=box.y+box.height;
             })) continue;
-            const double inner=flower.radiusPx*1.15,outer=flower.radiusPx*2;
+            // A refined candidate measures only the flat inner center. Reach
+            // beyond that yellow disk when measuring the surrounding petals.
+            const double inner=flower.radiusPx*1.15,outer=flower.radiusPx*(flower.refinedCenter?3.:2.);
             unsigned total=0;
             for (int y=std::max(0,int(p.y-outer));y<std::min(hsv.rows,int(p.y+outer+1));++y)
                 for (int x=std::max(0,int(p.x-outer));x<std::min(hsv.cols,int(p.x+outer+1));++x) {
@@ -104,6 +108,7 @@ public:
                     bloom.colors[6]+=(h<=9 || h>=173) && s>=90 && v>=50;
                 }
             for (auto& value:bloom.colors) value/=std::max(1u,total);
+            if (*std::max_element(bloom.colors.begin()+1,bloom.colors.end())<.25) continue;
             result->flowers.push_back(bloom);
         }
         return result;

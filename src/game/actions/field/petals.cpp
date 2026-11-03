@@ -13,6 +13,8 @@ class Petals final : public Program {
     std::vector<game::WalkLeg> loot_;
     Stage stage_{Stage::prepare};
     game::Bloom target_;
+    std::optional<game::Bloom> candidate_;
+    Time candidate_at_{};
     Point origin_,forward_,right_;
     Point displacement_;
     std::optional<game::WalkLeg> walking_;
@@ -30,8 +32,21 @@ class Petals final : public Program {
     }
     Step next_home() { stage_=full_?Stage::convert:Stage::done; return RunProgram{plan_.return_to_hive}; }
     Step reselect() {
-        stage_=Stage::recenter; missing_=0; missing_since_={}; calibrated_=false;
+        stage_=Stage::recenter; missing_=0; missing_since_={}; calibrated_=false; candidate_.reset();
         return Wait{Time(50),"Finding the bloom again"};
+    }
+    Step collect() {
+        stage_=Stage::loot; loot_step_=0;
+        return Wait{Time(1),"Collecting scattered petals"};
+    }
+    bool lost(Time captured) {
+        if (!missing_++) missing_since_=captured;
+        return missing_>=3 && captured-missing_since_>=Time(500);
+    }
+    bool wanted(const game::Bloom& bloom) const {
+        // A nearby bee or field decoration must not win over a flower of the
+        // requested color. The detector measures the petals around its center.
+        return plan_.color==game::PetalColor::any || bloom.colors[unsigned(plan_.color)]>=.2;
     }
     Step walk(game::WalkLeg leg,bool tool=false) { moved_=true; walking_=leg; return Walk{leg,tool}; }
     Step walk(double tiles,Key key) { return walk({tiles,key,{}}); }
@@ -57,7 +72,8 @@ class Petals final : public Program {
     const game::Bloom* match(const game::Blooms& blooms,Point expected,double range) const {
         return game::nearest_target<game::Bloom>(blooms.flowers,expected,range,.01,
             [](const auto& bloom) { return bloom.center; },[&](const auto& bloom) {
-                return bloom.radius>=target_.radius*.65 && bloom.radius<=target_.radius*1.5;
+                // Bloom centers expand and contract as petals are released.
+                return wanted(bloom) && bloom.radius>=target_.radius*.45 && bloom.radius<=target_.radius*2.25;
             });
     }
     Point offset(Point point) const {
@@ -114,9 +130,6 @@ public:
         if (stage_==Stage::camera) {
             stage_=Stage::settle;
             auto move=game::pitch_limit(Key::pitch_up);
-            // Bloom geometry needs the full overhead view. Keep its original
-            // longer key holds independently of faster hive/transport turns.
-            move.hold=game::CameraHold{Time(100),Time(50)};
             move.finish=game::CameraFinish::geometry;
             return MoveCamera{move};
         }
@@ -143,10 +156,20 @@ public:
             if (c.now>=search_until_) return home("No reachable blooms found in this field");
             const game::Bloom* best=nullptr; double score=10;
             for (const auto& bloom:blooms.flowers) {
+                if (!wanted(bloom)) continue;
                 const double value=distance(bloom.center,{.5,.5})/(1+2*bloom.colors[unsigned(plan_.color)]);
                 if (value<score) { best=&bloom; score=value; }
             }
-            if (!best) return Hold{{Key::primary},Time(250)};
+            if (!best) { candidate_.reset(); return Hold{{Key::primary},Time(250)}; }
+            // Confirm a stationary target across fresh frames before moving.
+            // A single yellow flash on a bee is not a usable calibration point.
+            if (!candidate_ || distance(best->center,candidate_->center)>.015
+                || best->radius<candidate_->radius*.45 || best->radius>candidate_->radius*2.25) {
+                candidate_=*best; candidate_at_=reading.captured;
+                return Wait{Time(100),"Confirming bloom target"};
+            }
+            if (reading.captured-candidate_at_<Time(100)) return Wait{Time(50),"Confirming bloom target"};
+            candidate_.reset();
             target_=*best; missing_=0;
             search_until_=c.now+Time(60000);
             if (calibrated_) { stage_=Stage::approach; return Wait{Time(1),"Approaching bloom"}; }
@@ -155,7 +178,11 @@ public:
         }
         if (stage_==Stage::forward || stage_==Stage::right) {
             const auto* found=match(blooms,origin_,.20);
-            if (!found) return reselect();
+            if (!found) {
+                if (lost(reading.captured)) return reselect();
+                return Wait{Time(50),"Rechecking bloom calibration"};
+            }
+            missing_=0;
             const Point vector{(found->center.x-origin_.x)/(1.5*sign_),(found->center.y-origin_.y)/(1.5*sign_)};
             if (distance(vector,{})<.0025 || distance(vector,{})>.10) return reselect();
             target_=*found;
@@ -171,7 +198,7 @@ public:
         if (stage_==Stage::approach) {
             const auto* found=match(blooms,target_.center,.08);
             if (!found) {
-                if (++missing_>=3) return reselect();
+                if (lost(reading.captured)) return reselect();
                 return Wait{Time(50),"Rechecking bloom target"};
             }
             missing_=0; target_=*found;
@@ -192,12 +219,12 @@ public:
             const auto* found=match(blooms,target_.center,std::max(.025,target_.radius));
             if (found) {
                 target_=*found; missing_=0; missing_since_=Time{};
-                if (c.now-pop_start_>=Time(20000)) { calibrated_=false; return reselect(); }
+                // Petals can be released while the flower remains visible.
+                // Finish with the loot pattern instead of abandoning it when
+                // this tending interval ends or the quest confirms completion.
+                if (c.now-pop_start_>=Time(20000) || (plan_.complete && plan_.complete(view))) return collect();
             } else {
-                if (!missing_++) missing_since_=reading.captured;
-                if (missing_>=3 && reading.captured-missing_since_>=Time(500)) {
-                    stage_=Stage::loot; loot_step_=0; return Wait{Time(1),"Bloom disappeared; collecting scattered petals"};
-                }
+                if (lost(reading.captured)) return collect();
             }
             return Hold{{Key::primary},Time(250)};
         }
