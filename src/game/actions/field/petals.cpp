@@ -19,7 +19,7 @@ class Petals final : public Program {
     Point displacement_;
     std::optional<game::WalkLeg> walking_;
     std::optional<ObservationContext> context_;
-    Time minimum_{},last_{Time(-1)},deadline_{},search_until_{},pop_start_{},missing_since_{};
+    Time minimum_{},last_{Time(-1)},deadline_{},search_until_{},missing_since_{};
     unsigned missing_{},moves_{},loot_step_{};
     int sign_{1};
     std::string reason_;
@@ -204,7 +204,7 @@ public:
             missing_=0; target_=*found;
             const auto delta=offset(target_.center);
             const double error=std::hypot(delta.x,delta.y);
-            if (error<=1.2) { stage_=Stage::gather; pop_start_=c.now; }
+            if (error<=1.2) stage_=Stage::gather;
             else {
                 if (++moves_>16 || travelled_>=36) { calibrated_=false; return reselect(); }
                 const auto leg=toward(delta);
@@ -219,10 +219,6 @@ public:
             const auto* found=match(blooms,target_.center,std::max(.025,target_.radius));
             if (found) {
                 target_=*found; missing_=0; missing_since_=Time{};
-                // Petals can be released while the flower remains visible.
-                // Finish with the loot pattern instead of abandoning it when
-                // this tending interval ends or the quest confirms completion.
-                if (c.now-pop_start_>=Time(20000) || (plan_.complete && plan_.complete(view))) return collect();
             } else {
                 if (lost(reading.captured)) return collect();
             }
