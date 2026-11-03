@@ -1,5 +1,6 @@
 #include "reconnect.hpp"
 #include "game/detection/connection.hpp"
+#include "game/actions/interaction/ant_amulet.hpp"
 
 namespace hive::automation {
 namespace {
@@ -8,7 +9,7 @@ class Reconnect final : public Program {
     std::shared_ptr<ReconnectResult> result_;
     Time minimum_{Time(-1)},started_{Time(-1)},last_{Time(-1)},retry_at_{};
     unsigned attempts_{};
-    bool clicked_{},issued_{},resuming_{},completed_{};
+    bool clicked_{},issued_{},resuming_{},completed_{},clearing_{};
 public:
     explicit Reconnect(std::shared_ptr<const game::RespawnSource> source,bool joining=false,std::shared_ptr<ReconnectResult> result={})
         :source_(std::move(source)),result_(std::move(result)),clicked_(joining) {
@@ -22,6 +23,11 @@ public:
     Step next(const View& view) override {
         if (completed_) return Done{"Game view returned after reconnect"};
         const auto& c=view.context;
+        if (clearing_) {
+            if (result_) result_->joined={Knowledge::present,clicked_,c.now,c.window,c.generation};
+            completed_=true;
+            return ReportActivity{{"Joined Bee Swarm","Game loaded"}};
+        }
         if (minimum_<Time{}) started_=minimum_=c.now;
         if (c.now-started_>=game_loading_timeout) throw ClientRejoinRequired("Game view did not return after waiting for reconnect");
         if (!view.observations) return Wait{Time(100),"Reading reconnect state"};
@@ -55,9 +61,8 @@ public:
             && !(state.connection.has_value(c,Time(2000)) && state.connection.value==game::Connection::disconnected)
             && !(state.alive.has_value(c,Time(2000)) && !state.alive.value)
             ) {
-            if (result_) result_->joined={Knowledge::present,clicked_,c.now,c.window,c.generation};
-            completed_=true;
-            return ReportActivity{{"Joined Bee Swarm","Game loaded"}};
+            clearing_=true;
+            return RunProgram{keep_ant_amulet};
         }
         if (!clicked_ && c.now-minimum_>=Time(10000)) throw ClientRejoinRequired("Reconnect button or returned game view could not be confirmed");
         return Wait{Time(100),clicked_?"Waiting for game to reconnect":"Reading reconnect state"};

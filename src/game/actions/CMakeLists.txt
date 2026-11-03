@@ -36,6 +36,7 @@ add_library(hive_automation
   inventory/feeding.cpp
   activities/ant_challenge.cpp
   interaction/conversation.cpp
+  interaction/ant_amulet.cpp
   field/movement_setup.cpp
   travel/memory_routes.cpp
   travel/item_routes.cpp

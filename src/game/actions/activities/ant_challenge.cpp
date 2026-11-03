@@ -1,37 +1,38 @@
 #include "ant_challenge.hpp"
 #include "game/actions/field/shift_lock.hpp"
+#include "game/actions/interaction/ant_amulet.hpp"
 #include "game/detection/dialog.hpp"
-#include <array>
 #include <algorithm>
 #include "game/actions/travel/route_helpers.hpp"
 
 namespace hive::automation {
 namespace {
 const game::PromptLandmark score{{"Score:"},{0,0,1,.5},.8f,game::PromptMatch::phrase};
-const game::PromptLandmark amulet{{"Ant Amulet"},{.15,.1,.7,.85},.8f,game::PromptMatch::phrase};
 class Challenge final : public Program {
     ProgramFactory prepare_,home_,restock_;
-    bool restocked_{},missing_{},active_{};
+    bool restocked_{},missing_{},active_{},cleared_previous_{};
     double speed_;
     workflows::CheckpointPlan position_;
     unsigned phase_{};
     std::function<void(const ObservationContext&)> unavailable_;
     Time start_attempt_{};
-    Time frame_{Time(-1)},until_{};
+    Time until_{};
 public:
     Challenge(ProgramFactory prepare,ProgramFactory home,double speed,movement::Source source,std::function<void(const ObservationContext&)> unavailable,ProgramFactory restock):restock_(std::move(restock)),unavailable_(std::move(unavailable)),prepare_(std::move(prepare)),home_(std::move(home)),speed_(speed),position_(movement::snapshot(source)->path("ant-position",{},speed).at(0)) {
         if (!prepare_ || !home_ || !std::isfinite(speed) || speed<8 || speed>200) throw std::invalid_argument("Ant Challenge needs hive preparation and return");
     }
     std::vector<Rect> text_regions() const override {
         if (phase_==4) return {{.4,.6,.6,.4}};
-        if ((phase_==5 && !active_) || phase_==6) return {amulet.region};
         return {};
     }
     std::vector<game::FixedLabelQuery> fixed_labels() const override {
-        if (phase_<4 || phase_>6) return {};
-        return {{{0,0,1,.5},{"Score"}},{{.15,.1,.7,.85},{"Keep Old","Replace"}}};
+        if (phase_<4 || phase_>5) return {};
+        auto labels=game::ant_amulet_labels();
+        labels.push_back({{0,0,1,.5},{"Score"}});
+        return labels;
     }
     RunConfig config() const override { return {std::chrono::minutes(12),speed_,{},true,true}; }
+    bool expects_respawn() const noexcept override { return phase_>=4 && phase_<=6; }
     void observe(const View& view) override {
         if (phase_!=4 || !view.observations) return;
         const auto missing=game::read_prompt_landmark(view.context,view.observations->text,
@@ -44,10 +45,18 @@ public:
     }
     Step next(const View& view) override {
         const auto& c=view.context;
+        if (!cleared_previous_) { cleared_previous_=true; return RunProgram{keep_ant_amulet}; }
         if (!phase_) { ++phase_; return RunProgram{[] { return set_shift_lock(false); }}; }
         if (phase_==1) { ++phase_; return RunProgram{prepare_}; }
         if (phase_==2) { ++phase_; return Navigate{"challenge.ant"}; }
         if (phase_==3) { ++phase_; start_attempt_=c.now; return Hold{{Key::interact},Time(80)}; }
+        // A short run may end before a Score frame is observed. Handle its
+        // result before start verification, movement or another pass attempt.
+        if ((phase_==4 || phase_==5) && view.observations
+            && game::read_ant_amulet(c,*view.observations).has_value(c,Time(2000),start_attempt_+Time(1))) {
+            phase_=6;
+            return RunProgram{keep_ant_amulet};
+        }
         if (phase_==4) {
             observe(view);
             if (missing_) {
@@ -63,6 +72,7 @@ public:
             if (c.now-start_attempt_>=Time(15000)) throw ObservationUnavailable("Ant Challenge did not start; another pass was not spent");
             return Wait{Time(100),"Waiting for Ant Challenge"};
         }
+        if (phase_==6) phase_=7; // Shared cleanup completed and confirmed closure.
         if (phase_==7) { ++phase_; return RunProgram{home_}; }
         if (phase_==8) return Done{"Ant Challenge ended; quest progress must be checked"};
         if (!until_.count()) until_=c.now+std::chrono::minutes(5)+Time(15000);
@@ -71,22 +81,6 @@ public:
         active_=game::read_prompt_landmark(c,view.observations->fixed_labels,score).has_value(c,Time(2000))
             && std::none_of(view.observations->fixed_labels.value.lines.begin(),view.observations->fixed_labels.value.lines.end(),
                 [](const auto& line) { return line.text=="Keep Old" || line.text=="Replace"; });
-        static constexpr std::array<std::string_view,2> labels{"Keep Old","Replace"};
-        const auto text=game::with_fixed_labels(c,view.observations->text,view.observations->fixed_labels,labels);
-        const auto buttons=game::read_dialog(c,text,amulet,{"Keep Old","Replace"});
-        if (phase_==6) {
-            if (buttons.knowledge==Knowledge::absent && buttons.usable(c,Time(2000)) && buttons.captured>frame_) {
-                frame_=buttons.captured; phase_=7;
-            }
-            return Wait{Time(100),"Confirming Ant Amulet closed"};
-        }
-        if (buttons.has_value(c,Time(2000))) {
-            if (buttons.captured<=frame_) return Wait{};
-            frame_=buttons.captured;
-            const auto point=buttons.value.yes;
-            phase_=6; until_=c.now+Time(10000);
-            return UseControl{{Knowledge::present,point,buttons.captured,c.window,c.generation},0,"Keep existing Ant Amulet",Point{.85,.15}};
-        }
         if (!active_)
             return Wait{Time(100),"Waiting for Ant Challenge observations"};
         return Hold{{Key::primary},Time(250),Point{.95,.95}};

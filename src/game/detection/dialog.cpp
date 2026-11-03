@@ -122,4 +122,14 @@ Observation<DialogButtons> read_dialog(const Context& context,const Reading<Text
     result.value={{(a.x+a.width/2)/w,(a.y+a.height/2)/h},{(b.x+b.width/2)/w,(b.y+b.height/2)/h}};
     return result;
 }
+std::vector<FixedLabelQuery> ant_amulet_labels() {
+    return {{{.15,.1,.7,.85},{"Keep Old","Replace"},LabelInk::light},
+            {{.15,.1,.7,.85},{"Ant Amulet"},LabelInk::either}};
+}
+Observation<DialogButtons> read_ant_amulet(const Context& context,const State& state) {
+    // All three labels come from the same frame. Neither delayed OCR nor the
+    // extra restored-amulet heading is needed to locate this specific choice.
+    return read_dialog(context,state.fixed_labels,{{"Ant Amulet"},{.15,.1,.7,.85},.8f,PromptMatch::phrase},
+        {"Keep Old","Replace"});
+}
 }

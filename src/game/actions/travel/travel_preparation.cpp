@@ -1,5 +1,6 @@
 #include "travel_preparation.hpp"
 #include "game/detection/menus.hpp"
+#include "game/actions/interaction/ant_amulet.hpp"
 
 namespace hive::automation {
 namespace {
@@ -9,7 +10,7 @@ class Preparation final : public Program {
     double speed_;
     bool convert_backpack_;
     unsigned conversion_retries_{};
-    enum class Phase { arrival,park,movement,hive,converting,done } phase_;
+    enum class Phase { arrival,amulet,park,movement,hive,converting,done } phase_;
 public:
     Preparation(ProgramFactory movement,ProgramFactory hive,double speed,bool convert_backpack,TravelArrival arrival)
         :movement_(std::move(movement)),hive_(std::move(hive)),arrival_(std::move(arrival)),speed_(speed),convert_backpack_(convert_backpack),
@@ -36,8 +37,11 @@ public:
     Step next(const View& view) override {
         if (phase_==Phase::arrival) {
             if (expects_reconnect()) return RunProgram{arrival_.prepare};
-            phase_=Phase::park;
+            // Reconnect performs this cleanup itself. Starting in an already
+            // loaded game must also clear a restored Ant result before setup.
+            phase_=Phase::amulet;
         }
+        if (phase_==Phase::amulet) return RunProgram{keep_ant_amulet};
         if (phase_==Phase::park)
             return Hold{{},Time(1),game::pointer_rest(view.context,view.observations?*view.observations:game::State{})};
         if (phase_==Phase::movement) {
@@ -49,7 +53,7 @@ public:
         return Done{"Travel preparation complete"};
     }
     void step_completed(const View&) override {
-        if (phase_==Phase::arrival) phase_=Phase::park;
+        if (phase_==Phase::arrival || phase_==Phase::amulet) phase_=Phase::park;
         else if (phase_==Phase::park) phase_=Phase::movement;
         else if (phase_==Phase::movement) phase_=Phase::hive;
         else if (phase_==Phase::hive) phase_=convert_backpack_?Phase::converting:Phase::done;
