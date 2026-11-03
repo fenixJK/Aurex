@@ -7,7 +7,7 @@
 
 namespace hive::features::boosting {
 namespace {
-const std::vector<std::string> conditions{"Off","Gathering","Boosted field","Field start","Converting","Bag limit","Boosted conversion","Combat"};
+const std::vector<std::string> conditions{"Off","Gathering","Boosted field","Field start","Converting","Bag limit","Boosted conversion","Combat","Main's boost","Main's boost conversion"};
 class Boosting final : public extensions::Module {
     extensions::Manifest manifest_;
     std::shared_ptr<Controller> controller_;
@@ -154,7 +154,7 @@ extensions::Manifest module_manifest() {
         auto items=game::shrine_items(); items.insert(items.begin(),"Unspecified"); items.push_back("Super Smoothie");
         manifest.settings.push_back({prefix+"item","Item",std::string("Unspecified"),0,0,items});
         manifest.settings.push_back({prefix+"when","When",std::string("Off"),0,0,conditions});
-        manifest.settings.back().help="Boosted conversion requires a boost still active in the last gathered field.";
+        manifest.settings.back().help="Main's boost uses Alt Sync's confirmed timer while following that field. Main's boost conversion applies on conversion trips from it. Boosted field and Boosted conversion use this account's own boosts.";
         manifest.settings.push_back({prefix+"seconds","Interval",600,1,86400}); manifest.settings.back().suffix=" sec";
         manifest.settings.push_back({prefix+"limit","Use limit",1,0,100000}); manifest.settings.back().help="Per session. 0 means no limit. Counts key presses, including an unavailable item.";
         manifest.settings.push_back({prefix+"bag","Bag %",90,1,100}); manifest.settings.back().suffix="%";

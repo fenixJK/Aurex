@@ -35,6 +35,8 @@ void Controller::enable() {
     changed();
 }
 void Controller::disable() noexcept {
+    main_boost_->update({});
+    role_=coordination::Role::offline;
     enabled_=false;joined_=false;state_->clear_publication();connection_.leave();discord_.leave();issue_.clear();server_.clear();epoch_.clear();changed();
 }
 void Controller::activate(QJsonObject config,bool save) {
@@ -78,6 +80,8 @@ void Controller::activate(QJsonObject config,bool save) {
             credentials_.write("group",QString::fromUtf8(QJsonDocument(config).toJson(QJsonDocument::Compact)));
         }
     } catch(...) { connection_.leave();discord_.leave();throw; }
+    main_boost_->update({});
+    role_=mode=="host"?coordination::Role::host:coordination::Role::guest;
     name_=name;server_=server;epoch_=QUuid::createUuid().toString(QUuid::WithoutBraces);joined_=true;issue_.clear();changed();
 }
 void Controller::host(QString name,QString address,quint16 port,QString server,HostNetwork network,QString network_id) {
@@ -115,6 +119,8 @@ void Controller::host_discord(QString name,QString channel,QString bot_token,QSt
     config["identity"]=coordination::save_identity(coordination::create_identity());activate(std::move(config),true);
 }
 void Controller::leave() {
+    main_boost_->update({});
+    role_=coordination::Role::offline;
     state_->clear_publication();connection_.leave();discord_.leave();joined_=false;issue_.clear();server_.clear();epoch_.clear();
     try { credentials_.write("group",{});credentials_.write("host-key",{});credentials_.write("discord-token",{});credentials_.write("discord-message",{}); }
     catch(const std::exception& error) { issue_=QString::fromUtf8(error.what()); }

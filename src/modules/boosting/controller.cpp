@@ -2,6 +2,7 @@
 #include <algorithm>
 
 namespace hive::features::boosting {
+void Controller::main_boost(std::shared_ptr<const coordination::MainBoostState> source) { std::lock_guard lock(mutex_); main_boost_=std::move(source); }
 void Controller::supplies(std::shared_ptr<game::ItemStock> stock) { std::lock_guard lock(mutex_); stock_=std::move(stock); }
 bool Controller::spend(const std::string& item,Time now) {
     if (!stock_) return true;
@@ -24,7 +25,7 @@ std::optional<extensions::WorkWindow> Controller::protected_work(Time now) const
 }
 void validate(const Preferences& preferences) {
     for (const auto& rule:preferences.items)
-        if (rule.when<UseWhen::off || rule.when>UseWhen::fighting || rule.interval<Time(1000)
+        if (rule.when<UseWhen::off || rule.when>UseWhen::main_boost_conversion || rule.interval<Time(1000)
             || rule.interval>std::chrono::hours(24) || rule.backpack<1 || rule.backpack>100)
             throw std::invalid_argument("Invalid consumable rule");
     const auto& boost=preferences.boost;
@@ -158,6 +159,8 @@ unsigned Controller::take(const automation::HotbarContext& context) {
     if (context.field.empty() || context.activity==WorkActivity::converting) gathering_field_.clear();
     if (const auto slot=take_boost(context)) { next_item_=now+Time(500); return slot; }
     const bool boosted=gathering && fresh(now) && boosted_.contains(context.field);
+    const auto main=main_boost_?main_boost_->read(now,context.observation.generation):std::nullopt;
+    const bool supporting=main && main->supporting;
     for (unsigned i=0;i<preferences_.items.size();++i) {
         const auto& rule=preferences_.items[i];
         if (rule.when==UseWhen::off || (rule.limit && uses_[i]>=rule.limit)
@@ -167,6 +170,8 @@ unsigned Controller::take(const automation::HotbarContext& context) {
             rule.when==UseWhen::converting?context.activity==WorkActivity::converting:
             rule.when==UseWhen::backpack?gathering && context.backpack && *context.backpack>=rule.backpack:
             rule.when==UseWhen::boosted_conversion?context.activity==WorkActivity::converting && fresh(now) && boosted_.contains(last_field_):
+            rule.when==UseWhen::main_boost?supporting && gathering && context.field==main->field:
+            rule.when==UseWhen::main_boost_conversion?supporting && context.activity==WorkActivity::converting && last_field_==main->field:
             rule.when==UseWhen::fighting?context.activity==WorkActivity::fighting:false;
         if (!allowed || !spend(rule.item,now)) continue;
         ++uses_[i]; used_at_[i]=now; visits_[i]=visit_; next_item_=now+Time(500);

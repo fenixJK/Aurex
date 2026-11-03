@@ -359,7 +359,6 @@ void ExtensionsUi::build_page(const std::string& id) {
     auto title=new QHBoxLayout; title->addWidget(text(q(entry.manifest.name),"heading"),1);
     layout->addLayout(title);
     page->feedback=text({},"muted"); page->feedback->hide(); layout->addWidget(page->feedback);
-    if(page_factory_) if(auto* content=page_factory_(id,body)) { page->content=content;layout->addWidget(content); }
     const bool dense=entry.manifest.page && entry.manifest.page->compact;
     QLabel measure; measure.setObjectName("muted"); measure.ensurePolished();
     const auto font_metrics=measure.fontMetrics();
@@ -452,6 +451,7 @@ void ExtensionsUi::build_page(const std::string& id) {
         content->addWidget(scroll,1); tab_actions[section.tab]=new QHBoxLayout; content->addLayout(tab_actions[section.tab]);
         page_tabs->addTab(tab,q(section.tab));
     }
+    std::map<std::string,QWidget*> section_widgets;
     std::map<std::string,OrderedRows*> ordered_groups;
     std::map<std::string,std::vector<int>> ordered_widths;
     std::map<std::string,QHBoxLayout*> panel_rows;
@@ -488,6 +488,7 @@ void ExtensionsUi::build_page(const std::string& id) {
                 }));
         const bool selection_only=section.settings.size()==1 && std::any_of(entry.manifest.settings.begin(),entry.manifest.settings.end(),[&](const auto& field) { return field.id==section.settings.front() && field.inline_choices; });
         auto group=new QWidget; group->setObjectName("module-section-"+q(section.id)); group->setAccessibleName(q(section.title));
+        section_widgets[section.id]=group;
         group->setSizePolicy(QSizePolicy::Preferred,section.tool.empty()?QSizePolicy::Maximum:QSizePolicy::Preferred);
         OrderedRows* ordered{};
         QSpinBox* priority{};
@@ -718,6 +719,9 @@ void ExtensionsUi::build_page(const std::string& id) {
         else if(auto* number=qobject_cast<QSpinBox*>(control)) connect(number,&QSpinBox::valueChanged,save,changed);
         else if(auto* number=qobject_cast<QDoubleSpinBox*>(control)) connect(number,&QDoubleSpinBox::valueChanged,save,changed);
         else if(auto* choice=dynamic_cast<ChoiceControl*>(control)) choice->changed=changed;
+    }
+    if(page_factory_) if(auto* content=page_factory_(id,section_widgets,body)) {
+        page->content=content;layout->insertWidget(2,content);
     }
     if (!page_tabs) layout->addStretch();
     page->error->setText(q(entry.issue));

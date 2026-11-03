@@ -1,6 +1,7 @@
 #pragma once
 #include "coordination/connection.hpp"
 #include "coordination/discord_connection.hpp"
+#include "coordination/main_boost.hpp"
 #include <QJsonObject>
 
 namespace hive::features::accounts {
@@ -12,10 +13,12 @@ struct Credentials {
 class Controller {
     Credentials credentials_;
     std::shared_ptr<coordination::State> state_;
+    std::shared_ptr<coordination::MainBoostState> main_boost_=std::make_shared<coordination::MainBoostState>();
     coordination::Connection connection_;
     coordination::DiscordConnection discord_;
     bool discord_mode_{};
     bool enabled_{},joined_{};
+    coordination::Role role_{coordination::Role::offline};
     QString issue_,name_,server_,epoch_;
     void activate(QJsonObject config,bool save);
     void changed();
@@ -35,11 +38,13 @@ public:
     void retry();
     bool enabled() const { return enabled_; }
     bool joined() const { return joined_; }
+    coordination::Role role() const { return role_; }
     QString name() const { return name_; }
     QString status() const;
     QString invite() const { return enabled_?(discord_mode_?discord_.invite():connection_.invite()):QString{}; }
     bool mapping_failed() const { return enabled_ && !discord_mode_ && connection_.mapping_failed(); }
     const std::shared_ptr<coordination::State>& state() const { return state_; }
+    const std::shared_ptr<coordination::MainBoostState>& main_boost() const { return main_boost_; }
     std::function<void()> on_changed;
 };
 }

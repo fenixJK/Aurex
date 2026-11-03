@@ -2,11 +2,12 @@
 #include "core/module_host/module.hpp"
 #include "game/actions/inventory/hotbar.hpp"
 #include "game/detection/field_boosts.hpp"
+#include "coordination/main_boost.hpp"
 #include <array>
 #include <mutex>
 
 namespace hive::features::boosting {
-enum class UseWhen { off, gathering, boosted, field_start, converting, backpack, boosted_conversion, fighting };
+enum class UseWhen { off, gathering, boosted, field_start, converting, backpack, boosted_conversion, fighting, main_boost, main_boost_conversion };
 struct ItemRule { UseWhen when{}; Time interval{600000}; unsigned limit{1}; unsigned backpack{90}; std::string item; };
 struct BoostItems {
     std::string field;
@@ -49,12 +50,14 @@ class Controller final : public automation::HotbarSource {
     std::shared_ptr<const extensions::WorkSchedule> schedule_;
     std::string owner_;
     std::shared_ptr<game::ItemStock> stock_;
+    std::shared_ptr<const coordination::MainBoostState> main_boost_;
     std::string reserve_reason_;
     bool spend(const std::string& item,Time now);
     bool fresh(Time now) const;
     bool can_roll() const;
     unsigned take_boost(const automation::HotbarContext& context);
 public:
+    void main_boost(std::shared_ptr<const coordination::MainBoostState> source);
     void supplies(std::shared_ptr<game::ItemStock> stock);
     void scheduling(std::shared_ptr<const extensions::WorkSchedule> schedule,std::string owner);
     std::optional<extensions::WorkWindow> protected_work(Time now) const;

@@ -17,7 +17,8 @@ public:
     using RegisterProviders = std::function<void(extensions::Host&)>;
     using TargetPicker = std::function<std::optional<WindowPoint>(const std::string&)>;
     using ToolFactory = std::function<QWidget*(const std::string&,QWidget*)>;
-    using PageFactory = std::function<QWidget*(const std::string&,QWidget*)>;
+    // Native pages can arrange the generated settings without replacing their persistence.
+    using PageFactory = std::function<QWidget*(const std::string&,const std::map<std::string,QWidget*>&,QWidget*)>;
     ExtensionsUi(Navigation* navigation,QStackedWidget* pages,QString bundled,QString user_root,QString state_file,std::function<bool()> busy,RegisterProviders register_providers,extensions::Host::FailureHandler failure_handler={},ToolFactory tool_factory={},std::function<void(automation::Launch)> launch={},TargetPicker picker={},PageFactory page_factory={});
     ~ExtensionsUi() override;
     void update(const extensions::SessionView& view);
