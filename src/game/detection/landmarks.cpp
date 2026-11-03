@@ -78,6 +78,19 @@ Reading<bool> read_prompt_landmark(const Context& c,const Reading<TextSnapshot>&
     if (!uncertain) result.knowledge=Knowledge::absent;
     return result;
 }
+Reading<bool> read_prompt_landmark(const Context& c,const State& state,const PromptLandmark& p) {
+    auto result=read_prompt_landmark(c,state.text,p);
+    const auto visual=read_prompt_landmark(c,state.prompt_text,p);
+    // The controls worker can recognize the same caption before unrelated OCR
+    // finishes. Use the newest usable evidence, retaining its capture time.
+    if (visual.usable(c,Time(2000)) && (!result.usable(c,Time(2000)) || visual.captured>=result.captured)) result=visual;
+    const auto& banner=state.interaction_banner;
+    if (p.region==interaction_prompt_search_region && banner.has_value(c,Time(2000))
+        && banner.value==InteractionBanner::none && state.game_hud.has_value(c,Time(2000)) && state.game_hud.value
+        && (!result.usable(c,Time(2000)) || banner.captured>result.captured))
+        result={Knowledge::absent,false,banner.captured,banner.window,banner.generation};
+    return result;
+}
 PromptLandmark hive_proximity_prompt() { return {{"Make Honey","Stop Making Honey","Collect Pollen","Flower Fields"},
     interaction_prompt_search_region,hive_prompt_confidence,PromptMatch::phrase,true}; }
 PromptLandmark hive_claim_prompt() { return {{"Claim Hive"},interaction_prompt_search_region,hive_prompt_confidence,PromptMatch::exact,true}; }

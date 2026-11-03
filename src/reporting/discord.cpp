@@ -111,7 +111,7 @@ void Discord::status(QString message) {
 }
 void Discord::cancel() {
     ++revision_; preparing_=false; period_.stop(); retry_.stop(); deadline_.stop(); queue_.clear();
-    ++live_revision_; live_active_=live_failed_=false; live_message_.clear(); next_live_=0;
+    ++live_revision_; live_active_=live_failed_=false; live_message_.clear(); live_visit_.clear(); next_live_=0;
     if (reply_) { auto reply=reply_; reply_.clear(); reply->abort(); reply->deleteLater(); }
 }
 bool Discord::configure(const DiscordSettings& value) {
@@ -155,15 +155,20 @@ void Discord::set_history_requested(bool requested) {
     history_requested_=requested;
     if (!settings_.enabled) { history_.reset(clock_.elapsed()); next_sample_=0; }
 }
-void Discord::update(RunState state,std::uint64_t session_id,const QString& reason,const QString& activity) {
+void Discord::update(RunState state,std::uint64_t session_id,const QString& reason,const QString& activity,const QString& field) {
     const bool new_session=session_id && session_id!=session_id_;
     const auto now=clock_.elapsed();
-    if (new_session) {
-        update_live(false);
-        ++live_revision_; live_message_.clear(); live_failed_=false; next_live_=0;
+    if (new_session) update_live(false,{});
+    QString visit;
+    if (settings_.enabled && settings_.live_honey && !blocked_) {
+        // Pausing suspends edits without splitting the current visit.
+        if (state==RunState::paused) visit=live_visit_;
+        else if (state==RunState::running) {
+            if (activity=="Gathering" && !field.isEmpty()) visit="Gathering/"+field;
+            else if (activity=="Converting") visit="Converting";
+        }
     }
-    update_live(settings_.enabled && settings_.live_honey && !blocked_ && state==RunState::running
-        && (activity=="Gathering" || (activity=="Converting" && !live_message_.isEmpty())));
+    update_live(state==RunState::running && !visit.isEmpty(),visit);
     if (new_session && active(state)) { history_.reset(now); next_sample_=0; last_activity_={}; }
     if (settings_.enabled || history_requested_) {
         history_.observe(now,state==RunState::paused?"Paused":activity.isEmpty()?"Session setup":activity,active(state));
@@ -180,10 +185,14 @@ void Discord::update(RunState state,std::uint64_t session_id,const QString& reas
     if (state==RunState::idle) return;
     if (state==RunState::faulted) error(reason.isEmpty()?"The macro stopped after an error.":reason);
 }
-void Discord::update_live(bool active) {
-    if (live_active_!=active) {
-        // Travel, collection and short conversions must not create another
-        // live message. Its identity belongs to the macro session.
+void Discord::update_live(bool active,const QString& visit) {
+    const bool changed=live_visit_!=visit;
+    if (changed) {
+        // Each field visit/conversion owns its message. Invalidate queued edits
+        // and late responses before beginning the next one.
+        live_visit_=visit; ++live_revision_; live_message_.clear(); live_failed_=false;
+    }
+    if (changed || live_active_!=active) {
         live_active_=active; next_live_=0;
         const auto first=queue_.begin()+((reply_ || preparing_) && !queue_.empty()?1:0);
         queue_.erase(std::remove_if(first,queue_.end(),[](const auto& message) { return message.live_revision!=0; }),queue_.end());
@@ -388,8 +397,8 @@ void Discord::completed(QNetworkReply* reply,std::uint64_t revision) {
     if (reply->rawHeader("X-RateLimit-Remaining")=="0")
         next_send_=std::max(next_send_,now+seconds(reply->rawHeader("X-RateLimit-Reset-After").toDouble()));
     if (http>=200 && http<300 && reply->error()==QNetworkReply::NoError) {
-        // A POST may finish after gathering ends. Retain that message for the
-        // next gathering/conversion, unless a new session has since started.
+        // Only adopt the response for the current visit; an earlier POST may
+        // finish after we have already started a new gathering/conversion.
         if (queue_.front().live_revision==live_revision_ && live_message_.isEmpty()) {
             const auto id=QJsonDocument::fromJson(reply->readAll()).object()["id"].toString();
             if (QRegularExpression("^[0-9]{16,22}$").match(id).hasMatch()) live_message_=id;

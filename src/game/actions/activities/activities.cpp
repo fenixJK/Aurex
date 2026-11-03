@@ -26,7 +26,7 @@ game::ObservationNeeds Runner::observation_needs() const {
         if constexpr (std::is_same_v<T,AnswerDialog>) needs.insert(K::confirmation);
         else if constexpr (std::is_same_v<T,DragInventoryItem> || std::is_same_v<T,InspectInventoryItem>) needs.insert(K::menus);
         else if constexpr (std::is_same_v<T,Convert>) needs.insert(K::backpack);
-        else if constexpr (std::is_same_v<T,UseStation>) needs.insert(K::interaction);
+        else if constexpr (std::is_same_v<T,UseStation> || std::is_same_v<T,ApproachPrompt>) needs.insert(K::interaction);
         else if constexpr (std::is_same_v<T,Navigate>) {
             needs.insert(K::interaction);
             if (step.inventory_search && (!navigation_ || travel_inventory_)) needs.insert(K::menus);
@@ -426,7 +426,7 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
             checkpoint_.emplace(approach->movement); checkpoint_->start(c,scope_);
         }
         progress_.message="Approaching "+approach->movement.detector;
-        checkpoint_->update(c,game::read_prompt_landmark(c,s.text,approach->prompt),tasks_,s.movement_speed);
+        checkpoint_->update(c,game::read_prompt_landmark(c,s,approach->prompt),tasks_,s.movement_speed);
         if (checkpoint_->stage()==workflows::CheckpointStage::completed) complete_step(c,s);
         else if (checkpoint_->stage()==workflows::CheckpointStage::failed) checkpoint_failed(c,s);
         return true;

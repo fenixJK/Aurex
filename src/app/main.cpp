@@ -674,7 +674,7 @@ public:
             const auto& status=view.status;
             status_page_->upcoming(status.state==hive::RunState::running?extensions_->work_snapshot():hive::extensions::WorkSnapshot{},view.now,extensions_->run_order(),view.feature?view.feature->module_id:std::string{});
             QString activity="Other";
-            if (view.feature) switch (view.feature->activity) {
+            if (view.feature && view.feature->state==hive::automation::State::running) switch (view.feature->activity) {
             case hive::WorkActivity::gathering: activity="Gathering"; break;
             case hive::WorkActivity::travelling: activity="Travelling"; break;
             case hive::WorkActivity::converting: activity="Converting"; break;
@@ -716,7 +716,7 @@ public:
                 }
             }
             discord_->set_history_requested(remote_ && remote_->settings().enabled);
-            discord_->update(status.state,view.session_id,failure,activity);
+            discord_->update(status.state,view.session_id,failure,activity,view.feature?q(view.feature->field):QString{});
             if (routine_failed || (status.state!=hive::RunState::running && view.feature && view.feature->state==hive::automation::State::failed && !hive::automation::can_handoff(*view.feature))) {
                 if (failure!=last_failure_) { discord_->error(failure); last_failure_=failure; }
             } else last_failure_.clear();

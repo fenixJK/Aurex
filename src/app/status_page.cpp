@@ -90,7 +90,7 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
     screenshots->setToolTip("Adds the Roblox game frame to timed reports.");
     notifications->addWidget(screenshots,3,0);form->addLayout(notifications);
     auto live_honey=new QCheckBox("Live honey && backpack"); live_honey->setObjectName("discord-live-honey");
-    live_honey->setToolTip("Starts one live message when gathering begins and updates it every 5 seconds while gathering or converting. The same message is kept for the whole macro session.");
+    live_honey->setToolTip("Starts a fresh live message each time gathering in a field or conversion begins, then updates it every 5 seconds. Other activities do not start a message.");
     form->addWidget(live_honey);
     auto delivery=new QLabel; delivery->setObjectName("discord-delivery"); delivery->setWordWrap(true); delivery->setTextFormat(Qt::PlainText); form->addWidget(delivery);
     form->addStretch(); tabs->addTab(panel,"Discord");

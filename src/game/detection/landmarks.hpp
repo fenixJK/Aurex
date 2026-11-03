@@ -24,6 +24,8 @@ Frame interaction_text_image(const Frame& frame,Rect region);
 std::optional<TextLine> interaction_label(const Frame& image,const std::string& target={});
 Reading<bool> read_prompt_landmark(const Context& context,const Reading<TextSnapshot>& text,
     const PromptLandmark& landmark);
+Reading<bool> read_prompt_landmark(const Context& context,const State& state,
+    const PromptLandmark& landmark);
 PromptLandmark hive_proximity_prompt();
 PromptLandmark hive_claim_prompt();
 }

@@ -51,7 +51,7 @@ public:
     const QString& delivery_status() const { return delivery_status_; }
     std::function<void(const QString&)> on_delivery;
     void set_history_requested(bool requested);
-    void update(RunState state,std::uint64_t session_id,const QString& reason={},const QString& activity={});
+    void update(RunState state,std::uint64_t session_id,const QString& reason={},const QString& activity={},const QString& field={});
     void activity(const QString& message);
     void activity_status(const ActivityStatus& status);
     void activity_event(const ActivityStatus& status,const QImage& screenshot={});
@@ -81,7 +81,7 @@ private:
     bool preparing_{},blocked_{},history_requested_{};
     QString delivery_status_{"Off"};
     ActivityStatus last_activity_;
-    QString live_message_;
+    QString live_message_,live_visit_;
     std::uint64_t live_revision_{1};
     bool live_active_{},live_failed_{};
     qint64 next_live_{};
@@ -95,7 +95,7 @@ private:
     void completed(QNetworkReply* reply,std::uint64_t revision);
     void cancel();
     void schedule_reports();
-    void update_live(bool active);
+    void update_live(bool active,const QString& visit);
     QString destination_issue() const;
 };
 }

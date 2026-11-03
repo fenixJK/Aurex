@@ -29,8 +29,12 @@ NavigationView LandmarkNavigation::read(const ObservationContext& c,const game::
         || (state.connection.has_value(c,Time(2000)) && state.connection.value==game::Connection::disconnected)) {
         localization_.invalidate(c); return result;
     }
+    const auto hive=game::read_prompt_landmark(c,state,game::hive_proximity_prompt());
+    if (hive.usable(c,Time(2000))) result.observations.checkpoints.emplace("hive.proximity",hive);
     const auto observation=source_->read();
     result.observations.anchor=localization_.read(c,observation);
+    if (result.observations.anchor.value=="hive.proximity" && hive.usable(c,Time(2000)) && !hive.value
+        && hive.captured>=result.observations.anchor.captured) result.observations.anchor={};
     if (observation && observation->error.empty()) {
         const auto& context=observation->context;
         const Observation<bool> frame{Knowledge::present,true,context.now,context.window,context.generation};
@@ -47,8 +51,10 @@ NavigationView LandmarkNavigation::read(const ObservationContext& c,const game::
             result.observations.conflicting_anchors=present>1;
             for (const auto& [id,reading] : landmarks->readings)
                 if (reading.usable(c,Time(2000)) && reading.captured==observation->context.now)
-                    if (std::find(prompt_checkpoints.begin(),prompt_checkpoints.end(),id)==prompt_checkpoints.end())
-                        result.observations.checkpoints.emplace(id,reading);
+                    if (std::find(prompt_checkpoints.begin(),prompt_checkpoints.end(),id)==prompt_checkpoints.end()) {
+                        const auto [found,inserted]=result.observations.checkpoints.emplace(id,reading);
+                        if (!inserted && reading.captured>found->second.captured) found->second=reading;
+                    }
         }
     }
     return result;
