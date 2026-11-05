@@ -118,7 +118,10 @@ std::optional<InventoryLayout> panel(const Pixels& pixels,const std::vector<Card
     for (int y=seed;y>=0;--y) { if (track(y)) { top=y; missed=0; } else if (++missed>gap) break; }
     missed=0;
     for (int y=seed;y<pixels.frame.height;++y) { if (track(y)) { bottom=y+1; missed=0; } else if (++missed>gap) break; }
-    if (top==0 || bottom==pixels.frame.height) return {};
+    // At larger UI scales the inventory continues below the game window.
+    // Its visible cards are still usable; a clipped track cannot prove that
+    // scrolling reached the end of the inventory.
+    if (top==0) return {};
     const int track_top=top,track_bottom=bottom;
     for (const auto& c:cards) {
         top=std::min(top,std::max(0,c.top-2)); bottom=std::max(bottom,std::min(pixels.frame.height,c.bottom+2));
@@ -146,7 +149,7 @@ std::optional<InventoryLayout> panel(const Pixels& pixels,const std::vector<Card
     InventoryLayout layout; layout.open=true;
     layout.viewport={double(left)/pixels.frame.width,double(top)/pixels.frame.height,double(width)/pixels.frame.width,double(bottom-top)/pixels.frame.height};
     layout.at_top=scroll_known && top==track_top && thumbs[0].first-top<=width*0.045;
-    layout.at_bottom=scroll_known && bottom==track_bottom && bottom-thumbs[0].second<=width*0.045;
+    layout.at_bottom=scroll_known && bottom<pixels.frame.height && bottom==track_bottom && bottom-thumbs[0].second<=width*0.045;
     layout.rows=rows(pixels,layout.viewport);
     if (layout.rows.size()<2) return {};
     return layout;

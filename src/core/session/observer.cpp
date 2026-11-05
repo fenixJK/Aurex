@@ -158,7 +158,9 @@ void Observer::capture() {
         auto full_interval=!text_regions_.empty()?text_interval:Time::max();
         auto regional_interval=Time::max();
         std::optional<Rect> regional;
-        bool responsive=false;
+        // Dialog labels are needed before input can continue. Publish their
+        // full captures to the control worker even without other observations.
+        bool responsive=!label_queries_.empty();
         const Rect entire{0,0,1,1};
         for (const auto& entry:detectors_) if (wanted(entry,now)) {
             const auto region=entry.config.detector->capture_region();
@@ -236,7 +238,7 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
         const auto demand=wake_->revision.load();
         if (watch_revision!=revision) { seen=0; watch_revision=revision; recognition.clear(); prompt_recognition.clear(); }
         auto due=mode==DetectionMode::text && !text_regions_.empty()?Time{}:Time::max();
-        const bool reads_labels=mode==DetectionMode::pixels && priority==DetectionPriority::normal;
+        const bool reads_labels=mode==DetectionMode::pixels && priority==DetectionPriority::controls;
         if (reads_labels && !label_queries_.empty()) due=std::min(due,labels_next_);
         for (const auto& entry : detectors_) if (accepts(entry) && wanted(entry,monotonic_now())) due=std::min(due,entry.next);
         if (due==Time::max()) {
@@ -389,12 +391,13 @@ void Observer::detect(DetectionMode mode,DetectionPriority priority) {
             lock.unlock();
         }
         if (!label_queries.empty() && !cancelled()) {
-            // Fixed labels are pixel observations too. A preceding route
-            // detector may have occupied this worker while newer full frames
-            // arrived; use their actual capture time, not the queued frame.
+            // Keep dialog controls independent of slow background scans.
+            // This worker also receives cropped HUD frames; label queries
+            // always use the latest full capture and its actual timestamp.
             lock.lock();
             if (cancelled() || exiting_ || label_revision!=label_revision_) continue;
-            const auto label_frame=frame_ && frame_->captured>frame->captured?frame_:frame;
+            const auto label_frame=frame_;
+            if (!label_frame) continue;
             lock.unlock();
             Reading<TextSnapshot> labels;
             std::string error;
