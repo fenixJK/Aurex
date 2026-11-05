@@ -656,7 +656,7 @@ public:
         remote_->on_cancel_work=[this] { clips_->cancel(); };
         extensions_->remote_activity=[this](const QString& message) { log(message); discord_->activity(message); };
         remote_->retire_commands({"actions","action","set","enable","disable","order","modules","module","focus","buffs",
-            "royal-jelly","ssa","blender-restart","shrine-restart","planter-check","planter-timers"});
+            "royal-jelly","ssa","blender-restart","shrine-restart","planter-check","planter-timers","gather","collect"});
         extensions_->commands_changed=[this] {
             try { remote_->set_commands(remote_commands()); }
             catch(const std::exception& e) { log("Could not update Discord commands: "+q(e.what())); }

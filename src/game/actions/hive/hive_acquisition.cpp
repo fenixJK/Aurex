@@ -203,13 +203,16 @@ public:
     }
     Step recover(const View& view,const std::string& reason="Hive position was not confirmed after respawn") {
         if (!options_.recovery) throw ObservationUnavailable("Hive position could not be found");
-        reserve_reset(reason);
+        if (reason.empty()) reserve_reset();
+        else reserve_reset(reason);
         // A stationary direction survey cannot lose a known unclaimed spawn.
         // Once claiming/preparation has moved us, location must be established again.
         reset_at_spawn_=options_.confirmed_spawn && stage_!=Stage::claim && stage_!=Stage::prepare;
         if (options_.result) options_.result->begin_preparation(view.context);
         begin(Stage::recover,view);
-        if (resets_>1) return ReportActivity{{"Retrying reset",reason,ActivityKind::diagnostic}};
+        // Capture the failed view before the reset starts. Planned startup
+        // resets pass no failure reason and keep their normal status message.
+        if (!reason.empty()) return ReportActivity{{"Recovering hive",reason+"; resetting character",ActivityKind::recovery}};
         return child_step(view);
     }
     Step prepare_owned(const View& view,const Observation<bool>& owned) {
@@ -227,7 +230,7 @@ public:
     Step locate_unknown(const View& view) {
         // World colors can resemble spawn elsewhere in the map. Only survey
         // from an unlocated client after resetting; a fresh join bypasses this.
-        if (!recovered_) return recover(view);
+        if (!recovered_) return recover(view,"");
         stage_=Stage::zoom;
         return next(view);
     }
@@ -250,7 +253,7 @@ public:
             // Session startup needs a reproducible departure position. A hive
             // prompt only proves proximity; a confirmed fresh join already
             // supplies the spawn position and does not need another reset.
-            if (start_==HiveStart::reset && !options_.confirmed_spawn && !recovered_) return recover(view);
+            if (start_==HiveStart::reset && !options_.confirmed_spawn && !recovered_) return recover(view,"");
         }
         const auto& c=view.context;
         switch (stage_) {

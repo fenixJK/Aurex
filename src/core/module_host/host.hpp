@@ -3,7 +3,6 @@
 #include <QString>
 #include <QStringList>
 #include <QJsonObject>
-#include <deque>
 
 namespace hive::extensions {
 Manifest read_manifest(const QString& file);
@@ -75,7 +74,6 @@ public:
     Settings pending_settings(const std::string& id) const;
     void managed_run(bool active);
     bool apply_pending_settings();
-    std::optional<automation::Launch> pending_command();
     std::function<void(const std::string&)> on_command_status;
     QJsonObject preset() const;
     std::vector<QJsonObject> starter_presets() const;
@@ -102,8 +100,6 @@ public:
 private:
     bool managed_run_{};
     std::map<std::string,Settings> settings_queue_;
-    struct QueuedCommand { std::string owner,id; CommandInput input; Time expires; };
-    std::deque<QueuedCommand> command_queue_;
     void configure_validated(const std::string& id,Settings settings);
     std::uint64_t configuration_revision_{1},order_revision_{};
     std::vector<std::string> update_order_;

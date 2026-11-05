@@ -127,7 +127,7 @@ class Respawn final : public Program {
         if (retried_) throw ClientRejoinRequired("Reset could not be verified after retrying; rejoining Bee Swarm");
         retried_=true; stage_=Stage::locate; started_=minimum_=now; transition_=Time(-1);
         requested_from_.reset(); key_retries_=0; shortcut_=0; completion_=RespawnCompletion{};
-        return ReportActivity{{"Retrying reset",std::move(reason),ActivityKind::diagnostic}};
+        return ReportActivity{{"Retrying reset",std::move(reason),ActivityKind::recovery}};
     }
 public:
     Respawn(std::shared_ptr<const game::RespawnSource> source,std::shared_ptr<RespawnResult> result)

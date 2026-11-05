@@ -55,12 +55,6 @@ CommandRegistry::Handler Host::command_handler(const std::string& owner) {
     return [this,owner](const std::string& id,const CommandInput& input) {
         const auto command=commands_.find(owner,id);
         if (command.launches) {
-            if (command.access==CommandAccess::queued) {
-                if (!managed_run_) throw std::logic_error("Start the farming routine before queuing work");
-                if (command_queue_.size()>=8) throw std::runtime_error("Eight activities are already queued; wait for them to finish");
-                command_queue_.push_back({owner,id,input,monotonic_now()+std::chrono::minutes(15)});
-                return CommandResult{command.label,"Queued after the current activity. Stop cancels queued work."};
-            }
             if (!command_launcher_) throw std::logic_error("Tool launch is not connected");
             command_launcher_(prepare_command(owner,id,input));return CommandResult{command.label,"Starting."};
         }
@@ -343,7 +337,7 @@ bool Host::request_settings(const std::string& id,const Settings& patch) {
 }
 void Host::managed_run(bool active) {
     managed_run_=active;
-    if (!active) { settings_queue_.clear(); command_queue_.clear(); }
+    if (!active) settings_queue_.clear();
 }
 bool Host::apply_pending_settings() {
     bool changed=false;
@@ -360,25 +354,6 @@ bool Host::apply_pending_settings() {
         }
     }
     return changed;
-}
-std::optional<automation::Launch> Host::pending_command() {
-    while (!command_queue_.empty()) {
-        auto queued=std::move(command_queue_.front()); command_queue_.pop_front();
-        try {
-            if (monotonic_now()>queued.expires) throw std::runtime_error("Queued activity expired; request it again");
-            auto& entry=entries_.at(queued.owner);
-            const auto& command=commands_.find(queued.owner,queued.id);
-            if (!entry.executable() || command.access!=CommandAccess::queued || !command.launches)
-                throw std::runtime_error("Queued activity is no longer available");
-            auto program=entry.instance_->command_program(queued.id,validate_input(command,std::move(queued.input)));
-            if (!program) throw std::runtime_error("Queued activity did not provide a program");
-            if (on_command_status) on_command_status(command.label+" starting");
-            return automation::Launch{queued.owner,entry.manifest.permissions,std::move(program)};
-        } catch (const std::exception& e) {
-            if (on_command_status) on_command_status(e.what());
-        }
-    }
-    return {};
 }
 void Host::update(const SessionView& view) {
     const auto generation=view.status.state==RunState::running?view.generation:0;

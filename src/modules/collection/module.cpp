@@ -55,7 +55,6 @@ class CollectionModule final : public extensions::Module {
     unsigned ant_limit_{};
     std::map<game::ItemMenuKind,std::vector<ItemOrder>> queues_;
     bool connected_{};
-    std::vector<std::string> station_choices_;
 public:
     CollectionModule(const extensions::Manifest& manifest,const Plan& plan,const Plan& available,Builder build,const extensions::Factory& initial)
         :visits_(manifest),available_(visit_plan(plan),visit_plan(available)),options_(item_settings(plan)),defaults_(plan.items),build_(std::move(build)),orders_(plan.items.orders) {
@@ -67,7 +66,6 @@ public:
             visits_.settings.erase(found);
         }
         for (const auto& station:available.stations) interrupt_keys_[station.id]=interrupt_key(station.id);
-        for (const auto& station:available.stations) station_choices_.push_back(station.id);
         visits_.settings.push_back({"interrupt-gather","Gather interrupt",false});
         visits_=available_.manifest(std::move(visits_)); delegate_=initial(visits_);
     }
@@ -118,17 +116,8 @@ public:
         return result;
     }
     std::vector<extensions::Command> commands() const override {
-        extensions::Command command{"collect","Collect",{},false,true};
-        command.remote=true; command.alias="collect"; command.visible=false;
-        command.access=extensions::CommandAccess::queued;
-        command.description="Queue a dispenser or activity after current work; cooldowns still apply";
-        command.arguments={{"station","Dispenser or activity",{},extensions::ArgumentType::text,true,{},1,80,station_choices_}};
         return {{"restart-blender","Restart queue",{},false,false,"Blender"},
-            {"restart-shrine","Restart queue",{},false,false,"Wind Shrine"},std::move(command)};
-    }
-    std::unique_ptr<automation::Program> command_program(const std::string& id,const extensions::CommandInput& input) const override {
-        if (id!="collect") throw std::invalid_argument("Unknown Collection command");
-        return delegate_->command_program("visit",input);
+            {"restart-shrine","Restart queue",{},false,false,"Wind Shrine"}};
     }
     void invoke(const std::string& command) override {
         if (command=="restart-blender") orders_->reset(game::ItemMenuKind::blender);

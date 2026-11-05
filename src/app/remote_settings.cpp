@@ -104,7 +104,7 @@ RemoteSettingsPage::RemoteSettingsPage(QSettings& settings,reporting::DiscordRem
             "<h3>Use commands</h3><p>Type <b>/status</b> in your command channel and select this device. "
             "Use <b>/help</b> for the command list, or the Commands button in Aurex. Replies are visible to the channel.</p>"
             "<p><b>/settings</b> selects a feature, an optional field/item, and a setting. Changes during a routine wait for the current activity to finish. "
-            "<b>/gather</b> and <b>/collect</b> queue one visit. Stop cancels queued changes and visits.</p>"
+            "Stop cancels pending setting changes.</p>"
             "<p><b>/report</b> creates a report now. <b>/diagnostics</b> shows recent activity and a screenshot. "
             "<b>/clip</b> records 10 seconds of Roblox by default (3–30 seconds). To record a desktop, choose <b>view: screen</b> and select a screen. "
             "Clips are silent and uploaded by the bot; Discord does not need to be open.</p>"

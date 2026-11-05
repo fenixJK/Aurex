@@ -289,21 +289,6 @@ public:
         const auto work=next_work(view); return work && work->ready<=view.now;
     }
     bool executable() const noexcept override { return true; }
-    std::unique_ptr<automation::Program> command_program(const std::string& id,const extensions::CommandInput& input) const override {
-        if (id!="visit" || !started_) throw std::invalid_argument("Activity is unavailable");
-        remember_run();
-        const auto& station=std::get<std::string>(input.arguments.at("station"));
-        auto plan=plan_;
-        std::erase_if(plan.visits,[&](const auto& visit) { return visit.id!=station; });
-        if (plan.visits.empty()) throw std::invalid_argument("Activity is not available with the current setup");
-        auto source=saved_?saved_availability(availability_,saved_,plan):availability_;
-        auto delayed=saved_?std::map<std::string,Time>{}:ready_;
-        for (const auto& [key,time]:retry_after_) delayed[key]=std::max(delayed[key],time);
-        if (!delayed.empty()) source=std::make_shared<RecheckSource>(source,std::move(delayed));
-        auto run=automation::visit_program(std::move(plan),network_,std::move(source));
-        report_counters(); ++report_run_; results_=run.results;
-        return saved_?save_cooldowns(std::move(run),saved_):std::move(run.program);
-    }
     std::optional<extensions::WorkEstimate> next_work(const extensions::SessionView& view) const override {
         if (!started_) return {};
         sync_session(view);

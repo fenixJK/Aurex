@@ -325,7 +325,7 @@ void Runner::interrupt(Interruption interruption,const ObservationContext& c,con
         if (recovered && activity_sink_) {
             if (interruption==Interruption::death) activity_sink_({{"Respawning","Returning to hive"}});
             else if (interruption==Interruption::disconnected || interruption==Interruption::client_rejoin)
-                activity_sink_({{"Rejoining Bee Swarm",message}});
+                activity_sink_({{"Rejoining Bee Swarm",message,ActivityKind::recovery}});
             else {
                 const auto action=failed.status.empty()?failed.activity_label:failed.status.text();
                 activity_sink_({{"Recovering",action.empty()?message:action+" · "+message,ActivityKind::recovery}});
@@ -410,7 +410,7 @@ void Runner::update(const ObservationContext& c,const game::State& observations)
                 window_replaced_=false;
                 progress_.route_position.reset(); progress_.backpack_percent.reset();
                 progress_.message="Roblox needs to rejoin";
-                if (activity_sink_) activity_sink_({{"Retrying Bee Swarm join",result.message}});
+                if (activity_sink_) activity_sink_({{"Retrying Bee Swarm join",result.message,ActivityKind::recovery}});
             } else if (result.state==State::failed && (result.interruption==Interruption::disconnected || result.interruption==Interruption::client_rejoin) && !connection_recovering_) {
                 recovery_.reset();
                 interrupt(*result.interruption,c,observations,result.message);

@@ -261,26 +261,6 @@ public:
         results_=std::move(next.results); detail_.clear(); routine_run_=true; return std::move(next.program);
     }
     bool executable() const noexcept override { return true; }
-    std::vector<extensions::Command> commands() const override {
-        extensions::Command command{"gather","Gather in field",{},false,true};
-        command.remote=true; command.alias="gather"; command.visible=false;
-        command.access=extensions::CommandAccess::queued;
-        command.description="Queue one visit to a field using its saved pattern and limits";
-        extensions::CommandArgument field{"field","Field",{},extensions::ArgumentType::text,true,{},1,80};
-        for (const auto& item:plan_.fields) field.choices.push_back(item.preference.field);
-        command.arguments.push_back(std::move(field)); return {command};
-    }
-    std::unique_ptr<automation::Program> command_program(const std::string& id,const extensions::CommandInput& input) const override {
-        if (id!="gather" || !started_) throw std::invalid_argument("Gathering is unavailable");
-        const auto& field=std::get<std::string>(input.arguments.at("field"));
-        auto plan=plan_; plan.cycles=1;
-        std::erase_if(plan.fields,[&](const auto& item) { return item.preference.field!=field; });
-        if (plan.fields.empty()) throw std::invalid_argument("Unknown gathering field");
-        plan.fields.front().preference.enabled=true;
-        auto next=run(std::move(plan),network_,policy_,source_);
-        results_=std::move(next.results); detail_.clear(); routine_run_=false;
-        return std::move(next.program);
-    }
     std::unique_ptr<automation::Program> program() const override {
         if (!started_) throw std::logic_error("Enable Gathering before starting it");
         routine_run_=false; auto next=run(plan_,network_,policy_,source_); results_=std::move(next.results); detail_.clear(); return std::move(next.program);
