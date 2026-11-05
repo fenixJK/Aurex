@@ -528,7 +528,7 @@ public:
             m.circularity = detail::Clamp01(detail::ComputeCircularity(contour));
             const float centerArea = refined ? area + static_cast<float>(cv::arcLength(contour, true)) : area;
             m.passesArea = (centerArea >= config_.shape.minArea * (refined ? 0.4F : 1.0F) && area <= static_cast<float>(config_.shape.maxArea));
-            m.passesCircularity = (m.circularity >= (refined ? std::max(0.8F, config_.shape.minCircularity) : config_.shape.minCircularity));
+            m.passesCircularity = (m.circularity >= config_.shape.minCircularity);
             if (config_.matchBlooms)
                 m.passesCircularity = m.passesCircularity && box.height <= box.width * 1.25F;
             if (config_.matchBlooms && m.passesArea) {
@@ -605,6 +605,23 @@ public:
                     extendSupport = (refined || corners.size() >= 5) && area >= cv::contourArea(hull) * 0.93;
                 }
                 if (extendSupport) {
+                    // Green petals can be dimmer than their yellow center.
+                    // Use nearby grass as the contrast reference so accepting
+                    // a shaded petal does not make ordinary grass count as one.
+                    std::vector<int> grass;
+                    for (int sample = 0; sample < 32; ++sample) {
+                        const double angle = sample * 2 * CV_PI / 32;
+                        const int x = center.x + std::lround(std::cos(angle) * outer * 2);
+                        const int y = center.y + std::lround(std::sin(angle) * outer * 2);
+                        if (x < 0 || y < 0 || x >= hsv.cols || y >= hsv.rows) continue;
+                        const auto pixel = hsv.at<cv::Vec3b>(y, x);
+                        if (pixel[0] >= 40 && pixel[0] <= 80 && pixel[1] >= 70) grass.push_back(pixel[2]);
+                    }
+                    double greenBrightness = centerMean[2] * 0.7;
+                    if (grass.size() >= 8) {
+                        std::sort(grass.begin(), grass.end());
+                        greenBrightness = std::max(centerMean[2] * 0.5, grass[grass.size() / 2] * 1.2);
+                    }
                     for (int y = 0; y < roi.height; ++y) {
                         const auto* pixels = hsv.ptr<cv::Vec3b>(roi.y + y) + roi.x;
                         const auto* ring = ringMask.ptr<unsigned char>(y);
@@ -619,7 +636,7 @@ public:
                                     && pixel[2] >= centerMean[2] * 0.7)
                                 || (pixel[0] >= 40 && pixel[0] <= 80
                                     && pixel[1] >= std::max(refined ? 70.0 : 150.0, centerMean[1] + (refined ? 30.0 : 40.0))
-                                    && pixel[2] >= centerMean[2] * 0.7))
+                                    && pixel[2] >= greenBrightness))
                                 support[x] = 255;
                         }
                     }

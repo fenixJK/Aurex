@@ -20,7 +20,8 @@ void Dialog::finish(DialogStage stage,std::string reason,TaskPort& tasks,ModuleS
     pending_.clear();
 }
 void Dialog::update(const ObservationContext& c,const game::State& state,TaskPort& tasks,ModuleScope scope) {
-    if (stage_!=DialogStage::reading && stage_!=DialogStage::clicking && stage_!=DialogStage::closing && stage_!=DialogStage::parking) return;
+    if (stage_!=DialogStage::reading && stage_!=DialogStage::clicking && stage_!=DialogStage::closing
+        && stage_!=DialogStage::parking && stage_!=DialogStage::verifying) return;
     auto fail=[&](std::string reason) { finish(DialogStage::failed,std::move(reason),tasks,scope); };
     if (c.now<last_ || c.generation!=started_.generation || scope.generation!=c.generation || c.window.id!=started_.window.id
         || c.window.process!=started_.window.process || c.window.bounds!=started_.window.bounds) { fail("Dialog context changed"); return; }
@@ -37,14 +38,23 @@ void Dialog::update(const ObservationContext& c,const game::State& state,TaskPor
             pending_.clear();
             if (result.outcome!=TaskOutcome::executed) { fail("Dialog click was interrupted"); return; }
             if (result.finished<started_.now || result.finished>c.now) { fail("Invalid dialog completion time"); return; }
-            if (stage_==DialogStage::parking) { finish(DialogStage::completed,"Dialog closed",tasks,scope); return; }
-            minimum_=result.finished+Time(1); stage_=DialogStage::closing; reason_="Waiting for dialog to close";
+            minimum_=result.finished+Time(1);
+            stage_=stage_==DialogStage::parking?DialogStage::verifying:DialogStage::closing;
+            reason_="Waiting for dialog to close";
         }
         if (stage_==DialogStage::clicking || stage_==DialogStage::parking) return;
         const auto reading=plan_.read_question?game::read_dialog(c,state.text,plan_.question):state.confirmation;
         if (!reading.usable(c,Time(2000),minimum_)) return;
         if (reading.captured<=frame_) return;
         frame_=reading.captured;
+        if (stage_==DialogStage::verifying) {
+            // Recheck after the pointer has left the button. A single missed
+            // frame must not report an unaccepted click as a closed dialog.
+            if (reading.knowledge==Knowledge::absent) {
+                finish(DialogStage::completed,"Dialog closed",tasks,scope); return;
+            }
+            stage_=DialogStage::closing;
+        }
         if (stage_==DialogStage::closing) {
             if (reading.knowledge==Knowledge::absent) {
                 pending_=tasks.submit(scope,TaskClass::interaction,
@@ -60,7 +70,7 @@ void Dialog::update(const ObservationContext& c,const game::State& state,TaskPor
         const auto point=plan_.choice==DialogChoice::yes?reading.value.yes:reading.value.no;
         pending_=tasks.submit(scope,TaskClass::interaction,{
             {"Move to dialog choice",{},Time(40),point},
-            {"Choose dialog response",{Key::primary},Time(60),{}}},Time(1000));
+            {"Choose dialog response",{Key::primary},Time(60),point}},Time(1000));
         ++attempts_;
         stage_=DialogStage::clicking; reason_="Answering confirmation dialog";
     } catch (const std::exception& e) { fail(e.what()); }

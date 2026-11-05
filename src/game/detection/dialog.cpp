@@ -1,4 +1,5 @@
 #include "dialog.hpp"
+#include "perception.hpp"
 #include "text.hpp"
 #include <algorithm>
 #include <cctype>
@@ -64,6 +65,10 @@ Observation<DialogButtons> read_confirmation(const Frame& frame,std::uint64_t ge
         auto center=[&](const auto& box) { return Point{(panel.x+box.x+box.width/2.)*step/frame.width,(panel.y+box.y+box.height/2.)*step/frame.height}; };
         result.knowledge=Knowledge::present; result.value={center(a),center(b)}; found=true;
     }
+    // A blank or obscured capture cannot prove that a dialog closed. Keep
+    // retrying the observation until the dialog or the game HUD is readable.
+    if (result.knowledge==Knowledge::absent && !game_hud_visible(frame,generation))
+        result.knowledge=Knowledge::unknown;
     return result;
 }
 Observation<DialogButtons> read_dialog(const Context& context,const Reading<TextSnapshot>& text,const PromptLandmark& question,const DialogLabels& labels) {

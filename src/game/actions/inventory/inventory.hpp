@@ -13,7 +13,7 @@ struct InventoryDragPlan {
     bool require_quantity{};
 };
 void validate(const InventoryDragPlan& plan);
-enum class InventoryStage { idle, searching, opening, scrolling, dragging, completed, failed, stopped };
+enum class InventoryStage { idle, searching, opening, scrolling, aiming, dragging, completed, failed, stopped };
 struct InventoryMatch { game::InventoryItem item; Time first_seen{}; };
 class InventoryDrag {
     InventoryDragPlan plan_;
@@ -27,6 +27,7 @@ class InventoryDrag {
     bool owned_{},down_{true},backtracking_{},incomplete_scan_{},scrolled_{},moved_up_{},seek_bottom_{};
     Time first_seen_{};
     Observation<InventoryMatch> match_;
+    std::optional<game::InventoryItem> aimed_;
     void finish(InventoryStage stage,std::string reason,TaskPort& tasks,ModuleScope scope);
 public:
     explicit InventoryDrag(InventoryDragPlan plan);

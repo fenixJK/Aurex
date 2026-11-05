@@ -43,10 +43,11 @@ std::vector<Action> camera_actions(const CameraMove& move) {
     if (hold.press<Time(20) || hold.press>Time(200) || hold.release<Time(20) || hold.release>Time(250))
         throw std::invalid_argument("Invalid camera key timing");
     const auto settle=camera_settle(move.finish,move.key);
-    // Rotations are discrete taps. Zoom keeps spaced presses so Roblox can
-    // apply each distance change. Authored routes can explicitly retain holds.
+    // Pitch and zoom need distinct down/up intervals across game frames.
+    // Keep yaw taps fast for patterns; authored routes retain explicit timing.
     const bool held=move.input==CameraInput::held || (move.input==CameraInput::automatic
-        && (move.hold || move.key==Key::zoom_in || move.key==Key::zoom_out));
+        && (move.hold || move.key==Key::zoom_in || move.key==Key::zoom_out
+            || move.key==Key::pitch_up || move.key==Key::pitch_down));
     std::vector<Action> actions;
     if (!held) {
         for (std::size_t remaining=move.steps;remaining;) {

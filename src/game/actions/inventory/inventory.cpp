@@ -83,6 +83,7 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
         frame_=reading.captured;
         first_seen_=reading.captured;
         if (!view.open) {
+            aimed_.reset();
             if (open_attempts_ && reading.captured<minimum_+Time(750)) { reason_="Waiting for inventory to open"; return; }
             if (open_attempts_>=3) { fail("Inventory did not open after three clicks"); return; }
             if (!view.toggle) { reason_="Waiting for inventory control"; return; }
@@ -94,6 +95,7 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
             ++open_attempts_; stage_=InventoryStage::opening; reason_="Opening inventory"; return;
         }
         auto scroll=[&](int amount) {
+            aimed_.reset();
             if (scrolls_>=plan_.max_scrolls) { fail("Inventory scroll limit reached"); return; }
             const Point hover{view.viewport.x+view.viewport.width*0.5,view.viewport.y+view.viewport.height*0.5};
             last_scroll_=amount;
@@ -132,12 +134,23 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
                 return;
             }
             if (!view.drop || view.target!=plan_.target) { reason_="Waiting for the item destination"; return; }
+            // The inventory may still be settling when its first readable
+            // frame arrives. Hover, then recheck the row before pressing; a
+            // queued drag would otherwise use coordinates from before the move.
+            if (!aimed_ || game::inventory_name(aimed_->name)!=game::inventory_name(selected->name)
+                || std::abs(aimed_->grab.x-selected->grab.x)>2/c.window.bounds.width
+                || std::abs(aimed_->grab.y-selected->grab.y)>2/c.window.bounds.height) {
+                aimed_=*selected;
+                pending_=tasks.submit(scope,TaskClass::interaction,
+                    {{"Move to inventory item",{},Time(50),selected->grab}},Time(2000));
+                stage_=InventoryStage::aiming; reason_="Checking the settled inventory item"; return;
+            }
             match_={Knowledge::present,{*selected,first_seen_},reading.captured,reading.window,reading.generation};
             pending_=tasks.submit(scope,TaskClass::interaction,{
-                {"Move to inventory item",{},Time(50),selected->grab},
                 {"Drag inventory item",{Key::primary},plan_.drag,selected->grab,0,view.drop}},Time(2000));
             stage_=InventoryStage::dragging; reason_="Dragging "+selected->name; return;
         }
+        aimed_.reset();
         if (plan_.current_page_only) {
             finish(InventoryStage::completed,"Item not confirmed on the visible inventory page",tasks,scope);
             return;

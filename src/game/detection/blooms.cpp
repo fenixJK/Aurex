@@ -13,8 +13,11 @@ public:
         const auto& frame=input.frame;
         cv::Mat rgba(frame.height,frame.width,CV_8UC4,const_cast<std::uint8_t*>(frame.rgba.data()));
         cv::Mat scaled=rgba,scene;
-        const double scale=std::min(1.,1080./frame.height);
-        if (scale<1) cv::resize(rgba,scaled,{},scale,scale,cv::INTER_AREA);
+        // Shape cleanup and flat-center gradients operate in pixels. Keep
+        // their sampling scale stable across window sizes, rather than
+        // rounding different morphology kernels for each capture height.
+        const double scale=720./frame.height;
+        if (scale!=1) cv::resize(rgba,scaled,{},scale,scale,scale<1?cv::INTER_AREA:cv::INTER_LINEAR);
         cv::cvtColor(scaled,scene,cv::COLOR_RGBA2BGR);
         scaled.release();
         const int inset=std::lround(scene.rows*.12);
@@ -29,7 +32,9 @@ public:
         config.centerColor.hues=vision::HueRangeSet({{16,32}});
         config.centerColor.satRange={50,150}; config.centerColor.valRange={85,255};
         config.centerMorph={std::max(1,int(std::lround(2*size))),std::max(1,int(std::lround(3*size))),1};
-        config.shape={std::max(20,int(std::lround(250*size*size))),std::max(800,int(std::lround(8000*size*size))),.80f,.43f};
+        // Resampling roughens a small center's outline. Flatness, surrounding
+        // petals and local size checks still distinguish it from field tiles.
+        config.shape={std::max(20,int(std::lround(250*size*size))),std::max(800,int(std::lround(8000*size*size))),.75f,.43f};
         config.matchBlooms=true; config.context.enabled=true;
         config.context.innerRadiusPercent=105; config.context.outerRadiusPercent=200;
         config.context.supportColor.hues=vision::HueRangeSet({{0,179}});
@@ -84,15 +89,16 @@ public:
             cv::Scalar center_mean,center_deviation; cv::meanStdDev(hsv(inner_box),center_mean,center_deviation,disk);
             if (center_deviation[2]>12 || center_deviation[1]>20) continue;
             Bloom bloom{{double(p.x)/scene.cols,double(p.y+inset)/scene.rows},flower.radiusPx/scene.rows,{}};
-            // Keep fully visible edge flowers; only clipped petals make their
-            // center/color unreliable. A fixed 8% margin discarded real blooms.
-            if (p.x<flower.radiusPx*2 || p.x+flower.radiusPx*2>=scene.cols) continue;
+            // Require the center to fit, not the entire petal ring. The ring
+            // scorer already measures its visible part at screen edges.
+            if (p.x<flower.radiusPx || p.x+flower.radiusPx>=scene.cols) continue;
             if (std::any_of(overlays.begin(),overlays.end(),[&](const auto& box) {
                 return bloom.center.x>=box.x && bloom.center.x<=box.x+box.width && bloom.center.y>=box.y && bloom.center.y<=box.y+box.height;
             })) continue;
             // A refined candidate measures only the flat inner center. Reach
             // beyond that yellow disk when measuring the surrounding petals.
             const double inner=flower.radiusPx*1.15,outer=flower.radiusPx*(flower.refinedCenter?3.:2.);
+            std::array<double,7> brightness{};
             unsigned total=0;
             for (int y=std::max(0,int(p.y-outer));y<std::min(hsv.rows,int(p.y+outer+1));++y)
                 for (int x=std::max(0,int(p.x-outer));x<std::min(hsv.cols,int(p.x+outer+1));++x) {
@@ -100,13 +106,20 @@ public:
                     if (distance<inner*inner || distance>outer*outer) continue;
                     ++total; const auto pixel=hsv.at<cv::Vec3b>(y,x);
                     const int h=pixel[0],s=pixel[1],v=pixel[2];
-                    bloom.colors[1]+=s<=40 && v>=165;
-                    bloom.colors[2]+=h>=80 && h<104 && s>=70 && v>=90;
-                    bloom.colors[3]+=h>=35 && h<=79 && s>=90 && v>=60;
-                    bloom.colors[4]+=h>=135 && h<=172 && s>=55 && v>=90;
-                    bloom.colors[5]+=h>=104 && h<=128 && s>=90 && v>=45;
-                    bloom.colors[6]+=(h<=9 || h>=173) && s>=90 && v>=50;
+                    const std::array<bool,7> colors{false,s<=40 && v>=165,
+                        h>=80 && h<104 && s>=70 && v>=90,
+                        h>=35 && h<=79 && s>=90 && v>=60,
+                        h>=135 && h<=172 && s>=55 && v>=90,
+                        h>=104 && h<=128 && s>=90 && v>=45,
+                        (h<=9 || h>=173) && s>=90 && v>=50};
+                    for (unsigned color=1;color<colors.size();++color) if (colors[color]) {
+                        ++bloom.colors[color]; brightness[color]+=v;
+                    }
                 }
+            const auto color=std::max_element(bloom.colors.begin()+1,bloom.colors.end())-bloom.colors.begin();
+            // A flower's pale center is not a dark patch surrounded by bright
+            // equipment/bee faces. Compare with its petals, not scene lighting.
+            if (center_mean[2]*bloom.colors[color]<brightness[color]*.8) continue;
             for (auto& value:bloom.colors) value/=std::max(1u,total);
             if (*std::max_element(bloom.colors.begin()+1,bloom.colors.end())<.25) continue;
             result->flowers.push_back(bloom);
