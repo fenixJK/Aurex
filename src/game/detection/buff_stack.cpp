@@ -29,25 +29,49 @@ std::optional<unsigned> read_buff_stack(const DetectionInput& input,Rect cell,do
         }
         return result;
     }();
-    double best=1,second=1; unsigned value=0;
+    // Match the outlined lettering in luminance. Buff timer shading and scaled
+    // captures tint the white strokes; a near-white RGB mask can erase them.
+    cv::Mat gray; cv::cvtColor(normalized,gray,cv::COLOR_RGBA2GRAY);
+    gray.convertTo(gray,CV_32F,1./255);
+    static const auto masks=[] {
+        std::array<cv::Mat,buff_counters.size()> result;
+        for (std::size_t i=0;i<result.size();++i) {
+            cv::Mat outline; cv::dilate(templates[i],outline,cv::Mat::ones(3,3,CV_8U));
+            cv::compare(outline,.1,result[i],cv::CMP_GT);
+        }
+        return result;
+    }();
+    double best=0,second=0; unsigned value=0;
+    const int edge=int(std::round((cell.x+cell.width-left)/scale));
     for (std::size_t i=0;i<templates.size();++i) {
         if (input.cancelled && input.cancelled()) return {};
         const auto& counter=buff_counters[i];
-        if (counter.width>ink.cols || counter.height>ink.rows) continue;
-        cv::Mat scores; cv::matchTemplate(ink,templates[i],scores,cv::TM_SQDIFF_NORMED);
-        double error; cv::Point at; cv::minMaxLoc(scores,&error,nullptr,&at);
-        const int end=at.x+counter.width;
-        const int edge=std::min(ink.cols,int(std::floor((cell.x+cell.width-left)/scale)));
-        if (end<edge && cv::sum(ink(cv::Rect(end,at.y+2,edge-end,counter.height-4)))[0]>3) continue;
-        if (error<best) { second=best; best=error; value=counter.value; }
-        else second=std::min(second,error);
+        if (counter.width>gray.cols || counter.height>gray.rows) continue;
+        cv::Mat scores; cv::matchTemplate(gray,templates[i],scores,cv::TM_CCOEFF_NORMED,masks[i]);
+        double score=0;
+        // Stack captions end at the cell's right edge. This also prevents
+        // recognizing a prefix of a larger count or the neighbouring icon.
+        for (int y=0;y<scores.rows;++y) for (int x=0;x<scores.cols;++x) {
+            if (std::abs(x+counter.width-edge)>3) continue;
+            const float candidate=scores.at<float>(y,x);
+            if (std::isfinite(candidate)) score=std::max(score,double(candidate));
+        }
+        if (score>best) { second=best; best=score; value=counter.value; }
+        else second=std::max(second,score);
     }
-    if (value && best<.7 && second-best>.035) return value<=maximum?std::optional<unsigned>(value):std::nullopt;
-    if (best>=.8 && ink.cols>=10 && ink.rows>=templates.front().rows) {
+    if (value && best>.6 && best-second>.025) return value<=maximum?std::optional<unsigned>(value):std::nullopt;
+    // A weak number match is not proof of a single stack. Require the x marker
+    // to be absent in both the color and outline views before using one.
+    if (best<.45 && ink.cols>=10 && ink.rows>=templates.front().rows) {
         cv::Mat scores;
-        cv::matchTemplate(ink,templates.front()(cv::Rect(0,0,10,templates.front().rows)),scores,cv::TM_SQDIFF_NORMED);
-        double marker; cv::minMaxLoc(scores,&marker);
-        if (marker>.75) return 1;
+        const auto marker=templates.front()(cv::Rect(0,0,10,templates.front().rows));
+        cv::matchTemplate(ink,marker,scores,cv::TM_SQDIFF_NORMED);
+        double error; cv::minMaxLoc(scores,&error);
+        cv::matchTemplate(gray,marker,scores,cv::TM_CCOEFF_NORMED,masks.front()(cv::Rect(0,0,10,marker.rows)));
+        double outline=0;
+        for (int y=0;y<scores.rows;++y) for (int x=0;x<scores.cols;++x)
+            if (const auto score=scores.at<float>(y,x);std::isfinite(score)) outline=std::max(outline,double(score));
+        if (error>.75 && outline<.45) return 1;
     }
     return {};
 }

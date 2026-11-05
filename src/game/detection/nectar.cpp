@@ -49,9 +49,12 @@ void NectarTracker::observe(Time captured,const NectarLevels& levels) {
     observed_=captured;
     for (std::size_t i=0;i<states_.size();++i) {
         auto& state=states_[i]; const auto value=levels.percent[i];
+        if (state.pending && captured-state.pending->at>Time(15000)) state.pending.reset();
         if (!value || !std::isfinite(*value) || *value<0 || *value>100
             || !std::isfinite(levels.uncertainty_percent) || levels.uncertainty_percent<0) {
-            state.pending.reset(); continue;
+            // A missed frame is not evidence against the last candidate. Two
+            // agreeing fresh readings may straddle a brief unreadable frame.
+            continue;
         }
         const Reading reading{*value,levels.uncertainty_percent,captured};
         const auto agrees=[&](const Reading& previous) {
@@ -76,6 +79,7 @@ std::array<NectarEstimate,5> NectarTracker::estimate(Time now) const {
     return result;
 }
 Observation<NectarLevels> read_nectar(const DetectionInput& input) {
+    const auto nectar_color=[](const Frame& frame,int x,int y) { return detail::nectar_color(frame,x,y,14); };
     const auto& f=input.frame;
     Observation<NectarLevels> result{Knowledge::unknown,{},f.captured,f.window,input.generation};
     if (!f.valid() || !input.generation || std::size_t(f.width)*f.height>32000000 || input.text.size()>4096
@@ -113,30 +117,34 @@ Observation<NectarLevels> read_nectar(const DetectionInput& input) {
         (f.width-std::max(0.,origin))/f.width,pitch/f.height};
     std::array<bool,5> ambiguous{};
     const int band=std::max(1,int(std::ceil(2*scale)));
-    const auto height=[&](int x,int color) {
-        int h=0;
-        for (int yy=y;yy>=row_top && nectar_color(f,x,yy)==color;--yy) ++h;
-        return h;
+    const auto height=[&](int x,int base,int color) {
+        if (detail::nectar_color(f,x,base,22)!=color) return 0;
+        int last=base,gaps=0;
+        for (int yy=base;yy>=row_top;--yy) {
+            if (detail::nectar_color(f,x,yy,22)==color) { last=yy;gaps=0; }
+            else if (++gaps>std::max(1,int(std::round(scale)))) break;
+        }
+        return y-last+1;
     };
-    for (int x=std::max(0,int(std::round(origin)));x<f.width;) {
+    // Read both meter edges across a narrow band. One antialiased boundary
+    // pixel must not erase a nectar; the symbol can also cover inner columns.
+    for (double start=origin;start+pitch<=f.width;start+=pitch) {
         if (input.cancelled && input.cancelled()) return result;
-        const int color=nectar_color(f,x,y),left=x++;
-        if (color<0) continue;
-        while (x<f.width && nectar_color(f,x,y)==color) ++x;
-        if (x-left<band || x-left>pitch+band) continue;
-        // Nectar edges belong to the same grid as the other buff icons.
-        // Do not measure an arbitrary matching patch between those cells.
-        const double cell=(left-origin)/pitch;
-        if (std::abs(cell-std::round(cell))*pitch>band+.01) continue;
-        const int right=int(std::round(origin+(std::round(cell)+1)*pitch))-1;
-        if (right+band>=f.width) continue;
-        int a=0,b=0;
-        for (int xx=left;xx<=std::min(x-1,left+band);++xx) a=std::max(a,height(xx,color));
-        for (int xx=std::max(left,right-band);xx<=right+band;++xx) b=std::max(b,height(xx,color));
-        if (!a || !b || std::abs(a-b)>2*scale) continue;
-        if (levels.percent[color]) ambiguous[color]=true;
-        else levels.percent[color]=std::min(100.,100*std::min(a,b)/pitch);
-        x=std::max(x,right+1);
+        const int left=int(std::round(start)),right=int(std::round(start+pitch))-1;
+        int selected_color=-1,selected_height=0,selected_votes=0;
+        for (int color=0;color<5;++color) for (int base=y;base>=y-std::ceil(2*scale);--base) {
+            int votes=0;
+            for (int x=left;x<=right;++x) votes+=detail::nectar_color(f,x,base,22)==color;
+            if (votes<pitch*.4 || votes<=selected_votes) continue;
+            int a=0,b=0;
+            for (int x=left-band;x<=left+band;++x) a=std::max(a,height(x,base,color));
+            for (int x=right-band;x<=right+band;++x) b=std::max(b,height(x,base,color));
+            if (!a || !b || std::abs(a-b)>2*scale) continue;
+            selected_color=color;selected_height=std::min(a,b);selected_votes=votes;
+        }
+        if (selected_color<0) continue;
+        if (levels.percent[selected_color]) ambiguous[selected_color]=true;
+        else levels.percent[selected_color]=std::min(100.,100*selected_height/pitch);
     }
     for (int i=0;i<5;++i) if (ambiguous[i]) levels.percent[i].reset();
     if (!levels.known() && !menu_layout) return result;

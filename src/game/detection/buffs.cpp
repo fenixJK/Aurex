@@ -3,11 +3,12 @@
 #include "status_buff_icons.hpp"
 #include "buff_stack.hpp"
 #include <algorithm>
+#include <cmath>
 
 namespace hive::game {
 namespace {
 using Patch=std::array<std::uint8_t,288>;
-constexpr int difference_limit=288*40;
+constexpr int difference_limit=288*45;
 constexpr auto icon_totals=[] {
     std::array<std::array<int,3>,detail::status_buff_icons.size()> totals{};
     for (std::size_t i=0;i<totals.size();++i)
@@ -31,13 +32,19 @@ std::optional<Patch> sample(const Frame& frame,double left,double top,double sca
     }
     return result;
 }
-double difference(const Patch& patch,const detail::BuffIcon& icon) {
-    unsigned error=0;
+// Compare the icon's structure independently of each channel's background
+// brightness. Countdown shading and the world behind translucent icons change
+// their absolute RGB values. Keep a color bound to reject unrelated artwork.
+double difference(const Patch& patch,const detail::BuffIcon& icon,const std::array<int,3>& a,const std::array<int,3>& b) {
+    double error=0,dot=0,aa=0,bb=0;
     for (int i=0;i<96;++i) for (int c=0;c<3;++c) {
-        error+=std::abs(int(patch[i*3+c])-int((icon.pixels[i]>>(16-c*8))&255));
-        if (error>difference_limit) return 255;
+        const double x=patch[i*3+c],y=(icon.pixels[i]>>(16-c*8))&255;
+        error+=std::abs(x-y);
+        const double dx=x-a[c]/96.,dy=y-b[c]/96.;
+        dot+=dx*dy; aa+=dx*dx; bb+=dy*dy;
     }
-    return error/288.;
+    if (aa<1 || bb<1 || error/288>45) return 255;
+    return 100*(1-dot/std::sqrt(aa*bb));
 }
 class BuffDetector final : public Detector {
 public:
@@ -56,7 +63,8 @@ public:
         std::vector<double> best_scores(result->buffs.size(),255);
         std::vector<Rect> cells(result->buffs.size());
         const double stride=layout->scale<1?1.:2*layout->scale;
-        for (int dy=-6;dy<=6;++dy) {
+        // The HUD establishes the row; avoid matching fragments of nearby icons.
+        for (int dy=-2;dy<=2;++dy) {
             if (input.cancelled && input.cancelled()) return result;
             for (double left=0;left+layout->pitch<=frame.width;left+=stride) {
                 const auto patch=sample(frame,left,layout->bottom-layout->pitch+dy*layout->scale,layout->scale);
@@ -68,7 +76,7 @@ public:
                 for (std::size_t i=0;i<index.size();++i) {
                     int minimum_error=0;
                     for (int c=0;c<3;++c) minimum_error+=std::abs(totals[c]-icon_totals[i][c]);
-                    if (minimum_error<=difference_limit) errors[index[i]]=std::min(errors[index[i]],difference(*patch,detail::status_buff_icons[i]));
+                    if (minimum_error<=difference_limit) errors[index[i]]=std::min(errors[index[i]],difference(*patch,detail::status_buff_icons[i],totals,icon_totals[i]));
                 }
                 const auto first=std::min_element(errors.begin(),errors.end());
                 const auto selected=std::size_t(first-errors.begin()); const auto best=*first;
