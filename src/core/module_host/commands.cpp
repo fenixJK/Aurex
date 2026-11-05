@@ -30,7 +30,7 @@ void validate_commands(const std::vector<Command>& commands) {
         if (!identifier(command.id) || !ids.insert(command.id).second || command.label.empty() || command.label.size()>100
             || command.description.size()>100 || (!command.alias.empty() && (!identifier(command.alias) || !aliases.insert(command.alias).second))
             || (command.access!=CommandAccess::read && command.access!=CommandAccess::stopped && command.access!=CommandAccess::queued)
-            || (command.launches && (command.plot || command.access!=CommandAccess::stopped)) || command.arguments.size()>24)
+            || (command.launches && (command.plot || command.access==CommandAccess::read)) || command.arguments.size()>24)
             throw std::invalid_argument("Invalid module command declaration");
         std::set<std::string> arguments;
         for (const auto& argument:command.arguments) {

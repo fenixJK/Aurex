@@ -778,6 +778,7 @@ extensions::Settings ExtensionsUi::module_settings(const std::string& id) const 
 }
 void ExtensionsUi::configure_module(const std::string& id,const extensions::Settings& values) {
     host_.configure(id,values);
+    if (!extension_pages_.contains(id)) { render(); return; }
     auto& page=*extension_pages_.at(id);
     page.baseline=values;
     for (const auto& field:host_.entries().at(id).manifest.settings) {
@@ -789,12 +790,22 @@ void ExtensionsUi::configure_module(const std::string& id,const extensions::Sett
     for (auto* rows:page.ordered_rows) rows->sort();
     render();
 }
+bool ExtensionsUi::request_settings(const std::string& id,const extensions::Settings& patch) {
+    if (!busy_()) {
+        auto values=module_settings(id);
+        for (const auto& [key,value]:patch) values[key]=value;
+        configure_module(id,values); return false;
+    }
+    host_.on_command_status=[this](const std::string& message) { if (remote_activity) remote_activity(q(message)); };
+    return host_.request_settings(id,patch);
+}
 void ExtensionsUi::enable_module(const std::string& id,bool enabled) {
     if (enabled) { host_.configure(id,module_settings(id)); host_.enable(id); }
     else host_.disable(id);
     render();
 }
 extensions::CommandResult ExtensionsUi::invoke_module(const std::string& id,const std::string& command,bool remote,extensions::CommandInput input) {
+    host_.on_command_status=[this](const std::string& message) { if (remote_activity) remote_activity(q(message)); };
     auto definition=host_.commands().find(id,command);
     if (remote && (!definition.remote || !definition.target_prompt.empty())) throw std::invalid_argument("This command is local only");
     if (definition.access==extensions::CommandAccess::stopped) {

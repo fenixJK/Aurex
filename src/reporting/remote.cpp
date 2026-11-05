@@ -147,6 +147,7 @@ void DiscordRemote::set_commands(QList<RemoteCommand> commands) {
 DiscordRemote::~DiscordRemote() { on_status={}; cancel(); }
 void DiscordRemote::status(QString value) { if (status_==value) return; status_=std::move(value); if(on_status) on_status(status_); }
 void DiscordRemote::cancel() {
+    if (on_cancel_work) on_cancel_work();
     ++revision_; cancel_commands(); settings_.enabled=false; retry_.stop(); heartbeat_.stop(); deadline_.stop(); socket_.abort();
     const auto replies=replies_; for(auto* reply:replies) reply->abort();
     live_=registered_=awaiting_ack_=registration_active_=false; guild_.clear(); application_.clear(); session_.clear(); resume_url_=QUrl{}; sequence_=-1; seen_.clear();
@@ -171,13 +172,11 @@ void DiscordRemote::reconnect(int delay) {
     status("Reconnecting…"); retry_.start(delay+int(QRandomGenerator::global()->bounded(500u)));
     socket_.abort();
 }
-void DiscordRemote::request(const QByteArray& method,const QString& path,const QJsonObject& data,bool authenticated,Response response,const QByteArray& image) {
+void DiscordRemote::request(const QByteArray& method,const QString& path,const QJsonObject& data,bool authenticated,Response response,const QList<MessageFile>& files) {
     QNetworkRequest request(QUrl("https://discord.com/api/v10"+path));
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::ManualRedirectPolicy);
-    request.setTransferTimeout(10000);
+    request.setTransferTimeout(files.isEmpty()?10000:60000);
     if (authenticated) request.setRawHeader("Authorization","Bot "+settings_.token.toUtf8());
-    QList<MessageFile> files;
-    if (!image.isEmpty()) files.append({"game.jpg","image/jpeg","Roblox window",image});
     auto* reply=send_message(*network_,request,method,data,files);
     replies_.insert(reply); const auto revision=revision_;
     connect(reply,&QNetworkReply::finished,this,[this,reply,revision,response=std::move(response)] {
@@ -306,14 +305,14 @@ void DiscordRemote::register_commands(int index,QJsonArray existing) {
         else status("Bot online · could not register commands. Invite it with applications.commands, then reconnect.");
     });
 }
-void DiscordRemote::respond(const QString& key,RemoteReply reply) {
+void DiscordRemote::respond(const QString& key,RemoteReply reply,qsizetype upload_limit) {
     if (reply.deferred) {
         if (preparing_response_) { respond(key,{reply.title,"Another command is being prepared. Try again shortly."}); return; }
         preparing_response_=true;
         auto watcher=new QFutureWatcher<RemoteReply>(this); const auto revision=revision_;
-        connect(watcher,&QFutureWatcher<RemoteReply>::finished,this,[this,watcher,revision,key] {
+        connect(watcher,&QFutureWatcher<RemoteReply>::finished,this,[this,watcher,revision,key,upload_limit] {
             preparing_response_=false; auto result=watcher->result(); watcher->deleteLater();
-            if (revision==revision_ && settings_.enabled) respond(key,std::move(result));
+            if (revision==revision_ && settings_.enabled) respond(key,std::move(result),upload_limit);
         });
         watcher->setFuture(QtConcurrent::run([work=std::move(reply.deferred),title=reply.title] {
             try { return work(); }
@@ -321,6 +320,11 @@ void DiscordRemote::respond(const QString& key,RemoteReply reply) {
             catch (...) { return RemoteReply{title,"Could not complete the command."}; }
         }));
         return;
+    }
+    if (reply.attachment && (reply.attachment->bytes.isEmpty() || reply.attachment->bytes.size()>upload_limit
+        || !QRegularExpression("^[a-zA-Z0-9_-]+\\.mp4$").match(reply.attachment->name).hasMatch()
+        || reply.attachment->type!="video/mp4")) {
+        reply.attachment.reset(); reply.description="The clip could not be uploaded within this channel's file limit. Try a shorter clip.";
     }
     if (!reply.image.isNull() && preparing_image_) {
         reply.image={}; reply.description="A screenshot is still being prepared. Try again shortly.";
@@ -339,12 +343,15 @@ void DiscordRemote::respond(const QString& key,RemoteReply reply) {
     }
     content["fields"]=fields;
     const bool has_image=!reply.image.isNull();
-    auto deliver=[this,key,has_image,content=std::move(content)](const QByteArray& image) mutable {
+    auto deliver=[this,key,has_image,content=std::move(content),attachment=std::move(reply.attachment)](const QByteArray& image) mutable {
         if (!image.isEmpty()) content["image"]=QJsonObject{{"url","attachment://game.jpg"}};
         else if (has_image) content["description"]="Could not prepare the screenshot.";
         auto body=message({}); body["embeds"]=QJsonArray{content};
+        QList<MessageFile> files;
+        if (attachment) files.append(std::move(*attachment));
+        if (!image.isEmpty()) files.append({"game.jpg","image/jpeg","Roblox window",image});
         request("PATCH","/webhooks/"+application_+"/"+key+"/messages/@original",body,false,
-            [this](int code,const QJsonDocument&) { if (code!=200) status("Command handled; Discord could not receive its response."); },image);
+            [this](int code,const QJsonDocument&) { if (code!=200) status("Command handled; Discord could not receive its response."); },files);
     };
     if (reply.image.isNull()) { deliver({}); return; }
     preparing_image_=true;
@@ -356,7 +363,7 @@ void DiscordRemote::respond(const QString& key,RemoteReply reply) {
     });
     watcher->setFuture(QtConcurrent::run([image=std::move(reply.image)] {
         QByteArray bytes; QBuffer buffer(&bytes); buffer.open(QIODevice::WriteOnly);
-        auto scaled=image.scaled(1280,720,Qt::KeepAspectRatio,Qt::SmoothTransformation);
+        auto scaled=image.scaled(1280,1600,Qt::KeepAspectRatio,Qt::SmoothTransformation);
         if (!scaled.save(&buffer,"JPG",80) || bytes.size()>1024*1024) return QByteArray{};
         return bytes;
     }));
@@ -420,7 +427,8 @@ void DiscordRemote::interaction(const QJsonObject& event) {
     args.remove("device");
     const auto order=found->control?++command_revision_:command_revision_;
     request("POST",callback,{{"type",5}},false,
-        [this,key,command=*found,args,order,catalog=registration_revision_,expires=QDeadlineTimer(3000)](int code,const QJsonDocument&) {
+        [this,key,command=*found,args,order,catalog=registration_revision_,expires=QDeadlineTimer(3000),
+         upload_limit=qsizetype(std::clamp(event["attachment_size_limit"].toDouble(8*1024*1024),0.,8.*1024*1024))](int code,const QJsonDocument&) {
         if (code!=204 && code!=200) return;
         RemoteReply result{command.name};
         try {
@@ -431,7 +439,7 @@ void DiscordRemote::interaction(const QJsonObject& event) {
         }
         catch (const std::exception& error) { result.description="Could not complete the command: "+QString::fromUtf8(error.what()); }
         catch (...) { result.description="Could not complete the command."; }
-        respond(key,std::move(result));
+        respond(key,std::move(result),upload_limit);
     });
 }
 }

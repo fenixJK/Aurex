@@ -32,6 +32,9 @@ public:
     extensions::WorkSnapshot work_snapshot() const { return host_.work_schedule()->read(); }
     extensions::Settings module_settings(const std::string& id) const;
     void configure_module(const std::string& id,const extensions::Settings& values);
+    bool request_settings(const std::string& id,const extensions::Settings& patch);
+    extensions::Settings pending_settings(const std::string& id) const { return host_.pending_settings(id); }
+    std::function<void(const QString&)> remote_activity;
     void enable_module(const std::string& id,bool enabled);
     extensions::CommandResult invoke_module(const std::string& id,const std::string& command,bool remote=false,extensions::CommandInput input={});
     const extensions::CommandRegistry& commands() const { return host_.commands(); }

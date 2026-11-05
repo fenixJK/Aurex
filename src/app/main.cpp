@@ -33,6 +33,7 @@
 #include "remote_settings.hpp"
 #include "modules/accounts/page.hpp"
 #include "remote_modules.hpp"
+#include "remote_clip.hpp"
 #include "report_images.hpp"
 #include <QTabWidget>
 #include "extensions_ui.hpp"
@@ -59,6 +60,8 @@
 #include <QDir>
 #include <QDesktopServices>
 #include <QUrl>
+#include <QScreen>
+#include <QSysInfo>
 #include <utility>
 #include <set>
 
@@ -98,6 +101,7 @@ class Window final : public QMainWindow {
     QLabel *permission_{}, *state_{}, *action_{};
     QPushButton* pause_{};
     std::unique_ptr<hive::reporting::Discord> discord_;
+    std::unique_ptr<hive::app::ClipRecorder> clips_;
     std::unique_ptr<hive::reporting::DiscordRemote> remote_;
     hive::app::ReportObservations report_observations_;
     hive::app::StatusPage* status_page_{};
@@ -109,6 +113,7 @@ class Window final : public QMainWindow {
     std::optional<hive::automation::Launch> pending_feature_;
     std::unique_ptr<hive::extensions::RoutineRun> routine_;
     QString last_status_,last_outcome_,last_failure_;
+    QString last_action_failure_;
     std::set<QString> seen_observation_errors_;
     QString launch_error_;
     std::unique_ptr<hive::ExtensionsUi> extensions_;
@@ -166,6 +171,7 @@ class Window final : public QMainWindow {
         countdown_=3; start_timer_.start(1000); log("Starting routine in 3 seconds."); return "Starting in 3 seconds.";
     }
     QString stop_run() {
+        if (clips_) clips_->cancel();
         if (remote_) remote_->cancel_commands();
         start_timer_.stop(); initial_join_.reset(); routine_.reset(); pending_feature_.reset(); launch_error_.clear(); session_.stop(); return "Stopped.";
     }
@@ -182,9 +188,65 @@ class Window final : public QMainWindow {
         if (session_.status().state!=hive::RunState::paused) return "The macro is not paused.";
         prepare_start(); resuming_=true; countdown_=3; start_timer_.start(1000); log("Resuming in 3 seconds."); return "Resuming in 3 seconds.";
     }
+    std::shared_ptr<const hive::Frame> current_game_frame() {
+        auto frame=session_.latest_frame();
+        const auto now=hive::monotonic_now();
+        if (!frame || !frame->valid() || now<frame->captured || now-frame->captured>hive::Time(3000)) {
+            const auto windows=desktop_->windows();
+            auto found=std::find_if(windows.begin(),windows.end(),[this](const auto& window) { return window.id==selected(); });
+            if (found==windows.end()) found=std::max_element(windows.begin(),windows.end(),[](const auto& a,const auto& b) {
+                return a.bounds.width*a.bounds.height<b.bounds.width*b.bounds.height;
+            });
+            if (found!=windows.end()) frame=std::make_shared<hive::Frame>(desktop_->capture(found->id));
+            else frame={};
+        }
+        return frame;
+    }
     QList<hive::reporting::RemoteCommand> remote_commands() {
         using namespace hive::reporting;
         QList<RemoteCommand> commands{
+            {"report","Generate the current report now",false,[this](const RemoteArguments&) {
+                RemoteReply reply{"Current report"};
+                reply.deferred=[report=discord_->preview_report()] {
+                    RemoteReply result{"Current report"}; result.image=hive::reporting::render_report(report); return result;
+                };
+                return reply;
+            }},
+            {"diagnostics","Show current work, the last failure and a Roblox screenshot",false,[this](const RemoteArguments&) {
+                const auto snapshot=session_.snapshot();
+                RemoteReply reply{"Diagnostics",state_name(snapshot.status.state)};
+                reply.fields={{"Aurex",QCoreApplication::applicationVersion()+" · "+QSysInfo::prettyProductName()},
+                    {"Current work",snapshot.feature?q(snapshot.feature->message):QString("No active task")},
+                    {"Last failure",last_action_failure_.isEmpty()?QString("None recorded this app session"):last_action_failure_},
+                    {"Recent activity",status_page_->recent_log(8)}};
+                reply.image=hive::app::game_image(current_game_frame());
+                return reply;
+            }},
+            {"clip","Record a short silent clip; Roblox by default, or an explicitly selected screen",false,[this](const RemoteArguments& args) {
+                const bool screen=args["view"].toString()=="screen";
+                if (screen && !args.contains("screen")) throw std::invalid_argument("Select a screen number to record the desktop");
+                if (screen && args["screen"].toString().toInt()<1) throw std::invalid_argument("Choose a screen from the screen list");
+                if (!screen && args.contains("screen")) throw std::invalid_argument("Choose view: screen when selecting a screen number");
+                hive::Window window;
+                if (!screen) {
+                    const auto windows=desktop_->windows();
+                    auto found=std::find_if(windows.begin(),windows.end(),[this](const auto& item) { return item.id==selected(); });
+                    if (found==windows.end() && windows.size()==1) found=windows.begin();
+                    if (found==windows.end()) throw std::runtime_error("Select the Roblox window in Aurex before recording");
+                    window=*found;
+                }
+                return clips_->record(window,args["seconds"].toInt(10),screen?args["screen"].toString().toInt():0);
+            },{{"seconds","Clip length (default 10 seconds)",RemoteOptionType::integer,false,{},3,30},
+               {"view","What to record (default Roblox)",RemoteOptionType::text,false,{"game","screen"},1,10},
+               {"screen","Screen to record; required for desktop clips",RemoteOptionType::text,false,{},1,10,true}},
+               [](const QString&,const RemoteArguments& args) {
+                   RemoteChoices choices;const auto screens=QGuiApplication::screens();
+                   for (int i=0;i<screens.size();++i) {
+                       const auto label=QString("%1: %2 (%3×%4)").arg(i+1).arg(screens[i]->name()).arg(screens[i]->size().width()).arg(screens[i]->size().height());
+                       if (label.contains(args["screen"].toString(),Qt::CaseInsensitive)) choices.append({label,QString::number(i+1)});
+                   }
+                   return choices;
+               }},
             {"status","Show session, honey, backpack and nectar",false,[this](const RemoteArguments&) {
                 auto reply=hive::reporting::status_reply(discord_->preview_report());
                 if (start_timer_.isActive()) reply.description=resuming_?"Resuming…":"Starting…";
@@ -203,17 +265,7 @@ class Window final : public QMainWindow {
             }},
             {"screenshot","Show Roblox or its honey and backpack counters",false,[this](const RemoteArguments& args) {
                 RemoteReply reply{"Roblox"};
-                auto frame=session_.latest_frame();
-                const auto now=hive::monotonic_now();
-                if (!frame || !frame->valid() || now<frame->captured || now-frame->captured>hive::Time(3000)) {
-                    const auto windows=desktop_->windows();
-                    auto found=std::find_if(windows.begin(),windows.end(),[this](const auto& window) { return window.id==selected(); });
-                    if (found==windows.end()) found=std::max_element(windows.begin(),windows.end(),[](const auto& a,const auto& b) {
-                        return a.bounds.width*a.bounds.height<b.bounds.width*b.bounds.height;
-                    });
-                    if (found!=windows.end()) frame=std::make_shared<hive::Frame>(desktop_->capture(found->id));
-                    else frame={};
-                }
+                auto frame=current_game_frame();
                 reply.image=args["view"].toString()=="counters"?hive::app::resource_image(std::move(frame)):hive::app::game_image(std::move(frame));
                 if (reply.image.isNull()) reply.description="No Roblox screenshot available. Check that Roblox is open and screen capture is allowed.";
                 return reply;
@@ -599,7 +651,10 @@ public:
                 else pause_run();
             } catch (const std::exception& e) { session_.stop(); log(q(e.what()),true); }
         });
+        clips_=std::make_unique<hive::app::ClipRecorder>([this] { return session_.latest_frame(); });
         remote_=std::make_unique<hive::reporting::DiscordRemote>(remote_commands());
+        remote_->on_cancel_work=[this] { clips_->cancel(); };
+        extensions_->remote_activity=[this](const QString& message) { log(message); discord_->activity(message); };
         remote_->retire_commands({"actions","action","set","enable","disable","order","modules","module","focus","buffs",
             "royal-jelly","ssa","blender-restart","shrine-restart","planter-check","planter-timers"});
         extensions_->commands_changed=[this] {
@@ -695,6 +750,7 @@ public:
             // Runtime milestones happened before the terminal snapshot. Drain
             // them before publishing its outcome, including a startup failure.
             for (const auto& event:session_.take_activity_events()) {
+                if (event.status.is_alert()) last_action_failure_=q(event.status.text());
                 if (event.status.is_alert() && event.frame)
                     hive::app::save_failure_frame(QDir(data).filePath("last-action-failure.png"),event.frame,q(event.status.text()));
                 const auto& reporting=discord_->settings();
@@ -718,7 +774,7 @@ public:
             discord_->set_history_requested(remote_ && remote_->settings().enabled);
             discord_->update(status.state,view.session_id,failure,activity,view.feature?q(view.feature->field):QString{});
             if (routine_failed || (status.state!=hive::RunState::running && view.feature && view.feature->state==hive::automation::State::failed && !hive::automation::can_handoff(*view.feature))) {
-                if (failure!=last_failure_) { discord_->error(failure); last_failure_=failure; }
+                if (failure!=last_failure_) { discord_->error(failure); last_failure_=failure; last_action_failure_=failure; }
             } else last_failure_.clear();
             if (state_changed) {
                 if (status.state!=hive::RunState::running && status.state!=hive::RunState::idle) {
@@ -779,7 +835,11 @@ public:
             if (status!=hive::RunState::running && status!=hive::RunState::paused && !start_timer_.isActive()) refresh();
         }); connection_timer->start(); refresh();
     }
-    ~Window() override { start_timer_.stop(); session_.stop(); }
+    ~Window() override {
+        start_timer_.stop();
+        if (clips_) clips_->cancel();
+        remote_.reset(); routine_.reset(); session_.stop();
+    }
 };
 }
 int main(int argc,char** argv) {

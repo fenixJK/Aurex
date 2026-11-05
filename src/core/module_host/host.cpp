@@ -55,6 +55,12 @@ CommandRegistry::Handler Host::command_handler(const std::string& owner) {
     return [this,owner](const std::string& id,const CommandInput& input) {
         const auto command=commands_.find(owner,id);
         if (command.launches) {
+            if (command.access==CommandAccess::queued) {
+                if (!managed_run_) throw std::logic_error("Start the farming routine before queuing work");
+                if (command_queue_.size()>=8) throw std::runtime_error("Eight activities are already queued; wait for them to finish");
+                command_queue_.push_back({owner,id,input,monotonic_now()+std::chrono::minutes(15)});
+                return CommandResult{command.label,"Queued after the current activity. Stop cancels queued work."};
+            }
             if (!command_launcher_) throw std::logic_error("Tool launch is not connected");
             command_launcher_(prepare_command(owner,id,input));return CommandResult{command.label,"Starting."};
         }
@@ -298,6 +304,9 @@ void Host::disable(const std::string& id) {
 }
 void Host::configure(const std::string& id,Settings settings) {
     require_stopped();
+    configure_validated(id,std::move(settings));
+}
+void Host::configure_validated(const std::string& id,Settings settings) {
     auto& entry=entries_.at(id); validate_settings(entry.manifest,settings);
     if (entry.instance_ && entry.config_valid && entry.settings==settings) { persist(); return; }
     std::unique_ptr<Module> replacement;auto registered=commands_;
@@ -317,6 +326,59 @@ void Host::configure(const std::string& id,Settings settings) {
     try { persist(); } catch (...) { entry.settings=std::move(previous); entry.config_valid=was_valid; if (replacement) replacement->stop(); throw; }
     stop_entry(entry); entry.instance_=std::move(replacement); if (entry.instance_) entry.revision_=next_revision_++; entry.issue.clear();
     commands_=std::move(registered);
+}
+Settings Host::pending_settings(const std::string& id) const {
+    const auto found=settings_queue_.find(id);
+    return found==settings_queue_.end()?Settings{}:found->second;
+}
+bool Host::request_settings(const std::string& id,const Settings& patch) {
+    auto values=entries_.at(id).settings;
+    for (const auto& [key,value]:pending_settings(id)) values[key]=value;
+    for (const auto& [key,value]:patch) values[key]=value;
+    validate_settings(entries_.at(id).manifest,values);
+    if (!session_active_ || !session_active_()) { configure(id,std::move(values)); return false; }
+    if (!managed_run_) throw std::logic_error("Stop the current tool before changing settings");
+    for (const auto& [key,value]:patch) settings_queue_[id][key]=value;
+    return true;
+}
+void Host::managed_run(bool active) {
+    managed_run_=active;
+    if (!active) { settings_queue_.clear(); command_queue_.clear(); }
+}
+bool Host::apply_pending_settings() {
+    bool changed=false;
+    auto pending=std::move(settings_queue_); settings_queue_.clear();
+    for (const auto& [id,patch]:pending) {
+        try {
+            auto values=entries_.at(id).settings;
+            for (const auto& [key,value]:patch) values[key]=value;
+            configure_validated(id,std::move(values));
+            changed=true;
+            if (on_command_status) on_command_status(entries_.at(id).manifest.name+" settings applied");
+        } catch (const std::exception& e) {
+            if (on_command_status) on_command_status("Settings not applied: "+std::string(e.what()));
+        }
+    }
+    return changed;
+}
+std::optional<automation::Launch> Host::pending_command() {
+    while (!command_queue_.empty()) {
+        auto queued=std::move(command_queue_.front()); command_queue_.pop_front();
+        try {
+            if (monotonic_now()>queued.expires) throw std::runtime_error("Queued activity expired; request it again");
+            auto& entry=entries_.at(queued.owner);
+            const auto& command=commands_.find(queued.owner,queued.id);
+            if (!entry.executable() || command.access!=CommandAccess::queued || !command.launches)
+                throw std::runtime_error("Queued activity is no longer available");
+            auto program=entry.instance_->command_program(queued.id,validate_input(command,std::move(queued.input)));
+            if (!program) throw std::runtime_error("Queued activity did not provide a program");
+            if (on_command_status) on_command_status(command.label+" starting");
+            return automation::Launch{queued.owner,entry.manifest.permissions,std::move(program)};
+        } catch (const std::exception& e) {
+            if (on_command_status) on_command_status(e.what());
+        }
+    }
+    return {};
 }
 void Host::update(const SessionView& view) {
     const auto generation=view.status.state==RunState::running?view.generation:0;

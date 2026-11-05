@@ -68,31 +68,68 @@ RemoteChoices complete(const ExtensionsUi& modules,const QString&,const RemoteAr
     return result;
 }
 RemoteOption module_option() { return {"module","Feature to inspect; leave blank for all enabled features",RemoteOptionType::text,false,{},1,100,true}; }
-bool manageable(const extensions::Entry& entry) { return entry.manifest.routine.has_value(); }
+bool manageable(const extensions::Entry& entry) {
+    // Native features declare scheduling on their instance, not necessarily in
+    // the manifest. The settings schema is the remote configuration contract.
+    return !entry.manifest.settings.empty();
+}
 const extensions::Entry& managed_module(const ExtensionsUi& modules,const RemoteArguments& args) {
     const auto& entry=module(modules,args);
     if (!manageable(entry)) throw std::invalid_argument("This feature is configured in the app only");
     return entry;
 }
-const extensions::Setting& setting(const extensions::Entry& entry,const QString& key) {
-    for (const auto& field:entry.manifest.settings)
-        if (!field.hidden && (q(field.id)==key || q(field.label).compare(key,Qt::CaseInsensitive)==0)) return field;
-    throw std::invalid_argument("Choose a setting from the list");
+std::vector<const extensions::Setting*> scoped_settings(const extensions::Entry& entry,const QString& item) {
+    std::map<std::string,std::set<std::string>> scopes;
+    bool found=item.isEmpty();
+    if (entry.manifest.page) for (const auto& section:entry.manifest.page->sections) if (!section.choice.empty()) {
+        if (q(section.choice).compare(item,Qt::CaseInsensitive)==0) found=true;
+        for (const auto& key:section.settings) scopes[key].insert(section.choice);
+    }
+    if (!found) throw std::invalid_argument("Choose a field or item from the item list");
+    std::vector<const extensions::Setting*> result;
+    for (const auto& field:entry.manifest.settings) {
+        if (field.hidden) continue;
+        const auto scope=scopes.find(field.id);
+        if (item.isEmpty()) {
+            if (scope!=scopes.end() && scope->second.size()==1) continue;
+        } else if (scope==scopes.end() || std::none_of(scope->second.begin(),scope->second.end(),[&](const auto& name) {
+            return q(name).compare(item,Qt::CaseInsensitive)==0;
+        })) continue;
+        result.push_back(&field);
+    }
+    return result;
+}
+const extensions::Setting& setting(const extensions::Entry& entry,const RemoteArguments& args) {
+    const auto fields=scoped_settings(entry,args["item"].toString());
+    const auto key=args["setting"].toString().trimmed();
+    for (const auto* field:fields) if (q(field->id)==key) return *field;
+    const extensions::Setting* match=nullptr;
+    for (const auto* field:fields) if (q(field->label).compare(key,Qt::CaseInsensitive)==0) {
+        if (match) throw std::invalid_argument("Choose a setting from autocomplete to distinguish matching names");
+        match=field;
+    }
+    if (!match) throw std::invalid_argument("Choose an item first for field settings, then choose its setting");
+    return *match;
 }
 RemoteChoices setup_choices(const ExtensionsUi& modules,const QString& focused,const RemoteArguments& args) {
     RemoteChoices choices;
+    const auto term=args[focused].toString();
     if (focused=="module") {
         for (const auto& [id,entry]:modules.entries())
-            if (manageable(entry) && q(entry.manifest.name).contains(args[focused].toString(),Qt::CaseInsensitive)) choices.append({q(entry.manifest.name),q(id)});
+            if (manageable(entry) && q(entry.manifest.name).contains(term,Qt::CaseInsensitive)) choices.append({q(entry.manifest.name),q(id)});
+    } else if (focused=="item") {
+        const auto& entry=managed_module(modules,args); std::set<std::string> seen;
+        if (entry.manifest.page) for (const auto& section:entry.manifest.page->sections)
+            if (!section.choice.empty() && seen.insert(section.choice).second && q(section.choice).contains(term,Qt::CaseInsensitive))
+                choices.append({q(section.choice),q(section.choice)});
     } else if (focused=="setting") {
-        const auto& entry=managed_module(modules,args);
-        for (const auto& field:entry.manifest.settings)
-            if (!field.hidden && q(field.label).contains(args[focused].toString(),Qt::CaseInsensitive)) choices.append({q(field.label),q(field.id)});
+        for (const auto* field:scoped_settings(managed_module(modules,args),args["item"].toString()))
+            if (q(field->label).contains(term,Qt::CaseInsensitive)) choices.append({q(field->label),q(field->id)});
     } else if (focused=="value") {
-        const auto& field=setting(managed_module(modules,args),args["setting"].toString());
+        const auto& field=setting(managed_module(modules,args),args);
         auto values=field.choices;
         if (std::holds_alternative<bool>(field.initial)) values={"on","off"};
-        for (const auto& value:values) if (q(value).contains(args[focused].toString(),Qt::CaseInsensitive)) choices.append({q(value),q(value)});
+        for (const auto& value:values) if (q(value).contains(term,Qt::CaseInsensitive)) choices.append({q(value),q(value)});
     }
     return choices;
 }
@@ -155,19 +192,27 @@ QList<reporting::RemoteCommand> module_remote_commands(ExtensionsUi& modules) {
             reply.fields.append({q(entry.manifest.name),entry.requested?entry.active()?"● Enabled":"Needs attention":"○ Disabled"});
         reply.inline_fields=true; return reply;
     },{module_option(),{"enabled","Enable or disable this feature",RemoteOptionType::boolean}},setup_complete});
-    commands.append({"settings","View or change feature settings while stopped",true,[&modules](const RemoteArguments& args) {
+    commands.append({"settings","View or change settings; running changes apply after the current activity",true,[&modules](const RemoteArguments& args) {
         const auto& entry=managed_module(modules,args);
         const auto id=entry.manifest.id; auto values=modules.module_settings(id);
-        const auto key=args["setting"].toString();
-        if (args.contains("value")) {
-            const auto& field=setting(entry,key); values[field.id]=extensions::parse_setting(field,args["value"].toString());
-            modules.configure_module(id,values);
-        }
         RemoteReply reply{q(entry.manifest.name)+" settings",{}};
-        for (const auto& field:entry.manifest.settings) if (!field.hidden && (key.isEmpty() || field.id==setting(entry,key).id))
-            reply.fields.append({q(field.label),extensions::setting_text(field,values.at(field.id))+q(field.suffix)});
+        if (args.contains("value")) {
+            const auto& field=setting(entry,args);
+            const auto value=extensions::parse_setting(field,args["value"].toString());
+            const auto before=extensions::setting_text(field,values.at(field.id));
+            const bool queued=modules.request_settings(id,{{field.id,value}});
+            reply.description=(queued?QString("Queued after the current activity. Stop cancels pending changes."):QString("Saved."))
+                +"\n"+q(field.label)+": "+before+" → "+extensions::setting_text(field,value);
+            values[field.id]=value;
+        }
+        const auto pending=modules.pending_settings(id);
+        for (const auto& [key,value]:pending) values[key]=value;
+        const auto* selected=args["setting"].toString().isEmpty()?nullptr:&setting(entry,args);
+        for (const auto* field:scoped_settings(entry,args["item"].toString())) if (!selected || selected==field)
+            reply.fields.append({q(field->label)+(pending.contains(field->id)?" (queued)":""),extensions::setting_text(*field,values.at(field->id))+q(field->suffix)});
         paginate(reply,args); reply.inline_fields=true; return reply;
-    },{required_module,{"setting","Setting name; leave blank to list",RemoteOptionType::text,false,{},1,100,true},
+    },{required_module,{"item","Field or item to configure; omit for general settings",RemoteOptionType::text,false,{},1,100,true},
+       {"setting","Setting name; leave blank to list",RemoteOptionType::text,false,{},1,100,true},
        {"value","New value; use commas for multiple choices",RemoteOptionType::text,false,{},0,1000,true},page_option()},setup_complete});
     commands.append({"priority","Show the running order or move a feature while stopped",true,[&modules](const RemoteArguments& args) {
         auto order=modules.run_order();

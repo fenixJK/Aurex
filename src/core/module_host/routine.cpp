@@ -92,6 +92,22 @@ std::optional<automation::Launch> Routine::next(Host& host,const SessionView& vi
         active_.reset();
     } else if (view.feature && view.feature->state==automation::State::running) throw std::runtime_error("Another feature owns the session");
     if (!allow_launch) return {};
+    const bool configured=host.apply_pending_settings();
+    for (auto& entry:entries_) {
+        const auto& current=host.entries().at(entry.id);
+        entry.revision=current.revision();
+        if (const auto participation=current.participation()) {
+            const auto priority=entry.participation.priority;
+            entry.participation=*participation; entry.participation.priority=priority;
+        }
+    }
+    if (configured) host.update(view);
+    if (auto launch=host.pending_command()) {
+        const auto found=std::find_if(entries_.begin(),entries_.end(),[&](const auto& entry) { return entry.id==launch->module_id; });
+        if (found==entries_.end()) throw std::logic_error("Queued activity is not part of this routine");
+        active_=std::size_t(found-entries_.begin()); continuous_=false;
+        return launch;
+    }
     std::vector<automation::ActivityOption> options;
     const auto schedule=host.work_schedule()->read();
     std::fill(pending_at_dispatch_.begin(),pending_at_dispatch_.end(),false);

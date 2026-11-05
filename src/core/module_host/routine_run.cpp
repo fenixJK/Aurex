@@ -22,6 +22,7 @@ RoutineRun::RoutineRun(Host& host,Session& session,std::unique_ptr<automation::A
 RoutineRun::~RoutineRun() {
     if (state_==RoutineState::running || state_==RoutineState::pausing || state_==RoutineState::paused)
         stop("Routine closed");
+    host_.managed_run(false);
 }
 SessionView RoutineRun::view() {
     auto snapshot=session_.snapshot();
@@ -32,6 +33,7 @@ void RoutineRun::start(Window window) {
     session_.start_managed(std::move(window));
     const auto snapshot=session_.snapshot();
     session_id_=snapshot.session_id; pause_requests_=snapshot.pause_requests; state_=RoutineState::running;
+    host_.managed_run(true);
     host_.update(view());
     if (preparation_) {
         try { session_.run_feature(std::move(*preparation_)); preparing_=true; preparation_.reset(); }
@@ -39,6 +41,7 @@ void RoutineRun::start(Window window) {
     }
 }
 void RoutineRun::fail(std::string reason) {
+    host_.managed_run(false);
     reason_=std::move(reason); state_=RoutineState::failed;
     if (session_id_ && session_.snapshot().session_id==session_id_) session_.stop(reason_);
 }
@@ -59,6 +62,7 @@ SessionView RoutineRun::tick() {
         if (current.status.state!=RunState::running && !(state_==RoutineState::paused && current.status.state==RunState::paused)) {
             if (current.status.state==RunState::paused) { session_.stop(current.status.reason); current=view(); }
             state_=RoutineState::stopped; reason_=current.status.reason;
+            host_.managed_run(false);
             host_.update(current); return current;
         }
         host_.update(current);
@@ -80,7 +84,8 @@ SessionView RoutineRun::tick() {
         if (state_==RoutineState::paused) return current;
         if (current.status.state!=RunState::running) {
             if (current.status.state==RunState::paused) { session_.stop(current.status.reason); current=view(); }
-            state_=RoutineState::stopped; reason_=current.status.reason; return current;
+            state_=RoutineState::stopped; reason_=current.status.reason;
+            host_.managed_run(false); return current;
         }
         if (state_==RoutineState::running) if (const auto reason=schedule_.yield_reason(host_,current))
             session_.yield_feature(current.feature->module_id,*reason);
@@ -121,6 +126,7 @@ void RoutineRun::resume() {
     catch (...) { fail("Could not resume routine"); }
 }
 void RoutineRun::stop(std::string reason) {
+    host_.managed_run(false);
     reason_=std::move(reason); state_=RoutineState::stopped;
     if (session_id_ && session_.snapshot().session_id==session_id_) session_.stop(reason_);
 }

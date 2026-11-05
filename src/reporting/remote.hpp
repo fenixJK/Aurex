@@ -1,5 +1,6 @@
 #pragma once
 #include "report.hpp"
+#include "message.hpp"
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonDocument>
@@ -21,6 +22,7 @@ struct RemoteReply {
     QImage image;
     bool inline_fields{};
     std::function<RemoteReply()> deferred;
+    std::optional<MessageFile> attachment;
 };
 enum class RemoteOptionType { text=3, integer=4, boolean=5, number=10 };
 struct RemoteOption {
@@ -61,6 +63,7 @@ public:
     const QString& application_id() const { return application_; }
     void cancel_commands() { ++command_revision_; }
     std::function<void(const QString&)> on_status;
+    std::function<void()> on_cancel_work;
 private:
     using Response=std::function<void(int,const QJsonDocument&)>;
     RemoteSettings settings_;
@@ -88,10 +91,10 @@ private:
     void heartbeat();
     void reconnect(int delay=0);
     void fail(const QString& message);
-    void request(const QByteArray& method,const QString& path,const QJsonObject& data,bool authenticated,Response response,const QByteArray& image={});
+    void request(const QByteArray& method,const QString& path,const QJsonObject& data,bool authenticated,Response response,const QList<MessageFile>& files={});
     void register_commands(int index=-1,QJsonArray existing={});
     void interaction(const QJsonObject& event);
-    void respond(const QString& token,RemoteReply reply);
+    void respond(const QString& token,RemoteReply reply,qsizetype upload_limit=8*1024*1024);
     friend struct DiscordRemoteTest;
 };
 }
