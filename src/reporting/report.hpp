@@ -25,6 +25,7 @@ struct Snapshot {
     QList<Gauge> buffs;
     std::vector<Counter> counters;
     qint64 honey_age_ms{};
+    QMap<QString,std::optional<double>> buff_values;
 };
 struct ActivityTime { QString name; qint64 milliseconds{}; };
 struct Sample { qint64 at{}; std::optional<double> percent; std::optional<double> floor; std::optional<double> level; };
@@ -46,6 +47,7 @@ struct ReportAppearance {
     ReportTheme theme{ReportTheme::forest};
     int chart_height{100};
     bool activity{true},nectar{true},modules{true},totals{true};
+    bool game_buff_icons{};
     QString background_image;
     int background_fade{75};
     int background_zoom{100};

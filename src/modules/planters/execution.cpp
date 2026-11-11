@@ -37,7 +37,7 @@ class Execution final : public automation::Program {
     std::string finish_reason_;
     bool deferred_result_{};
     std::optional<bool> learn_travel_;
-    bool had_growth_bar_{},harvest_action_{},initialized_{},ready_for_travel_{};
+    bool harvest_action_{},initialized_{},ready_for_travel_{};
     bool capacity_armed_{},capacity_rejected_{};
     Time placement_started_{};
     std::shared_ptr<Observation<workflows::InventoryMatch>> placement_inventory_;
@@ -146,7 +146,7 @@ class Execution final : public automation::Program {
     bool scan(const View& view,const Snapshot& snapshot) const {
         if (phase_==Phase::baseline && !harvest_ && plan_.attempt_unscanned_placement
             && !snapshot.placements.has_value(view.context,Time(2000),minimum_)) return true;
-        const bool presence_allowed=(phase_==Phase::baseline && harvest_) || (phase_==Phase::confirming && !harvest_);
+        const bool presence_allowed=(phase_==Phase::baseline && harvest_) || phase_==Phase::confirming;
         return snapshot.placements.has_value(view.context,Time(2000),minimum_)
             && (snapshot.placements.value.complete || (presence_allowed && snapshot.placements.value.identities.contains(identity(selected_)))
                 || (phase_==Phase::baseline && !harvest_ && plan_.attempt_unscanned_placement && snapshot.placements.value.field==selected_.field))
@@ -341,7 +341,7 @@ public:
         assignment_.reset(); harvest_.reset(); steps_.clear(); placement_inventory_.reset();
         action_step_=loot_step_=0; issued_=acknowledged_=view.completed_steps;
         phase_=Phase::select; selected_={}; finish_reason_.clear(); deferred_result_=false; learn_travel_.reset();
-        harvest_confirmed_=harvest_action_=had_growth_bar_=initialized_=ready_for_travel_=false;
+        harvest_confirmed_=harvest_action_=initialized_=ready_for_travel_=false;
         capacity_armed_=capacity_rejected_=false;
         minimum_=view.context.now; deadline_=minimum_+Time(10000);
         publish(ExecutionStage::preparing);
@@ -555,7 +555,6 @@ public:
             if (!harvest_ && !steps_.empty())
                 if (const auto* drag=std::get_if<DragInventoryItem>(&steps_.front())) placement_inventory_=drag->result;
             harvest_action_=harvest_ && harvest_action();
-            had_growth_bar_=snapshot.growth_bar.has_value(view.context,Time(2000),minimum_) && snapshot.growth_bar.value;
             if (harvest_) controller_->harvest(*harvest_,view.context,now,snapshot.placements,{});
             else {
                 controller_->place(*assignment_,view.context,now,snapshot.placements,plan_.attempt_unscanned_placement);
@@ -574,7 +573,7 @@ public:
                     evidence={Knowledge::present,std::move(local),prompt.captured,prompt.window,prompt.generation};
                 }
             }
-            const auto receipt=harvest_action_?harvest_receipt(selected_,had_growth_bar_,snapshot,view,minimum_):Observation<HarvestEvidence>{};
+            const auto receipt=harvest_action_?harvest_receipt(selected_,snapshot,view,minimum_):Observation<HarvestEvidence>{};
             const auto result=controller_->observe(controller_->ledger().pending->ticket,view.context,now,evidence,receipt);
             if (result==Outcome::failed) return failed_placement(view,"No planter appeared after placement");
             if (result==Outcome::uncertain) return defer_result(view);

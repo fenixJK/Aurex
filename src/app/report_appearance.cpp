@@ -80,6 +80,7 @@ reporting::Report example_report(const reporting::ReportAppearance& appearance,c
     report.created=QDateTime(QDate(2026,1,1),QTime(13,0));
     report.window_ms=3600000;report.session_ms=report.tracked_ms=7200000;
     report.honey.current=180000000000ULL;report.honey.period=12000000000LL;report.honey.session=24500000000LL;report.honey.hourly=12250000000.;
+    report.snapshot.buff_values={{"clock",5.},{"balloon",43.},{"bloat",5.76},{"mondo",3.},{"tide",1.18}};
     report.activities={{"Gathering",3000000},{"Converting",360000},{"Travelling",240000}};
     for(int i=0;i<=360;++i){
         report.trend.append({i*10000LL,10.+std::fmod(i*2.7,85.)});
@@ -129,6 +130,9 @@ void show_report_appearance(QWidget* parent,reporting::ReportAppearance& appeara
     theme->setMinimumHeight(28);height->setMinimumHeight(28);
     auto activity=new QCheckBox("Activity breakdown");activity->setChecked(appearance.activity);controls->addWidget(activity);
     auto nectar=new QCheckBox("Nectar");nectar->setChecked(appearance.nectar);controls->addWidget(nectar);
+    auto game_icons=new QCheckBox("Use game icons for current buffs");game_icons->setObjectName("report-game-buff-icons");
+    game_icons->setChecked(appearance.game_buff_icons);controls->addWidget(game_icons);
+    game_icons->setToolTip("Use the original game artwork instead of clean symbols for Clock, Balloon Blessing, Bloat, Mondo and Tide.");
     auto modules=new QCheckBox("Module panels");modules->setChecked(appearance.modules);controls->addWidget(modules);
     auto totals=new QCheckBox("Totals");totals->setChecked(appearance.totals);controls->addWidget(totals);
     auto pick=new QPushButton("Choose background…");pick->setObjectName("report-background-pick");controls->addWidget(pick);
@@ -177,15 +181,16 @@ void show_report_appearance(QWidget* parent,reporting::ReportAppearance& appeara
     };
     const auto schedule=[render] { if (!render->isActive()) render->start(16); };
     preview->changed=schedule;preview->finished=commit;
-    const auto changed=[&appearance,commit,theme,height,activity,nectar,modules,totals,fade,zoom,schedule] {
+    const auto changed=[&appearance,commit,theme,height,activity,nectar,game_icons,modules,totals,fade,zoom,schedule] {
         appearance.theme=reporting::ReportTheme(theme->currentData().toInt());appearance.chart_height=height->currentData().toInt();
         appearance.activity=activity->isChecked();appearance.nectar=nectar->isChecked();appearance.modules=modules->isChecked();appearance.totals=totals->isChecked();
+        appearance.game_buff_icons=game_icons->isChecked();
         appearance.background_fade=fade->value();
         appearance.background_zoom=zoom->value();
         schedule();if (!fade->isSliderDown() && !zoom->isSliderDown()) commit();
     };
     QObject::connect(theme,&QComboBox::currentIndexChanged,dialog,changed);QObject::connect(height,&QComboBox::currentIndexChanged,dialog,changed);
-    for(auto check:{activity,nectar,modules,totals})QObject::connect(check,&QCheckBox::toggled,dialog,changed);
+    for(auto check:{activity,nectar,game_icons,modules,totals})QObject::connect(check,&QCheckBox::toggled,dialog,changed);
     QObject::connect(fade,&QSlider::valueChanged,dialog,changed);
     QObject::connect(zoom,&QSlider::valueChanged,dialog,changed);
     for(auto slider:{fade,zoom}) QObject::connect(slider,&QSlider::sliderReleased,dialog,commit);

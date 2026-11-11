@@ -1,5 +1,10 @@
 <RCC>
   <qresource prefix="/report-icons">
+    <file alias="current-buffs/clock.png">../../assets/report-icons/current-buffs/clock.png</file>
+    <file alias="current-buffs/balloon.png">../../assets/report-icons/current-buffs/balloon.png</file>
+    <file alias="current-buffs/bloat.png">../../assets/report-icons/current-buffs/bloat.png</file>
+    <file alias="current-buffs/mondo.png">../../assets/report-icons/current-buffs/mondo.png</file>
+    <file alias="current-buffs/tide.png">../../assets/report-icons/current-buffs/tide.png</file>
     <file alias="nectar/Comforting.png">../../assets/report-icons/nectar/Comforting.png</file>
     <file alias="nectar/Invigorating.png">../../assets/report-icons/nectar/Invigorating.png</file>
     <file alias="nectar/Motivating.png">../../assets/report-icons/nectar/Motivating.png</file>

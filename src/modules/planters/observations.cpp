@@ -57,7 +57,7 @@ public:
     }
 };
 }
-Observation<HarvestEvidence> harvest_receipt(const Stats& planter,bool had_growth_bar,
+Observation<HarvestEvidence> harvest_receipt(const Stats& planter,
     const Snapshot& after,const automation::View& view,Time minimum) {
     const auto& c=view.context;
     const auto* state=view.observations;
@@ -68,11 +68,11 @@ Observation<HarvestEvidence> harvest_receipt(const Stats& planter,bool had_growt
     const auto gone=[&](const Observation<bool>& reading) {
         return reading.usable(c,Time(2000),minimum) && reading.knowledge==Knowledge::absent;
     };
-    const auto* disappearance=gone(after.harvest_prompt)?&after.harvest_prompt:
-        had_growth_bar && gone(after.growth_bar)?&after.growth_bar:nullptr;
-    if (!disappearance) return {};
-    const auto earliest=std::min({disappearance->captured,state->game_hud.captured,state->confirmation.captured});
-    const auto latest=std::max({disappearance->captured,state->game_hud.captured,state->confirmation.captured});
+    // A missed prompt is not a harvest while the planter's bar is still there,
+    // and a missed bar must never override a visible Harvest prompt.
+    if (!gone(after.harvest_prompt) || !gone(after.growth_bar)) return {};
+    const auto earliest=std::min({after.harvest_prompt.captured,after.growth_bar.captured,state->game_hud.captured,state->confirmation.captured});
+    const auto latest=std::max({after.harvest_prompt.captured,after.growth_bar.captured,state->game_hud.captured,state->confirmation.captured});
     return {Knowledge::present,{identity(planter),latest},earliest,c.window,c.generation};
 }
 std::shared_ptr<const Source> observed_source(std::shared_ptr<const game::NectarSource> nectar,

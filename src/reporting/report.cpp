@@ -5,6 +5,7 @@
 #include <QPainterPath>
 #include <QRegularExpression>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -161,12 +162,12 @@ void honey_backpack_chart(QPainter& p,QRectF plot,const Report& report,const Hon
 }
 void activity_pie(QPainter& p,QRectF area,const Report& report,const Palette& colors) {
     qint64 total=0;for(const auto& item:report.activities)total+=std::max(qint64(0),item.milliseconds);
-    const QRectF pie(area.left()+std::max(0.,(area.width()-280)/2),area.center().y()-34,72,72);
+    const QRectF pie(area.left()+std::max(0.,(area.width()-276)/2),area.center().y()-30,66,66);
     const QRectF inner=pie.adjusted(12,12,-12,-12);
-    const double label_x=pie.right()+24,time_x=label_x+84,share_x=time_x+64;
+    const double share_x=area.right()-30,time_x=share_x-58,label_x=pie.right()+18;
     text(p,{pie.left(),area.top(),90,18},"Activity",12,colors.muted);
-    text(p,{time_x,area.top(),60,18},"Time",10,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
-    text(p,{share_x,area.top(),36,18},"Share",10,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
+    text(p,{time_x,area.top(),54,18},"Time",10,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
+    text(p,{share_x,area.top(),30,18},"Share",10,colors.subtle,false,Qt::AlignRight|Qt::AlignVCenter);
     QPainterPath ring;ring.addEllipse(pie);ring.addEllipse(inner);ring.setFillRule(Qt::OddEvenFill);
     p.save();p.setClipPath(ring);p.setPen(Qt::NoPen);p.setBrush(colors.track);p.drawEllipse(pie);
     double angle=90;
@@ -185,33 +186,67 @@ void activity_pie(QPainter& p,QRectF area,const Report& report,const Palette& co
         const auto& item=report.activities[i];const double fraction=total?double(std::max(qint64(0),item.milliseconds))/total:0.;
         const double y=top+i*row_height;
         p.fillRect(QRectF(label_x-12,y+(row_height-7)/2,7,7),accent(i,colors));
-        text(p,{label_x,y,82,row_height},item.name,11,colors.muted);
-        text(p,{time_x,y,60,row_height},duration(item.milliseconds),11,colors.foreground,true,Qt::AlignRight|Qt::AlignVCenter);
-        text(p,{share_x,y,36,row_height},QString::number(std::lround(fraction*100))+"%",11,colors.muted,false,Qt::AlignRight|Qt::AlignVCenter);
+        text(p,{label_x,y,std::max(0.,time_x-label_x-4),row_height},item.name,11,colors.muted);
+        text(p,{time_x,y,54,row_height},duration(item.milliseconds),11,colors.foreground,true,Qt::AlignRight|Qt::AlignVCenter);
+        text(p,{share_x,y,30,row_height},QString::number(std::lround(fraction*100))+"%",11,colors.muted,false,Qt::AlignRight|Qt::AlignVCenter);
     }
 }
 void nectar_summary(QPainter& p,QRectF area,const QList<GaugeHistory>& nectar,const Palette& colors) {
     const auto count=nectar.size();if(!count)return;
-    text(p,{area.left()+8,area.top(),area.width()-16,18},"Nectar",12,colors.muted);
     const double cell=area.width()/count;
     for(qsizetype i=0;i<count;++i) {
         const auto& gauge=nectar[i].current;const double x=area.left()+i*cell;
         const auto color=gauge.color.isValid()?colors.ink(gauge.color):accent(i,colors);
-        const QRectF ring(x+(cell-46)/2,area.center().y()-21,46,46);
-        p.save();p.setBrush(Qt::NoBrush);p.setPen(QPen(colors.track,4.5));p.drawEllipse(ring);
+        const QRectF ring(x+(cell-36)/2,area.top()+3,36,36);
+        p.save();p.setBrush(Qt::NoBrush);p.setPen(QPen(colors.track,3.5));p.drawEllipse(ring);
         const bool known=gauge.percent && std::isfinite(*gauge.percent) && *gauge.percent>=0 && *gauge.percent<=100;
         if(known) {
-            p.setPen(QPen(color,4.5,Qt::SolidLine,Qt::RoundCap));
+            p.setPen(QPen(color,3.5,Qt::SolidLine,Qt::RoundCap));
             p.drawArc(ring,90*16,-int(std::lround(std::clamp(*gauge.percent,0.,100.)*3.6*16)));
         }
         p.restore();
         const auto& icon=gauge.icon;
         if(!icon.isNull()) {
-            const auto size=icon.size().scaled(24,24,Qt::KeepAspectRatio);
+            const auto size=icon.size().scaled(22,22,Qt::KeepAspectRatio);
             p.drawImage(QRectF(ring.center().x()-size.width()/2.,ring.center().y()-size.height()/2.,size.width(),size.height()),icon);
         }
         if(icon.isNull()) text(p,ring,gauge.name.left(3),11,colors.muted,true,Qt::AlignCenter);
-        text(p,{x,area.center().y()+31,cell,20},known?(gauge.estimated?"~":"")+QString::number(*gauge.percent,'f',0)+"%":"—",13,colors.foreground,true,Qt::AlignCenter);
+        text(p,{x,area.top()+41,cell,17},known?(gauge.estimated?"~":"")+QString::number(*gauge.percent,'f',0)+"%":"—",12,colors.foreground,false,Qt::AlignCenter);
+    }
+}
+void buff_symbol(QPainter& p,QRectF area,int index,QColor color) {
+    p.save();p.translate(area.topLeft());p.scale(area.width()/24.,area.height()/24.);
+    p.setPen(QPen(color,1.5,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));p.setBrush(Qt::NoBrush);
+    QPainterPath path;
+    switch(index) {
+    case 0:
+        p.drawEllipse(QRectF(2,2,20,20));path.moveTo(12,6);path.lineTo(12,12);path.lineTo(16,14);break;
+    case 1:
+        p.drawEllipse(QRectF(5,2,14,17));path.moveTo(12,19);path.lineTo(10,21);path.lineTo(14,21);
+        path.moveTo(12,21);path.cubicTo(10,22,13,23,15,23);break;
+    case 2:
+        p.drawEllipse(QRectF(2,9,12,12));p.drawEllipse(QRectF(14,5,8,8));p.drawEllipse(QRectF(8,1,5,5));break;
+    case 3:
+        path.moveTo(12,2);path.cubicTo(7,2,3,11,3,15);path.cubicTo(3,24,21,24,21,15);
+        path.cubicTo(21,11,17,2,12,2);break;
+    default:
+        for(int y:{5,12,19}) {path.moveTo(2,y);path.cubicTo(5,y-4,8,y+4,12,y);path.cubicTo(16,y-4,19,y+4,22,y);}
+    }
+    p.drawPath(path);p.restore();
+}
+void current_buffs(QPainter& p,QRectF area,const Report& report,const Palette& colors) {
+    static const std::array<QString,5> ids{"clock","balloon","bloat","mondo","tide"};
+    const double cell=area.width()/ids.size();
+    for(int i=0;i<int(ids.size());++i) {
+        const double center=area.left()+(i+.5)*cell;
+        const QRectF icon_area(center-12,area.top(),24,24);
+        const auto icon=report.appearance.game_buff_icons?report_icon("current-buffs/"+ids[i]):QImage{};
+        if(!icon.isNull()) p.drawImage(icon_area,icon);
+        else buff_symbol(p,icon_area,i,colors.muted);
+        const auto value=report.snapshot.buff_values.value(ids[i]);
+        const QString label=value && std::isfinite(*value) && *value>=0
+            ?QString("×%1").arg(QString::number(*value,'f',(i==2 || i==4)?2:0)):QString("—");
+        text(p,{center-cell/2,area.top()+27,cell,18},label,12,colors.foreground,false,Qt::AlignCenter);
     }
 }
 bool visible_metric(const Metric& metric) {
@@ -311,8 +346,7 @@ QImage render_report(const Report& report,const QImage* cached_background) {
             buffs.append(&trace);
     const auto& style=report.appearance; auto colors=palette(style.theme);
     const bool nectar_visible=style.nectar && !report.nectar.empty();
-    const bool split_summary=style.activity || nectar_visible;
-    const int summary_height=split_summary?std::max(132,style.activity?48+14*int(report.activities.size()):0):70;
+    const int summary_height=std::max(132,style.activity?48+14*int(report.activities.size()):0);
     const int chart_y=50+summary_height+12,buffs_y=chart_y+144;
     const auto rows=buff_rows(buffs,buffs_y+20,style.chart_height);
     const double plot_left=std::any_of(buffs.begin(),buffs.end(),[](const auto* trace) { return trace->current.icon.isNull(); })?144:92;
@@ -399,21 +433,26 @@ QImage render_report(const Report& report,const QImage* cached_background) {
     const QStringList labels{"Hourly average",report.honey.current_age_ms>2*sample_interval_ms?"Last known honey":"Current honey","Honey · "+duration(report.window_ms),partial?"Tracked session gain":"Session gain"};
     const QStringList values{money(report.honey.hourly),money(report.honey.current),gain(report.honey.period),gain(report.honey.session)};
     for (int i=0;i<4;++i) {
-        const double honey_width=style.activity && nectar_visible?276:split_summary?440:content-36;
-        const double cell=honey_width/(split_summary?2:4);
-        const double x=margin+18+(split_summary?i%2:i)*cell;
-        const double y=59+(split_summary?i/2*57:0);
+        const double honey_width=style.activity?276:440;
+        const double cell=honey_width/2;
+        const double x=margin+18+(i%2)*cell;
+        const double y=59+(i/2)*57;
         text(p,{x,y,cell-10,19},labels[i],12,colors.muted);
         text(p,{x,y+20,cell-10,30},values[i],25,i==0?accent(1,colors):i==2?accent(report.honey.period && *report.honey.period<0?4:0,colors):colors.foreground,true);
     }
-    if(split_summary) {
+    {
         p.setPen(colors.divider);
-        const double divider=style.activity && nectar_visible?324:496;
+        const double divider=style.activity?324:496;
         p.drawLine(QPointF(divider,66),QPointF(divider,50+summary_height-16));
-        if(style.activity && nectar_visible)
+        if(style.activity)
             p.drawLine(QPointF(634,66),QPointF(634,50+summary_height-16));
-        if(style.activity) activity_pie(p,nectar_visible?QRectF(342,62,276,summary_height-24):QRectF(516,62,440,summary_height-24),report,colors);
-        if(nectar_visible) nectar_summary(p,style.activity?QRectF(646,62,314,summary_height-24):QRectF(516,62,440,summary_height-24),report.nectar,colors);
+        if(style.activity) activity_pie(p,{342,62,276,double(summary_height-24)},report,colors);
+        const QRectF readings=style.activity?QRectF(646,57,314,summary_height-14):QRectF(516,57,440,summary_height-14);
+        if(nectar_visible) {
+            nectar_summary(p,readings,report.nectar,colors);
+            p.setPen(colors.divider);p.drawLine(QPointF(readings.left(),readings.top()+62),QPointF(readings.right(),readings.top()+62));
+        }
+        current_buffs(p,{readings.left(),nectar_visible?readings.top()+68:readings.center().y()-23,readings.width(),45},report,colors);
     }
     card(p,{margin,double(chart_y),content,double(buffs_y+buff_height-chart_y)},colors);
     for (int i=0;i<2;++i) {

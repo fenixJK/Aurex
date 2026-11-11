@@ -131,11 +131,9 @@ void ReportObservations::request(const SessionSnapshot& snapshot,const QStringLi
             if (!reading || reading->context.generation!=snapshot.generation || snapshot.now-reading->context.now>=hive::Time(hive::reporting::sample_interval_ms)) reporting_honey_->read();
         }
         for (const auto& source:{reporting_buffs_,reporting_upkeep_}) if (source) {
-            const bool needed=source==reporting_buffs_?std::any_of(selected.begin(),selected.end(),[](const auto& id) {
+            // Current buff summary is independent of selected timeline charts.
+            const bool needed=source!=reporting_buffs_ || std::any_of(selected.begin(),selected.end(),[](const auto& id) {
                     return id=="buff/Haste" || id=="buff/Haste+" || id=="buff/Oil" || id=="buff/Smoothie" || id=="buff/Bear morph";
-                }):
-                std::any_of(hive::game::tracked_buffs().begin(),hive::game::tracked_buffs().end(),[&](const auto& type) {
-                    return selected.contains("buff/"+QString::fromUtf8(type.name.data(),qsizetype(type.name.size())));
                 });
             if (!needed) continue;
             const auto reading=source->peek();
@@ -176,6 +174,7 @@ reporting::Snapshot ReportObservations::snapshot(const SessionSnapshot& snapshot
         report.gauges[i].estimated=nectar[i].estimated;
     }
     for (const auto& type:hive::game::tracked_buffs()) {
+        if(!type.summary_id.empty()) { report.buff_values.insert(QString::fromUtf8(type.summary_id.data(),qsizetype(type.summary_id.size())),{});continue; }
         const auto name=QString::fromUtf8(type.name.data(),qsizetype(type.name.size()));
         report.buffs.append(hive::reporting::Gauge{name,{},"buff/"+name,{},hive::reporting::Level{{},double(type.maximum)}});
     }
@@ -184,12 +183,16 @@ reporting::Snapshot ReportObservations::snapshot(const SessionSnapshot& snapshot
             const auto* value=dynamic_cast<const hive::game::BuffDetection*>(packet->value.get());
             const auto& stamp=packet->context;
             const hive::Observation<bool> reading{hive::Knowledge::present,true,stamp.now,stamp.window,stamp.generation};
-            if (value && reading.has_value(context,hive::Time(10000)))
+            if (packet->error.empty() && value && reading.has_value(context,hive::Time(10000))) {
+                for(const auto& type:game::tracked_buffs()) if(!type.summary_id.empty())
+                    for(const auto& observed:value->buffs) if(observed.name==type.name)
+                        report.buff_values[QString::fromUtf8(type.summary_id.data(),qsizetype(type.summary_id.size()))]=observed.value;
                 for (const auto& observed:value->buffs) for (auto& buff:report.buffs)
                     if (q(observed.name)==buff.name && observed.active) {
                         buff.percent=*observed.active?100:0;
                         if (buff.level) buff.level->value=observed.stacks;
                     }
+            }
         }
     }
     const auto movement_start=report.buffs.size();

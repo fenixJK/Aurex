@@ -241,10 +241,16 @@ Outcome Transaction::observe(const ObservationContext& c,const Observation<Place
         && harvested.value.latest>=harvested.captured && harvested.value.latest<=c.now
         && !(inventory.has_value(c,Time(2000),minimum_) && inventory.value.identities.contains(identity_))) {
         if (harvested.captured<=last_frame_) return waiting();
+        if (!harvest_disappeared_ || harvested.captured-last_frame_>Time(2000))
+            harvest_disappeared_=harvested.captured;
         last_frame_=harvested.value.latest;
+        // A dialog opening, UI animation or missed frame can hide both cues.
+        // Require fresh, sustained disappearance before deleting the timer.
+        if (harvested.captured-*harvest_disappeared_<Time(500)) return waiting();
         outcome_=Outcome::confirmed;
         return outcome_;
     }
+    if (operation_==Operation::harvest) harvest_disappeared_.reset();
     if (!inventory.has_value(c,Time(2000),minimum_) || (operation_==Operation::harvest && !inventory.value.complete)
         || (!inventory.value.field.empty() && identity_.substr(identity_.find('/')+1)!=inventory.value.field) || inventory.captured<=minimum_) return waiting();
     if (inventory.captured<=last_frame_ && c.now<deadline_) return waiting();

@@ -63,6 +63,7 @@ class Transaction {
     std::string identity_;
     Outcome outcome_{Outcome::pending};
     Time last_frame_{Time(-1)};
+    std::optional<Time> harvest_disappeared_;
     Time minimum_{},deadline_{};
     bool input_finished_{};
 public:

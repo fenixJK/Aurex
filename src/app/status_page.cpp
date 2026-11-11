@@ -111,6 +111,7 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
     appearance_.chart_height=std::clamp(settings.value("discord/chartHeight",100).toInt(),75,150);
     appearance_.activity=settings.value("discord/showActivity",true).toBool(); appearance_.nectar=settings.value("discord/showNectar",true).toBool();
     appearance_.modules=settings.value("discord/showModules",true).toBool(); appearance_.totals=settings.value("discord/showTotals",true).toBool();
+    appearance_.game_buff_icons=settings.value("discord/gameBuffIcons",false).toBool();
     appearance_.background_image=settings.value("discord/backgroundImage").toString();
     appearance_.background_fade=std::clamp(settings.value("discord/backgroundFade",75).toInt(),0,100);
     appearance_.background_zoom=std::clamp(settings.value("discord/backgroundZoom",100).toInt(),reporting::ReportAppearance::min_background_zoom,reporting::ReportAppearance::max_background_zoom);
@@ -152,6 +153,7 @@ StatusPage::StatusPage(QSettings& settings,reporting::Discord& discord,QWidget* 
         settings.setValue("discord/theme",int(appearance_.theme)); settings.setValue("discord/chartHeight",appearance_.chart_height);
         settings.setValue("discord/showActivity",appearance_.activity); settings.setValue("discord/showNectar",appearance_.nectar);
         settings.setValue("discord/showModules",appearance_.modules); settings.setValue("discord/showTotals",appearance_.totals);
+        settings.setValue("discord/gameBuffIcons",appearance_.game_buff_icons);
         settings.setValue("discord/backgroundImage",appearance_.background_image); settings.setValue("discord/backgroundFade",appearance_.background_fade);
         settings.setValue("discord/backgroundZoom",appearance_.background_zoom);
         settings.setValue("discord/backgroundX",appearance_.background_x); settings.setValue("discord/backgroundY",appearance_.background_y);
