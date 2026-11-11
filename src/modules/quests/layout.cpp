@@ -136,9 +136,16 @@ public:
                 blank=empty?blank+1:0;
                 if (bar) {
                     if (top<0) {
-                        top=y; bar_left=h.left; bar_right=h.right;
-                        while (bar_left<bar_right && !pixels.progress(bar_left,top)) ++bar_left;
-                        while (bar_right>bar_left && !pixels.progress(bar_right-1,top)) --bar_right;
+                        top=y; bar_left=h.right; bar_right=h.left;
+                    }
+                    // A scaled row's first edge can show only its green fill
+                    // before the red remainder resolves. Measure the whole run
+                    // rather than fixing its width from that antialiased edge.
+                    int row_left=h.left,row_right=h.right;
+                    while (row_left<row_right && !pixels.progress(row_left,y)) ++row_left;
+                    while (row_right>row_left && !pixels.progress(row_right-1,y)) --row_right;
+                    if (row_right>row_left) {
+                        bar_left=std::min(bar_left,row_left);bar_right=std::max(bar_right,row_right);
                     }
                     last=y;
                 }

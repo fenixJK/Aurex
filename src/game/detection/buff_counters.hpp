@@ -2,7 +2,13 @@
 #include <array>
 #include <cstdint>
 namespace hive::game::detail {
-struct BuffCounter { unsigned value; int width,height; std::array<std::uint64_t,18> rows; };
+struct BuffCounter {
+    unsigned value;
+    int width,height;
+    std::array<std::uint64_t,18> rows;
+    // Start of the numeric region in this reference's raster coordinates.
+    unsigned number_offset{10};
+};
 inline constexpr std::array<BuffCounter,49> buff_counters{{
     {2,22,15,{0x0ULL,0x0ULL,0x6f8000000ULL,0x1ffe000000ULL,0x2e0b0f43d0ULL,0x2d00078b80ULL,0x2d0002df00ULL,0xe0001fd00ULL,0x78000bc00ULL,0x1e001fe00ULL,0x7802db40ULL,0x7ffe078780ULL,0x7fff4f02d0ULL,0x0ULL,0x0ULL}},
     {3,22,15,{0x0ULL,0x0ULL,0xbf8000000ULL,0x2ffe000000ULL,0x3d0a0f43d0ULL,0x2e00078b80ULL,0xbf002df00ULL,0x1ff001fd00ULL,0x3d0000bc00ULL,0x780001fe00ULL,0x7d0742db40ULL,0x2fff478780ULL,0x7f80f02d0ULL,0x0ULL,0x0ULL}},

@@ -196,8 +196,11 @@ reporting::Snapshot ReportObservations::snapshot(const SessionSnapshot& snapshot
         }
     }
     const auto movement_start=report.buffs.size();
-    for (const auto* name:{"Haste","Haste+","Oil","Smoothie","Bear morph"})
-        report.buffs.append(hive::reporting::Gauge{name,{},"buff/"+QString(name),{},hive::reporting::Level{{},QString(name)=="Haste"?10.:1.}});
+    const auto movement_types=game::tracked_movement_buffs();
+    for (const auto& type:movement_types) {
+        const auto name=QString::fromUtf8(type.name.data(),qsizetype(type.name.size()));
+        report.buffs.append(hive::reporting::Gauge{name,{},"buff/"+name,{},hive::reporting::Level{{},double(type.maximum)}});
+    }
     for (auto& buff:report.buffs) {
         const auto style=buff_style(buff.name); buff.icon=style.icon; buff.color=style.color; buff.chart_group=style.chart_group;
     }
@@ -207,10 +210,15 @@ reporting::Snapshot ReportObservations::snapshot(const SessionSnapshot& snapshot
         const hive::Observation<bool> reading{hive::Knowledge::present,true,stamp.now,stamp.window,stamp.generation};
         if (value && value->buffs.layout_known && reading.has_value(context,hive::Time(5000))) {
             for (auto i=movement_start;i<report.buffs.size();++i) { report.buffs[i].percent=0; report.buffs[i].level->value=0; }
-            for (const auto& buff:value->buffs.candidates) {
-                const int index=buff.name=="Haste"?0:buff.name=="HastePlus"?1:buff.name=="Oil"?2:buff.name=="Smoothie"?3:buff.name.starts_with("Bear")?4:-1;
-                if (index>=0) { report.buffs[movement_start+index].percent=100; report.buffs[movement_start+index].level->value=1; }
-                if (index==0) report.buffs[movement_start].level->value=buff.stacks;
+            for (std::size_t index=0;index<movement_types.size();++index) {
+                const game::MovementBuffCandidate* first=nullptr;
+                for (const auto& buff:value->buffs.candidates)
+                    if (buff.name==movement_types[index].name && (!first || buff.pixels.x<first->pixels.x)) first=&buff;
+                if (!first) continue;
+                auto& gauge=report.buffs[movement_start+index];gauge.percent=100;
+                // The second identical Haste icon is Coconut Haste; it must not
+                // overwrite the stack count of the regular Haste icon.
+                gauge.level->value=movement_types[index].maximum>1?first->stacks:std::optional<unsigned>{1};
             }
         }
     }

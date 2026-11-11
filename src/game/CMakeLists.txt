@@ -39,6 +39,8 @@ add_library(hive_game
   detection/buffs.cpp
   detection/field_boosts.cpp
   detection/buff_stack.cpp
+  detection/buff_catalog.cpp
+  detection/buff_vision.cpp
   movement/movement_speed_source.cpp
   detection/conversation.cpp
   data/npcs.cpp

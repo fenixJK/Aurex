@@ -86,7 +86,16 @@ std::optional<BuffBar> hud_buff_bar(const DetectionInput& input) {
         // The paired resource boxes and buff cells share the same UI scale.
         const double scale=(*hud)[1].width/294.;
         const double bottom=(*hud)[1].y+(*hud)[1].height+37*scale;
-        if (bottom>=38*scale && bottom<f.height) return BuffBar{scale,38*scale,0,bottom,true};
+        if (bottom>=38*scale && bottom<f.viewport_height()*upper_hud_region.height) {
+            BuffBar bar{scale,38*scale,0,bottom,true};
+            for(const auto& control:menu_controls(input)) {
+                if(control.tab!=MenuTab::inventory && control.tab!=MenuTab::quests)continue;
+                const double offset=control.tab==MenuTab::inventory?29.5:85.;
+                const double origin=control.center().x*f.width-offset*scale;
+                if(origin>=-4*scale && origin<f.width*.15) {bar.origin=origin;bar.aligned=true;break;}
+            }
+            return bar;
+        }
     }
     const auto controls=menu_controls(input);
     const MenuControl *inventory=nullptr,*quests=nullptr;
@@ -111,7 +120,7 @@ std::optional<BuffBar> hud_buff_bar(const DetectionInput& input) {
         if (std::abs(sx-sy)>.15*std::max(sx,sy)) return {};
         scale=(sx+sy)/2; center=anchor.center(); offset=inventory?29.5:85;
     }
-    BuffBar bar{scale,38*scale,center.x*f.width-offset*scale,std::round(center.y*f.height-37*scale),true};
+    BuffBar bar{scale,38*scale,center.x*f.width-offset*scale,std::round(center.y*f.height-37*scale),true,true};
     if (scale<.5 || scale>4 || bar.origin < -8*scale || bar.bottom<bar.pitch || bar.bottom>f.height) return {};
     return bar;
 }

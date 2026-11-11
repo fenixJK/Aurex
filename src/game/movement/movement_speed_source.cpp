@@ -1,6 +1,7 @@
 #include "game/detection/movement_buffs.hpp"
 #include <algorithm>
 #include "game/detection/buff_bar.hpp"
+#include "game/detection/buff_catalog.hpp"
 #include "game/detection/perception.hpp"
 
 namespace hive::game {
@@ -12,34 +13,28 @@ struct Effects {
 std::optional<Effects> effects(const MovementBuffCandidates& reading) {
     if (!reading.layout_known || !reading.bar.valid() || reading.candidates.size()>64) return {};
     Effects result;
-    std::vector<const MovementBuffCandidate*> haste;
-    bool oil=false,smoothie=false,plus=false,bear=false;
-    for (const auto& candidate : reading.candidates) {
+    const auto definitions=detail::movement_buff_definitions();
+    std::vector<std::vector<const MovementBuffCandidate*>> groups(definitions.size());
+    for (const auto& candidate:reading.candidates) {
         const auto& box=candidate.pixels;
         if (!box.valid() || box.x<reading.bar.x || box.y<reading.bar.y
             || box.x+box.width>reading.bar.x+reading.bar.width || box.y+box.height>reading.bar.y+reading.bar.height) return {};
-        if (candidate.name=="Haste") { haste.push_back(&candidate); continue; }
-        bool* seen=nullptr;
-        if (candidate.name=="Oil") seen=&oil;
-        else if (candidate.name=="Smoothie") seen=&smoothie;
-        else if (candidate.name=="HastePlus") seen=&plus;
-        else if (candidate.name=="BearBrown" || candidate.name=="BearBlack" || candidate.name=="BearPanda"
-            || candidate.name=="BearPolar" || candidate.name=="BearGummy" || candidate.name=="BearScience" || candidate.name=="BearMother") {
-            seen=&bear; result.flat+=4;
-        } else return {};
-        if (*seen || candidate.stacks) return {};
-        *seen=true;
+        const auto definition=std::find_if(definitions.begin(),definitions.end(),[&](const auto& d){return d.type.name==candidate.name;});
+        if (definition==definitions.end()) return {};
+        groups[definition-definitions.begin()].push_back(&candidate);
     }
-    result.multiplier=(oil?1.2:1)*(smoothie?1.25:1)*(plus?2:1);
-    if (haste.size()>2) return {};
-    if (!haste.empty()) {
-        std::sort(haste.begin(),haste.end(),[](const auto* a,const auto* b) { return a->pixels.x<b->pixels.x; });
-        if (!haste.front()->stacks || *haste.front()->stacks<1 || *haste.front()->stacks>10) return {};
-        result.multiplier*=1+*haste.front()->stacks*.1;
-        if (haste.size()==2) {
-            if (haste[0]->pixels.x+haste[0]->pixels.width>haste[1]->pixels.x
-                || (haste[1]->stacks && *haste[1]->stacks!=1)) return {};
-            result.flat+=10;
+    for (std::size_t i=0;i<definitions.size();++i) {
+        auto& candidates=groups[i];const auto& definition=definitions[i];
+        if (candidates.size()>definition.movement.size()) return {};
+        std::sort(candidates.begin(),candidates.end(),[](const auto* a,const auto* b){return a->pixels.x<b->pixels.x;});
+        for (std::size_t j=0;j<candidates.size();++j) {
+            const auto& candidate=*candidates[j];const auto& effect=definition.movement[j];
+            if (j && candidates[j-1]->pixels.x+candidates[j-1]->pixels.width>candidate.pixels.x) return {};
+            if (effect.maximum_stacks) {
+                if (candidate.stacks ? *candidate.stacks<1 || *candidate.stacks>effect.maximum_stacks : !effect.unknown_stacks_allowed) return {};
+            } else if (candidate.stacks) return {};
+            result.multiplier*=effect.multiplier+effect.per_stack*candidate.stacks.value_or(0);
+            result.flat+=effect.flat;
         }
     }
     return result;
@@ -49,6 +44,8 @@ class BuffDetector final : public Detector {
     mutable std::optional<ObservationContext> context_;
     mutable std::optional<detail::BuffBar> layout_;
     mutable int width_{},height_{};
+    mutable std::vector<std::string> previous_icons_;
+    mutable bool disappearance_pending_{};
 public:
     Rect capture_region() const override { return upper_hud_region; }
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
@@ -56,14 +53,26 @@ public:
         auto result=std::make_shared<MovementBuffDetection>();
         const auto& frame=input.frame;
         if (!frame.valid() || !input.generation || (input.cancelled && input.cancelled())) return result;
-        if (!context_ || context_->generation!=input.generation || context_->window.id!=frame.window.id
+        const bool reset=!context_ || context_->generation!=input.generation || context_->window.id!=frame.window.id
             || context_->window.process!=frame.window.process || context_->window.bounds!=frame.window.bounds
-            || frame.captured<context_->now) { layout_.reset(); }
+            || frame.captured<context_->now || width_!=frame.width || height_!=frame.viewport_height();
+        const bool fresh=reset || frame.captured>context_->now;
+        if(reset) {layout_.reset();previous_icons_.clear();disappearance_pending_=false;}
         context_=ObservationContext{frame.window,input.generation,frame.captured};
-        if (width_!=frame.width || height_!=frame.viewport_height()) layout_.reset();
         width_=frame.width; height_=frame.viewport_height();
         if (const auto layout=detail::hud_buff_bar(input)) layout_=layout;
         if (layout_) result->buffs=detail::movement_buffs_at(input,*layout_);
+        if(fresh && result->buffs.layout_known) {
+            std::vector<std::string> current;
+            for(const auto& candidate:result->buffs.candidates)current.push_back(candidate.name);
+            std::sort(current.begin(),current.end());
+            // Roblox slides the remaining tiles when one expires. A single
+            // missed tile during that animation is not proof of lower speed.
+            // Require another fresh frame; repeated reads cannot confirm it.
+            disappearance_pending_=!std::includes(current.begin(),current.end(),previous_icons_.begin(),previous_icons_.end());
+            previous_icons_=std::move(current);
+        }
+        if(disappearance_pending_)result->buffs.layout_known=false;
         return result;
     }
 };

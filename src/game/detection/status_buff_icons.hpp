@@ -1,9 +1,9 @@
 #pragma once
+#include "buff_icon.hpp"
 #include <array>
 #include <cstdint>
 #include <string_view>
 namespace hive::game::detail {
-struct BuffIcon { std::string_view name; std::array<std::uint32_t,96> pixels; double maximum_error{30}; };
 inline constexpr std::array<BuffIcon,19> status_buff_icons{{
     {"Balloon Aura",{{
         0x95a843,0x94a643,0x95a442,0x9d9e40,0xa6973f,0xa1953e,0x9e973f,0x8a9f39,0x89a034,0x89a234,0x8da334,0x93a634,

@@ -111,11 +111,13 @@ static std::vector<TextLine> read_labels(const Frame& frame,Rect region,std::spa
                 }
             }
             // Candidate words remain bounded: a short label cannot match inside a longer word.
+            // Allow the narrower spaces in smaller UI fonts; adjacent words
+            // can still be combined below when matching a multiword label.
             const auto line=ink(row); std::vector<std::pair<int,int>> words;
             for (int x=0;x<line.cols;) {
                 if (!cv::countNonZero(line.col(x))) { ++x; continue; }
                 const int begin=x++;int end=x;
-                while (x<line.cols && x-end<std::max(2.,row.height*.36)) {
+                while (x<line.cols && x-end<std::max(2.,row.height*.25)) {
                     if (cv::countNonZero(line.col(x))) end=x+1;
                     ++x;
                 }

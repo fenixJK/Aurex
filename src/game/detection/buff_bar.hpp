@@ -2,7 +2,7 @@
 #include "detection.hpp"
 #include "movement_buffs.hpp"
 namespace hive::game::detail {
-struct BuffBar { double scale,pitch,origin,bottom; bool menu_layout{}; };
+struct BuffBar { double scale,pitch,origin,bottom; bool menu_layout{},aligned{}; };
 MovementBuffCandidates movement_buffs_at(const DetectionInput&,const BuffBar&);
 int nectar_color(const Frame&,int x,int y,int tolerance=6);
 std::optional<BuffBar> buff_bar(const DetectionInput& input);

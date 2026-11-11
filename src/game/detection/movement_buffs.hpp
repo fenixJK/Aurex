@@ -1,5 +1,6 @@
 #pragma once
 #include "detection.hpp"
+#include "buffs.hpp"
 #include "game/movement/movement.hpp"
 
 namespace hive::game {
@@ -14,6 +15,7 @@ struct MovementBuffCandidates {
     std::vector<MovementBuffCandidate> candidates;
 };
 struct MovementBuffDetection final : Detection { MovementBuffCandidates buffs; };
+std::span<const BuffType> tracked_movement_buffs();
 std::shared_ptr<const Detector> movement_buff_detector();
 std::shared_ptr<const MovementSpeedSource> movement_speed_source(std::shared_ptr<const DetectionSource> source,double base_speed);
 }
