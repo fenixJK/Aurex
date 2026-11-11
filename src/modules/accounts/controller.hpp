@@ -43,6 +43,8 @@ public:
     QString name() const { return name_; }
     QString status() const;
     QString invite() const { return enabled_?(discord_mode_?discord_.invite():connection_.invite()):QString{}; }
+    bool alt_configured() const;
+    void configure_alt();
     bool mapping_failed() const { return enabled_ && !discord_mode_ && connection_.mapping_failed(); }
     const std::shared_ptr<coordination::State>& state() const { return state_; }
     const std::shared_ptr<coordination::MainBoostState>& main_boost() const { return main_boost_; }

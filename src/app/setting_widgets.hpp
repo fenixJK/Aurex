@@ -1,15 +1,10 @@
 #pragma once
 #include "core/module_host/settings.hpp"
+#include "core/module_host/ui/choice_control.hpp"
 #include <QWidget>
 #include <functional>
 
 namespace hive {
-class ChoiceControl : public QWidget {
-public:
-    std::function<void()> changed;
-    virtual std::string value() const=0;
-    virtual void setValue(const std::string&)=0;
-};
 struct SelectionValue {
     std::function<void()> changed;
     virtual ~SelectionValue()=default;

@@ -1,4 +1,5 @@
 #include "page.hpp"
+#include "core/module_host/ui/choice_control.hpp"
 #include "coordination/local_network.hpp"
 #include <QApplication>
 #include <QClipboard>
@@ -8,6 +9,7 @@
 #include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QPointer>
 #include <QRadioButton>
@@ -23,8 +25,27 @@
 
 namespace hive::features::accounts {
 namespace {
+class SetupCard final : public QWidget {
+public:
+    QLabel* description{};
+private:
+    void resizeEvent(QResizeEvent* event) override {
+        QWidget::resizeEvent(event);
+        const auto margins=layout()->contentsMargins();
+        description->setMinimumHeight(description->heightForWidth(contentsRect().width()-margins.left()-margins.right()));
+        setMinimumHeight(layout()->minimumSize().height());
+    }
+};
 QLabel* label(const QString& text,const char* name="muted") {
     auto result=new QLabel(text);result->setObjectName(name);result->setTextFormat(Qt::PlainText);result->setWordWrap(true);return result;
+}
+QPushButton* card(QHBoxLayout* row,const QString& title,const QString& description,const QString& action,const char* id) {
+    auto panel=new SetupCard;panel->setObjectName("card");
+    auto body=new QVBoxLayout(panel);body->setContentsMargins(16,16,16,16);body->setSpacing(12);
+    body->addWidget(label(title,"heading"));panel->description=label(description);body->addWidget(panel->description,1);
+    panel->description->setAlignment(Qt::AlignLeft|Qt::AlignTop);
+    auto button=new QPushButton(action);button->setObjectName(id);button->setMinimumHeight(32);
+    body->addWidget(button);row->addWidget(panel,1);return button;
 }
 }
 Page::Page(std::shared_ptr<Controller> controller,QWidget* parent,const std::map<std::string,QWidget*>& sections)
@@ -32,26 +53,45 @@ Page::Page(std::shared_ptr<Controller> controller,QWidget* parent,const std::map
     setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Maximum);
     auto layout=new QVBoxLayout(this);layout->setContentsMargins(0,4,0,0);layout->setSpacing(10);
     layout->setAlignment(Qt::AlignTop);
+    setup_=controller_->alt_configured()?Setup::settings:Setup::role;
+    back_=new QPushButton("← Account type");back_->setObjectName("accounts-back");layout->addWidget(back_,0,Qt::AlignLeft);
     choose_role_=new QWidget;auto choose=new QVBoxLayout(choose_role_);choose->setContentsMargins(0,0,0,0);choose->setSpacing(12);
-    choose->addWidget(label("Connection is optional","section-heading"));
-    choose->addWidget(label("Configure this alt below and start with its own Gathering settings. Connect to a main when you want to follow its field, boosts or server."));
-    auto actions_offline=new QHBoxLayout;choose->addLayout(actions_offline);
-    host_=new QPushButton("Set up main…");join_=new QPushButton("Connect to main…");
-    actions_offline->addWidget(join_);actions_offline->addWidget(host_);actions_offline->addStretch();
-    host_->setObjectName("accounts-host");join_->setObjectName("accounts-join");
+    choose->addWidget(label("Which account is this?","section-heading"));
+    auto roles=new QHBoxLayout;roles->setSpacing(12);choose->addLayout(roles);
+    host_=card(roles,"Main account","Lead the group. Share your field, boosts and server with your alts.","Set up main…","accounts-host");
+    alt_=card(roles,"Alt account","Support your main or rotate Guiding Stars. Choose how this alt helps, then connect when you're ready.","Set up alt","accounts-alt");
     layout->addWidget(choose_role_);
-    connected_=new QWidget;auto connection=new QVBoxLayout(connected_);connection->setContentsMargins(0,0,0,0);connection->setSpacing(4);
+    choose_type_=new QWidget;auto types=new QVBoxLayout(choose_type_);types->setContentsMargins(0,0,0,0);types->setSpacing(12);
+    types->addWidget(label("How will this alt help?","section-heading"));
+    auto cards=new QHBoxLayout;cards->setSpacing(12);types->addLayout(cards);
+    support_=card(cards,"Support","Tadpole, Fuzzy or general support. Follow your main's field and boosts using this alt's own gathering settings.","Use Support","accounts-support");
+    guiding_=card(cards,"Guiding","Provide Guiding Stars. When the main rotates slots, stay until your star ends, then work in a public server while waiting.","Use Guiding","accounts-guiding");
+    types->addWidget(label("Both types keep their own patterns and task priorities. You can change the type later."));
+    layout->addWidget(choose_type_);
+    header_=new QWidget;auto connection=new QVBoxLayout(header_);connection->setContentsMargins(0,0,0,0);connection->setSpacing(4);
     connection->setAlignment(Qt::AlignTop);
-    auto actions=new QHBoxLayout;role_=label({},"heading");role_->setObjectName("accounts-role");actions->addWidget(role_,1);
-    copy_=new QPushButton("Copy connection code");leave_=new QPushButton("Disconnect group");retry_=new QPushButton("Try again");
+    auto identity=new QHBoxLayout;role_=label({},"heading");identity->addWidget(role_,1);
+    change_type_=new QPushButton("Change type");change_type_->setObjectName("accounts-change-type");identity->addWidget(change_type_);connection->addLayout(identity);
+    role_help_=label({});connection->addWidget(role_help_);
+    auto actions=new QHBoxLayout;
+    join_=new QPushButton("Connect to main…");join_->setObjectName("accounts-join");
+    copy_=new QPushButton("Copy connection code");leave_=new QPushButton("Disconnect");retry_=new QPushButton("Try again");
     copy_->setObjectName("accounts-copy");leave_->setObjectName("accounts-leave");retry_->setObjectName("accounts-retry");
-    actions->addWidget(retry_);actions->addWidget(copy_);actions->addWidget(leave_);connection->addLayout(actions);
-    role_help_=label({});connection->addWidget(role_help_);layout->addWidget(connected_);
+    actions->addWidget(join_);actions->addWidget(copy_);actions->addWidget(retry_);actions->addWidget(leave_);actions->addStretch();connection->addLayout(actions);
+    layout->addWidget(header_);
     status_=label({},"accounts-status");layout->addWidget(status_);
     tabs_=new QTabWidget;tabs_->setObjectName("accounts-tabs");layout->addWidget(tabs_);
     auto settings=new QWidget;auto settings_layout=new QVBoxLayout(settings);settings_layout->setContentsMargins(0,8,0,0);settings_layout->setSpacing(12);
     settings_layout->setAlignment(Qt::AlignTop);
-    for(const auto* id:{"purpose","following","tasks","allowed","shared"}) if(const auto section=sections.find(id);section!=sections.end()) settings_layout->addWidget(section->second);
+    if(const auto purpose=sections.find("purpose");purpose!=sections.end()) {
+        purpose->second->setParent(this);purpose->second->hide();
+        alt_type_=dynamic_cast<ChoiceControl*>(purpose->second->findChild<QWidget*>("alt-type"));
+        if(alt_type_) {
+            const auto save=alt_type_->changed;
+            alt_type_->changed=[this,save] { if(save) save();refresh(); };
+        }
+    }
+    for(const auto* id:{"following","tasks","allowed","shared"}) if(const auto section=sections.find(id);section!=sections.end()) settings_layout->addWidget(section->second);
     if (sections.contains("following") && sections.contains("tasks") && sections.contains("allowed")) {
         if (auto mode=sections.at("following")->findChild<QComboBox*>()) {
             const auto update=[this,mode,tasks=sections.at("tasks"),allowed=sections.at("allowed")] {
@@ -86,10 +126,25 @@ Page::Page(std::shared_ptr<Controller> controller,QWidget* parent,const std::map
     connect(tabs_,&QTabWidget::currentChanged,this,[this] { QTimer::singleShot(0,this,[this] { fit_tabs(); }); });
     auto refresh_timer=new QTimer(this);refresh_timer->setInterval(1000);connect(refresh_timer,&QTimer::timeout,this,[this] { refresh(); });refresh_timer->start();
     connect(host_,&QPushButton::clicked,this,[this] { setup(true); });connect(join_,&QPushButton::clicked,this,[this] { setup(false); });
+    connect(alt_,&QPushButton::clicked,this,[this] { type_back_=Setup::role;setup_=Setup::alt_type;refresh(); });
+    connect(change_type_,&QPushButton::clicked,this,[this] { type_back_=Setup::settings;setup_=Setup::alt_type;refresh(); });
+    connect(support_,&QPushButton::clicked,this,[this] { select_type("Support (Tad / Fuzzy)"); });
+    connect(guiding_,&QPushButton::clicked,this,[this] { select_type("Guiding"); });
+    connect(back_,&QPushButton::clicked,this,[this] {
+        setup_=setup_==Setup::alt_type?type_back_:Setup::role;refresh();
+    });
     connect(copy_,&QPushButton::clicked,this,[this] { QApplication::clipboard()->setText(controller_->invite()); });
     connect(retry_,&QPushButton::clicked,this,[this] { controller_->retry(); });
     connect(leave_,&QPushButton::clicked,this,[this] { controller_->leave(); });
     controller_->on_changed=[page=QPointer<Page>(this)] { if(page) page->refresh(); };refresh();
+}
+void Page::select_type(const std::string& type) {
+    if(!alt_type_ || !alt_type_->isEnabled()) return;
+    try {
+        controller_->configure_alt();
+        alt_type_->setValue(type);
+        setup_=Setup::settings;refresh();
+    } catch(const std::exception& error) { QMessageBox::warning(this,"Could not save alt setup",QString::fromUtf8(error.what())); }
 }
 void Page::refresh() {
     status_->setText(controller_->status());
@@ -120,13 +175,27 @@ void Page::refresh() {
     const auto role=controller_->role();const bool is_main=role==coordination::Role::host;
     if(auto rotation=findChild<QWidget*>("module-section-rotation")) rotation->setVisible(is_main);
     const bool connected=controller_->enabled() && controller_->joined() && role!=coordination::Role::offline;
-    choose_role_->setVisible(!connected);connected_->setVisible(connected);tabs_->setVisible(true);
-    role_->setText(QString("%1 · %2").arg(is_main?"Main account":"Alt account",controller_->name()));
-    role_help_->setText(is_main?"Your field, boosts and server lead this group. Share the connection code once with each alt.":"Connected automatically on future runs. Behavior settings below apply to this alt.");
+    if(role!=shown_role_) {
+        setup_=connected || shown_role_==coordination::Role::guest?Setup::settings:Setup::role;
+        tabs_->setCurrentIndex(is_main?1:0);shown_role_=role;
+    }
+    const bool settings=setup_==Setup::settings;
+    const bool guiding=alt_type_ && alt_type_->value()=="Guiding";
+    choose_role_->setVisible(setup_==Setup::role);choose_type_->setVisible(setup_==Setup::alt_type);
+    header_->setVisible(settings);tabs_->setVisible(settings);
+    back_->setVisible(setup_!=Setup::role && (!connected || !settings));
+    back_->setText(setup_==Setup::alt_type && type_back_==Setup::settings?"← Alt settings":"← Account type");
+    role_->setText(connected?QString("%1 · %2").arg(is_main?"Main account":guiding?"Guiding alt":"Support alt",controller_->name()):guiding?"Guiding alt":"Support alt");
+    role_help_->setText(is_main?"Share the connection code with your alts. Manage their server slots below.":
+        !connected?"Ready to run with your own settings. Connect to a main whenever you're ready to sync.":
+        guiding?"Slot rotation is managed by the main. This alt stays until its star ends and works in public servers while waiting.":
+        "Follow your main using this alt's own Gathering patterns and the options below.");
+    status_->setVisible(connected || controller_->joined() || !controller_->enabled());
+    change_type_->setVisible(!is_main);join_->setVisible(!connected);leave_->setVisible(connected);
     tabs_->setTabVisible(0,!is_main);tabs_->setTabVisible(1,connected);tabs_->tabBar()->setVisible(connected && !is_main);
-    if(role!=shown_role_) { tabs_->setCurrentIndex(is_main?1:0);shown_role_=role; }
     copy_->setVisible(is_main && !controller_->invite().isEmpty());retry_->setVisible(controller_->mapping_failed());
-    host_->setEnabled(controller_->enabled());join_->setEnabled(controller_->enabled());
+    host_->setEnabled(controller_->enabled());alt_->setEnabled(controller_->enabled());join_->setEnabled(controller_->enabled());
+    support_->setEnabled(alt_type_ && alt_type_->isEnabled());guiding_->setEnabled(support_->isEnabled());change_type_->setEnabled(support_->isEnabled());
     fit_tabs();
 }
 void Page::fit_tabs() {

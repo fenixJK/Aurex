@@ -17,6 +17,8 @@ Controller::Controller(Credentials credentials,coordination::RouterMapping route
 }
 Controller::~Controller() { on_changed={};connection_.on_changed={};discord_.on_changed={};discord_.on_message={};disable(); }
 void Controller::changed() { if(on_changed) on_changed(); }
+bool Controller::alt_configured() const { return credentials_.read("alt-configured")=="true"; }
+void Controller::configure_alt() { credentials_.write("alt-configured","true");changed(); }
 QString Controller::status() const { return !enabled_?"Enable Alt Sync to connect accounts.":!issue_.isEmpty()?issue_:!joined_?"No main connected · using this account's Gathering settings":(discord_mode_?discord_.status():connection_.status()); }
 void Controller::enable() {
     if(enabled_) return;
