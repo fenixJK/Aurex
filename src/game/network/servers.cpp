@@ -11,7 +11,7 @@
 #include <mutex>
 #include <random>
 
-namespace hive::features::vichop {
+namespace hive::game {
 namespace {
 class PublicServers final : public ServerDirectory {
     QNetworkAccessManager network_;

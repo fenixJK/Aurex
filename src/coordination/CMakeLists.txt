@@ -1,4 +1,4 @@
-add_library(hive_coordination state.cpp)
+add_library(hive_coordination state.cpp rotation.cpp)
 target_link_libraries(hive_coordination PUBLIC hive_core)
 if(HIVE_BUILD_DESKTOP)
   include("${PROJECT_SOURCE_DIR}/cmake/RouterMapping.cmake")

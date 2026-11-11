@@ -19,7 +19,7 @@ class Controller {
     bool discord_mode_{};
     bool enabled_{},joined_{};
     coordination::Role role_{coordination::Role::offline};
-    QString issue_,name_,server_,epoch_;
+    QString issue_,name_,server_,epoch_,account_id_;
     void activate(QJsonObject config,bool save);
     void changed();
 public:
@@ -31,6 +31,7 @@ public:
     void host(QString name,QString address,quint16 port,QString server={},HostNetwork network=HostNetwork::internet,QString network_id={});
     const QString& server() const { return server_; }
     const QString& epoch() const { return epoch_; }
+    const QString& account_id() const { return account_id_; }
     std::function<QString()> suggested_server;
     void join(QString name,QString invite,QString discord_token={});
     void host_discord(QString name,QString channel,QString bot_token,QString server={});

@@ -1,6 +1,7 @@
 #include "observations.hpp"
 #include "game/detection/buffs.hpp"
 #include "game/detection/field_boosts.hpp"
+#include "game/detection/guiding.hpp"
 #include "game/detection/movement_buffs.hpp"
 #include "game/detection/honey.hpp"
 #include "game/detection/nectar.hpp"
@@ -65,6 +66,7 @@ std::vector<game::DetectorConfig> game_detectors(std::shared_ptr<game::Inventory
         {"daylight",hive::game::daylight_detector(),hive::Time(100),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::controls},
         {"item-menu",hive::game::item_menu_detector(),hive::Time(750),hive::game::DetectionMode::text,true},
         {"buff-upkeep",hive::game::buff_detector(),hive::Time(6000),hive::game::DetectionMode::pixels},
+        {"guiding-activation",hive::game::guiding_detector(),hive::Time(750),hive::game::DetectionMode::text},
         {"field-boosts",hive::game::field_boost_detector(),hive::Time(1000),hive::game::DetectionMode::pixels},
         {"movement-buffs",hive::game::movement_buff_detector(),hive::Time(100),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::responsive},
         {"respawn-menu",hive::game::respawn_detector(),hive::Time(100),hive::game::DetectionMode::pixels,true,hive::game::DetectionPriority::controls},

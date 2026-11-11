@@ -38,7 +38,10 @@ struct Requests {
     RequestChannels channels;
 };
 struct ServerGoal { game::JoinTarget target; std::string key; Time expires; bool interrupt{true}; };
-struct ServerSession { std::string configured_target,joined_request; };
+struct ServerSession {
+    std::string configured_target,joined_request,joined_target;
+    std::uint64_t join_revision{}; // Client launches only; camera/window recovery does not change this.
+};
 std::string server_request_key(const std::string& owner,const std::string& id,const std::string& epoch,const std::string& target);
 std::optional<ServerGoal> server_goal(const RequestInbox& inbox,Time now,std::uint64_t generation);
 RequestContracts game_request_contracts();

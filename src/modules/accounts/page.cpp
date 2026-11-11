@@ -33,21 +33,17 @@ Page::Page(std::shared_ptr<Controller> controller,QWidget* parent,const std::map
     auto layout=new QVBoxLayout(this);layout->setContentsMargins(0,4,0,0);layout->setSpacing(10);
     layout->setAlignment(Qt::AlignTop);
     choose_role_=new QWidget;auto choose=new QVBoxLayout(choose_role_);choose->setContentsMargins(0,0,0,0);choose->setSpacing(12);
-    choose->addWidget(label("Which account is this?","section-heading"));
-    auto cards=new QHBoxLayout;cards->setSpacing(12);choose->addLayout(cards);
-    const auto card=[&](const QString& title,const QString& description) {
-        auto panel=new QWidget;panel->setObjectName("card");auto body=new QVBoxLayout(panel);body->setContentsMargins(14,14,14,14);body->setSpacing(10);
-        body->addWidget(label(title,"heading"));body->addWidget(label(description),1);
-        auto button=new QPushButton("Set up "+title.toLower()+"…");body->addWidget(button);cards->addWidget(panel,1);return button;
-    };
-    host_=card("Main account","Lead the group. Share your gathering field, boosts and server with your alts.");
-    join_=card("Alt account","Follow a main account. Connect using the invite copied from its Alt Sync page.");
+    choose->addWidget(label("Connection is optional","section-heading"));
+    choose->addWidget(label("Configure this alt below and start with its own Gathering settings. Connect to a main when you want to follow its field, boosts or server."));
+    auto actions_offline=new QHBoxLayout;choose->addLayout(actions_offline);
+    host_=new QPushButton("Set up main…");join_=new QPushButton("Connect to main…");
+    actions_offline->addWidget(join_);actions_offline->addWidget(host_);actions_offline->addStretch();
     host_->setObjectName("accounts-host");join_->setObjectName("accounts-join");
-    choose->addWidget(label("Set up the main first, then paste its invite on each alt. Connections work across Mac and Windows."));layout->addWidget(choose_role_);
+    layout->addWidget(choose_role_);
     connected_=new QWidget;auto connection=new QVBoxLayout(connected_);connection->setContentsMargins(0,0,0,0);connection->setSpacing(4);
     connection->setAlignment(Qt::AlignTop);
     auto actions=new QHBoxLayout;role_=label({},"heading");role_->setObjectName("accounts-role");actions->addWidget(role_,1);
-    copy_=new QPushButton("Copy invite");leave_=new QPushButton("Leave group");retry_=new QPushButton("Try again");
+    copy_=new QPushButton("Copy connection code");leave_=new QPushButton("Disconnect group");retry_=new QPushButton("Try again");
     copy_->setObjectName("accounts-copy");leave_->setObjectName("accounts-leave");retry_->setObjectName("accounts-retry");
     actions->addWidget(retry_);actions->addWidget(copy_);actions->addWidget(leave_);connection->addLayout(actions);
     role_help_=label({});connection->addWidget(role_help_);layout->addWidget(connected_);
@@ -55,20 +51,30 @@ Page::Page(std::shared_ptr<Controller> controller,QWidget* parent,const std::map
     tabs_=new QTabWidget;tabs_->setObjectName("accounts-tabs");layout->addWidget(tabs_);
     auto settings=new QWidget;auto settings_layout=new QVBoxLayout(settings);settings_layout->setContentsMargins(0,8,0,0);settings_layout->setSpacing(12);
     settings_layout->setAlignment(Qt::AlignTop);
-    for(const auto* id:{"following","tasks","allowed","shared"}) if(const auto section=sections.find(id);section!=sections.end()) settings_layout->addWidget(section->second);
+    for(const auto* id:{"purpose","following","tasks","allowed","shared"}) if(const auto section=sections.find(id);section!=sections.end()) settings_layout->addWidget(section->second);
     if (sections.contains("following") && sections.contains("tasks") && sections.contains("allowed")) {
         if (auto mode=sections.at("following")->findChild<QComboBox*>()) {
-            const auto update=[mode,tasks=sections.at("tasks"),allowed=sections.at("allowed")] {
+            const auto update=[this,mode,tasks=sections.at("tasks"),allowed=sections.at("allowed")] {
                 const bool following=mode->currentText()!="Own field rotation";
                 tasks->setEnabled(following);allowed->setEnabled(following);
+                bool selected=false;
+                for(const auto* button:tasks->findChildren<QPushButton*>())
+                    if(button->text()=="Only selected tasks") selected=button->isChecked();
+                allowed->setVisible(following && selected);
+                QTimer::singleShot(0,this,[this] { fit_tabs(); });
             };
+            for(auto* button:sections.at("tasks")->findChildren<QPushButton*>()) connect(button,&QPushButton::toggled,this,update);
             connect(mode,&QComboBox::currentTextChanged,this,update);update();
         }
     }
     settings_layout->addWidget(label("Uses this alt's Gathering patterns. For items during the main's boost, choose a Main's boost rule in Boosting → Hotbar."));
-    tabs_->addTab(settings,"Alt settings");
+    tabs_->addTab(settings,"Behavior");
     auto group=new QWidget;auto group_layout=new QVBoxLayout(group);group_layout->setContentsMargins(0,8,0,0);group_layout->setSpacing(8);
     group_layout->setAlignment(Qt::AlignTop);
+    if(const auto rotation=sections.find("rotation");rotation!=sections.end()) {
+        group_layout->addWidget(rotation->second);
+        rotation->second->layout()->addWidget(label("Guiding alts hold their slot until their own star ends. Waiting alts work in public servers; the next joins after the previous alt leaves. Spare slots keep alts together."));
+    }
     boost_=label({},"accounts-main-boost");group_layout->addWidget(boost_);
     members_=new QTableWidget(0,5);members_->setObjectName("accounts-members");
     members_->setHorizontalHeaderLabels({"Account","Role","Current field","Following","Activity"});
@@ -103,8 +109,8 @@ void Page::refresh() {
     for (int row=0;row<int(group.peers.size());++row) {
         const auto& peer=group.peers[row];const auto field=value(peer,"activity","field");
         const auto following=peer.host?QString{}:value(peer,"support","field");
-        const QStringList cells{QString::fromStdString(peer.name),peer.host?"Main":"Alt",field.isEmpty()?"—":field,
-            following.isEmpty()?"—":following,value(peer,"activity","label")};
+        const QStringList cells{QString::fromStdString(peer.name),peer.host?"Main":value(peer,"alt","type").isEmpty()?"Alt":value(peer,"alt","type"),field.isEmpty()?"—":field,
+            following.isEmpty()?"—":following,value(peer,"alt","status").isEmpty()?value(peer,"activity","label"):value(peer,"alt","status")};
         for(int col=0;col<cells.size();++col) {
             auto* item=members_->item(row,col);if(!item) { item=new QTableWidgetItem;members_->setItem(row,col,item); }
             item->setText(cells[col]);item->setToolTip(cells[col]);
@@ -112,11 +118,12 @@ void Page::refresh() {
     }
     members_->setFixedHeight(30*std::clamp(int(group.peers.size()),1,6)+members_->horizontalHeader()->height()+4);
     const auto role=controller_->role();const bool is_main=role==coordination::Role::host;
+    if(auto rotation=findChild<QWidget*>("module-section-rotation")) rotation->setVisible(is_main);
     const bool connected=controller_->enabled() && controller_->joined() && role!=coordination::Role::offline;
-    choose_role_->setVisible(!connected);connected_->setVisible(connected);tabs_->setVisible(connected);
+    choose_role_->setVisible(!connected);connected_->setVisible(connected);tabs_->setVisible(true);
     role_->setText(QString("%1 · %2").arg(is_main?"Main account":"Alt account",controller_->name()));
-    role_help_->setText(is_main?"Your field and boosts lead this group. Copy the invite to connect your alts.":"Choose how this alt gathers and which other tasks it runs.");
-    tabs_->setTabVisible(0,!is_main);tabs_->tabBar()->setVisible(!is_main);
+    role_help_->setText(is_main?"Your field, boosts and server lead this group. Share the connection code once with each alt.":"Connected automatically on future runs. Behavior settings below apply to this alt.");
+    tabs_->setTabVisible(0,!is_main);tabs_->setTabVisible(1,connected);tabs_->tabBar()->setVisible(connected && !is_main);
     if(role!=shown_role_) { tabs_->setCurrentIndex(is_main?1:0);shown_role_=role; }
     copy_->setVisible(is_main && !controller_->invite().isEmpty());retry_->setVisible(controller_->mapping_failed());
     host_->setEnabled(controller_->enabled());join_->setEnabled(controller_->enabled());
@@ -133,7 +140,7 @@ void Page::setup(bool host) {
     auto layout=new QVBoxLayout(dialog);auto form=new QFormLayout;layout->addLayout(form);
     auto name=new QLineEdit(controller_->name());name->setMaxLength(32);form->addRow("Account name",name);
     auto address=new QLineEdit;address->setObjectName("accounts-address");address->setMaxLength(host?512:4096);
-    address->setPlaceholderText(host?"Automatic":"Paste the main account’s invite");
+    address->setPlaceholderText(host?"Automatic":"Paste the main account’s connection code");
     QRadioButton *local=nullptr,*internet=nullptr,*discord=nullptr;
     QLineEdit* server=nullptr;
     if(host) {
@@ -145,7 +152,7 @@ void Page::setup(bool host) {
         server=new QLineEdit(controller_->suggested_server?controller_->suggested_server():QString{});
         server->setObjectName("accounts-server");server->setMaxLength(2048);server->setPlaceholderText("Private server link or Roblox user ID (optional)");
         form->addRow("Roblox server",server);
-    } else form->addRow("Invite",address);
+    } else form->addRow("Connection code",address);
     auto channel=new QLineEdit;channel->setObjectName("accounts-discord-channel");channel->setMaxLength(20);
     channel->setPlaceholderText("Dedicated text channel ID");form->addRow("Discord channel",channel);form->setRowVisible(channel,false);
     auto token=new QLineEdit;token->setObjectName("accounts-discord-token");token->setMaxLength(256);token->setEchoMode(QLineEdit::Password);
@@ -173,8 +180,8 @@ void Page::setup(bool host) {
         }
         hint->setText(use_discord?
             "Use one bot and a dedicated private text channel for the group. The bot needs View Channel, Read Message History and Send Messages. Updates arrive every few seconds; each account keeps one message updated. Bot tokens stay on each computer and are not included in invites.":
-            !host?"Paste the invite from your main account’s Alt Sync page. After connecting, choose how this alt follows.":
-            local->isChecked()?"Connect computers on the same Wi-Fi or Ethernet network. Copy the invite to each alt; no router forwarding is needed.":
+            !host?"This pairs the alt with your main once. You can run and configure an alt without pairing; following a main requires a connection.":
+            local->isChecked()?"Connect computers on the same Wi-Fi or Ethernet network. Copy the connection code to each alt; no router forwarding is needed.":
             "Connect across the internet. Aurex requests a temporary router port while hosting. You can also supply a reachable address in Advanced.");
         if(dialog->isVisible())dialog->adjustSize();
     };

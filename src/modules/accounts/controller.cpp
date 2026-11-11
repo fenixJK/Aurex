@@ -17,11 +17,16 @@ Controller::Controller(Credentials credentials,coordination::RouterMapping route
 }
 Controller::~Controller() { on_changed={};connection_.on_changed={};discord_.on_changed={};discord_.on_message={};disable(); }
 void Controller::changed() { if(on_changed) on_changed(); }
-QString Controller::status() const { return !enabled_?"Enable Alt Sync to host or join a group.":!issue_.isEmpty()?issue_:(discord_mode_?discord_.status():connection_.status()); }
+QString Controller::status() const { return !enabled_?"Enable Alt Sync to connect accounts.":!issue_.isEmpty()?issue_:!joined_?"No main connected · using this account's Gathering settings":(discord_mode_?discord_.status():connection_.status()); }
 void Controller::enable() {
     if(enabled_) return;
     enabled_=true;issue_.clear();
     try {
+        account_id_=credentials_.read("account-id");
+        if (QUuid(account_id_).isNull()) {
+            account_id_=QUuid::createUuid().toString(QUuid::WithoutBraces);
+            credentials_.write("account-id",account_id_);
+        }
         const auto saved=credentials_.read("group");
         if(!saved.isEmpty()) {
             auto config=QJsonDocument::fromJson(saved.toUtf8()).object();

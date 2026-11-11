@@ -1,5 +1,5 @@
 #pragma once
-#include "servers.hpp"
+#include "game/network/servers.hpp"
 #include "modules/combat/plan.hpp"
 #include "core/module_host/module.hpp"
 #include <mutex>
@@ -11,7 +11,7 @@ struct Services {
     automation::ProgramFactory prepare,home;
     movement::Source movement;
     std::shared_ptr<const game::DetectionSource> daylight;
-    std::shared_ptr<ServerDirectory> servers;
+    std::shared_ptr<game::ServerDirectory> servers;
     automation::ProgramFactory arrival,joined_setup;
     std::function<void(const ObservationContext&)> confirmed;
     automation::ProgramFactory spawn_setup;

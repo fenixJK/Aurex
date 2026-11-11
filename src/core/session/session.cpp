@@ -134,7 +134,7 @@ SessionSnapshot Session::snapshot() {
     SessionSnapshot result{runtime_.status(),monotonic_now(),tasks_.generation(),{},pause_requests_,session_id_,active_window_};
     if (feature_) { result.feature=feature_->progress(); result.feature->module_id=feature_id_; }
     result.recovery=*recovery_counts_;
-    result.server={rejoin_target_?rejoin_target_->uri():std::string{},joined_server_};
+    result.server={rejoin_target_?rejoin_target_->uri():std::string{},joined_server_,joined_target_,join_revision_};
     result.reconnecting=client_rejoin_.has_value() || reconnect_windows_.has_value() || window_recovery_.has_value() || view_recovery_.has_value() || recovery_counts_->disconnected;
     result.restoring_window=view_recovery_.has_value();
     return result;

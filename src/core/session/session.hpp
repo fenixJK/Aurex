@@ -98,7 +98,8 @@ private:
     std::optional<std::pair<Window,Time>> initial_join_;
     std::shared_ptr<const game::RequestSource> server_requests_;
     std::optional<game::ServerGoal> requested_server_;
-    std::string joined_server_,joining_server_;
+    std::string joined_server_,joining_server_,joined_target_,joining_target_;
+    std::uint64_t join_revision_{};
     Time next_server_read_{};
     RejoinSchedule rejoin_schedule_;
     static Time wall_time() { return std::chrono::duration_cast<Time>(std::chrono::system_clock::now().time_since_epoch()); }

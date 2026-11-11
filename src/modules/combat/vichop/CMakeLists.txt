@@ -1,6 +1,2 @@
 add_library(hive_vichop hop.cpp)
 target_link_libraries(hive_vichop PUBLIC hive_combat hive_module_api)
-if(HIVE_BUILD_DESKTOP)
-  add_library(hive_public_servers servers.cpp)
-  target_link_libraries(hive_public_servers PUBLIC hive_game PRIVATE Qt6::Network)
-endif()

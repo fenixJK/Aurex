@@ -2,9 +2,11 @@
 #include "controller.hpp"
 #include "core/module_host/module.hpp"
 #include "game/detection/field_boosts.hpp"
+#include "game/network/servers.hpp"
 
 namespace hive::features::accounts {
 extensions::Manifest module_manifest();
 Settings migrate_settings(int version,Settings settings);
-extensions::Factory module_factory(std::shared_ptr<Controller> controller,std::shared_ptr<const game::DetectionSource> boosts={});
+extensions::Factory module_factory(std::shared_ptr<Controller> controller,std::shared_ptr<const game::DetectionSource> boosts={},
+    std::shared_ptr<const game::DetectionSource> guiding={},std::shared_ptr<game::ServerDirectory> servers={});
 }

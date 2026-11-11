@@ -110,13 +110,15 @@ ClientRejoin Session::connect_client(Time now,Window replace) {
     if(state==RunState::running || state==RunState::paused) throw std::logic_error("Stop before opening a new client");
     read_server_request(now); const auto target=rejoin_target(now);
     if(!target || !desktop_.client_lifecycle_available()) throw std::runtime_error("Automatic game launch is unavailable");
-    if(requested_server_ && requested_server_->expires>now) joined_server_=requested_server_->key;
+    joining_server_=requested_server_ && requested_server_->expires>now?requested_server_->key:std::string{};
+    joining_target_=target->uri();
     return ClientRejoin(*target,std::move(replace),desktop_.client_processes(),now);
 }
 void Session::client_joined(const Window& window,Time now) {
     std::lock_guard lock(mutex_);
     if (!window.id || !window.process || !window.bounds.valid()) throw std::invalid_argument("Joined client needs a valid window");
     initial_join_=std::pair{window,now};
+    joined_server_=std::exchange(joining_server_,{});joined_target_=std::exchange(joining_target_,{});++join_revision_;
 }
 bool Session::begin_window_recovery(Time now) {
     if (!feature_ || !reconnect_windows_ || !active_window_.process || !feature_->suspend_window(now)) return false;
@@ -139,6 +141,7 @@ bool Session::begin_client_rejoin(Time now,bool requested) {
     observer_.stop(); runtime_.stop("Preparing Roblox rejoin");
     if (runtime_.status().state==RunState::faulted) throw std::runtime_error("Could not release input before relaunching Roblox");
     joining_server_=requested_server_ && requested_server_->expires>now?requested_server_->key:std::string{};
+    joining_target_=target->uri();
     rejoin_schedule_.arm(wall_time());
     const RejoinLimits limits;
     client_rejoin_.emplace(*target,active_window_,desktop_.client_processes(),now,limits,
@@ -187,7 +190,9 @@ void Session::adopt_window(const Window& window,Time now) {
     feature_->replace_window({window,tasks_.generation(),now},*feature_scope_);
     active_window_=window; window_id_=active_window_.id;
     view_recovery_.reset();
-    if (client_rejoin_) joined_server_=std::exchange(joining_server_,{});
+    if (client_rejoin_) {
+        joined_server_=std::exchange(joining_server_,{});joined_target_=std::exchange(joining_target_,{});++join_revision_;
+    }
     window_recovery_.reset(); reconnect_windows_.reset(); client_rejoin_.reset();
     if (feature_->progress().state!=automation::State::running) { runtime_.stop(feature_->progress().message); return; }
     observer_.watch({active_window_,tasks_.generation(),now},observation_needs());

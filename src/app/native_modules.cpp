@@ -160,7 +160,7 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
 void register_native_modules(extensions::Host& host,const NativeModules& modules) {
     const auto navigation=modules.navigation;
     if (modules.boosting) modules.boosting->main_boost(modules.accounts?modules.accounts->main_boost():nullptr);
-    if(modules.accounts) add(host,features::accounts::module_manifest(),features::accounts::module_factory(modules.accounts,modules.field_boosts),Requirements{},features::accounts::migrate_settings);
+    if(modules.accounts) add(host,features::accounts::module_manifest(),features::accounts::module_factory(modules.accounts,modules.field_boosts,modules.guiding,game::public_servers()),Requirements{},features::accounts::migrate_settings);
     add(host,features::tools::module_manifest(),features::tools::module_factory(modules.collection.inventory),Requirements{},
         [](int,Settings settings) {
             settings.erase("ssa-delay");
@@ -301,7 +301,7 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
         if (enemy!=plan.enemies.end()) services.enemy=*enemy;
         services.speed=plan.config.speed; services.prepare=plan.setup; services.home=plan.recovery;
         services.movement=plan.movement; services.daylight=modules.collection.daylight;
-        services.servers=features::vichop::public_servers();
+        services.servers=game::public_servers();
         services.arrival=modules.combat.arrival; services.joined_setup=modules.combat.joined_setup;
         services.spawn_setup=modules.combat.spawn_setup;
         auto manifest=features::combat::module_manifest(service.configuration?*service.configuration:service.plan,"hive.native-combat","native-combat",true);

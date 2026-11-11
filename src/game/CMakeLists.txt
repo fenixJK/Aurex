@@ -37,6 +37,7 @@ add_library(hive_game
   detection/buff_bar.cpp
   detection/movement_buffs.cpp
   detection/buffs.cpp
+  detection/guiding.cpp
   detection/field_boosts.cpp
   detection/buff_stack.cpp
   detection/buff_catalog.cpp
@@ -53,3 +54,8 @@ add_library(hive_game
 target_link_libraries(hive_game PUBLIC hive_core PRIVATE ${OpenCV_LIBS})
 target_link_libraries(hive_game PUBLIC Threads::Threads)
 target_include_directories(hive_game SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+
+if(HIVE_BUILD_DESKTOP)
+  add_library(hive_public_servers network/servers.cpp)
+  target_link_libraries(hive_public_servers PUBLIC hive_game PRIVATE Qt6::Network)
+endif()
