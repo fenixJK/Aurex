@@ -36,7 +36,7 @@ public:
         :manifest_(std::move(manifest)),controller_(std::move(controller)),boosts_(std::move(boosts)),guiding_(std::move(guiding),std::move(servers)) {}
     void start(const Settings& settings) override {
         extensions::validate_settings(manifest_,settings);
-        guiding_.guiding=std::get<std::string>(settings.at("alt-type"))=="Guiding";
+        guiding_.guiding=std::get<bool>(settings.at("rotational"));
         guiding_.enabled=std::get<bool>(settings.at("guiding-rotation"));
         guiding_.slot_limit=unsigned(std::get<int>(settings.at("guiding-slots")));
         guiding_.reserved=unsigned(std::get<int>(settings.at("reserved-slots")));
@@ -163,7 +163,7 @@ public:
     std::vector<extensions::Metric> metrics() const override {
         std::vector<extensions::Metric> result{{"Connection",controller_->status().toStdString()}};
         if(!following_.empty()) result.push_back({"Following",following_});
-        if(!guiding_.status().empty()) result.push_back({"Guiding",guiding_.status()});
+        if(!guiding_.status().empty()) result.push_back({"Rotation",guiding_.status()});
         if(role_==coordination::Role::host) result.push_back({"Server",controller_->server().isEmpty()?"Not shared":"Shared with group"});
         else if(role_==coordination::Role::guest && join_) result.push_back({"Server",requests_.channels.contains(extensions::RequestService::servers)?"Following host server":"Host has not shared a server"});
         return result;
@@ -176,7 +176,7 @@ public:
 };
 }
 extensions::Manifest module_manifest() {
-    extensions::Manifest result;result.id="hive.native-accounts";result.provider="native-accounts";result.presets=false;result.name="Alt Sync";result.settings_version=4;result.version="1.0.0";
+    extensions::Manifest result;result.id="hive.native-accounts";result.provider="native-accounts";result.presets=false;result.name="Alt Sync";result.settings_version=5;result.version="1.0.0";
     result.description="Choose a main account to lead, then connect alts that follow its field and boosts.";
     result.requests={extensions::RequestService::fields,extensions::RequestService::enemies,extensions::RequestService::servers};
     result.settings={{"follow-mode","Gather in",std::string("Main's field"),0,0,{"Main's field","Main's boosted field","Own field rotation"}},
@@ -192,18 +192,18 @@ extensions::Manifest module_manifest() {
     result.settings.back().help="While following, either keep your normal task schedule or allow only the tasks selected below. Conversion still runs.";
     result.settings.push_back({"allowed-work","Tasks allowed while following",SettingSelection{"Combat"},0,0,{"Collection","Planters","Quests","Combat","Boosting"}});
     result.settings.back().enabled_by="other-tasks";result.settings.back().enabled_values={"Only selected tasks"};result.settings.back().inline_choices=true;
-    result.settings.push_back({"alt-type","Alt type",std::string("Support (Tad / Fuzzy)"),0,0,{"Support (Tad / Fuzzy)","Guiding"}});
-    result.settings.back().help="Support uses the following options below. Guiding also participates in the main’s slot rotation when enabled; your Gathering patterns and priorities remain configurable.";
-    result.settings.push_back({"guiding-rotation","Rotate Guiding alts",false});
-    result.settings.back().help="Main account only. Keep each alt until its own star ends, then give a waiting Guiding alt the slot. Waiting alts work in public servers. A missing connection never counts as a freed slot.";
-    result.settings.push_back({"guiding-slots","Maximum Guiding slots",5,1,5});
+    result.settings.push_back({"rotational","Rotational",false});
+    result.settings.back().help="Take turns in the main's server when rotation is enabled there. Stay until this alt's Guiding Star ends, then run normal priorities in a public server while waiting. Leave off to keep this alt with the main.";
+    result.settings.push_back({"guiding-rotation","Rotate alts",false});
+    result.settings.back().help="Main account only. Keep each rotational alt until its own Guiding Star ends, then give a waiting alt the slot. Waiting alts work in public servers. A missing connection never counts as a freed slot.";
+    result.settings.push_back({"guiding-slots","Maximum rotation slots",5,1,5});
     result.settings.back().enabled_by="guiding-rotation";
-    result.settings.back().help="Maximum Guiding alts with the main. Aurex also reserves space for the main and connected support alts; the server limit is six.";
+    result.settings.back().help="Maximum rotational alts with the main. Aurex also reserves space for the main and connected non-rotational alts; the server limit is six.";
     result.settings.push_back({"reserved-slots","Other reserved slots",0,0,5});
     result.settings.back().enabled_by="guiding-rotation";
-    result.settings.back().help="Reserve room for friends or accounts outside this group. Do not count the main or connected support alts again.";
-    result.page=extensions::PageLayout{{{"purpose","This alt",{},{"alt-type"},false,1},
-        {"rotation","Guiding rotation",{},{"guiding-rotation","guiding-slots","reserved-slots"},false,2},
+    result.settings.back().help="Reserve room for friends or accounts outside this group. Do not count the main or connected non-rotational alts again.";
+    result.page=extensions::PageLayout{{{"purpose","This alt",{},{"rotational"},false,1},
+        {"rotation","Alt rotation",{},{"guiding-rotation","guiding-slots","reserved-slots"},false,2},
         {"following","Gathering",{},{"follow-mode","interrupt-gather","main-unavailable"},false,2},
         {"tasks","Other tasks",{},{"other-tasks"},false,1},
         {"allowed","Tasks allowed while following",{},{"allowed-work"},false,3},
@@ -212,7 +212,10 @@ extensions::Manifest module_manifest() {
     return result;
 }
 Settings migrate_settings(int version,Settings settings) {
-    if (version<1 || version>3) throw std::invalid_argument("Unknown previous Alt Sync settings version");
+    if (version<1 || version>4) throw std::invalid_argument("Unknown previous Alt Sync settings version");
+    if (const auto old=settings.find("alt-type");old!=settings.end()) {
+        settings["rotational"]=std::get<std::string>(old->second)=="Guiding";settings.erase(old);
+    }
     if (const auto old=settings.find("follow-host");old!=settings.end()) {
         settings["follow-mode"]=std::string(std::get<bool>(old->second)?"Follow main":"Independent");settings.erase(old);
     }

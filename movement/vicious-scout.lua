@@ -31,7 +31,8 @@ return function(p)
         assert(#held==0);flush()
         while n>0 do
             local count=math.min(8,n)
-            path[#path+1]={kind="turn",key=k,count=count,press=50,release=20}
+            -- Use the same key holds and settling policy as other camera work.
+            path[#path+1]={kind="turn",key=k,count=count}
             n=n-count
         end
     end
@@ -51,12 +52,13 @@ return function(p)
         pose[1]=n
     end
     local function zoom(n) camera("zoom_out",n) end
-    local function scout_camera(zoomed)
-        -- FixRot in the source establishes pitch/zoom before spawnToPepper
-        -- enables shift lock. Keep that order, including a neutral pointer.
+    local function view(n,down,distance,reset_zoom)
+        -- Match the initial alignment: close sidebars through the shared
+        -- camera runner and adjust the view unlocked before walking again.
         flush();path[#path+1]={kind="shift_lock",enabled=false}
-        if not zoomed then camera("zoom_in",10) end
-        pitch(4);zoom(5)
+        if reset_zoom then camera("zoom_in",10) end
+        if n then pitch(n,down) end
+        if distance then zoom(distance) end
         path[#path+1]={kind="shift_lock",enabled=true}
     end
     if p.from=="hive" then
@@ -66,11 +68,11 @@ return function(p)
         walk(5,F)
         if p.slot~=3 then walk(9.2*math.abs(p.slot-3),p.slot>3 and R or L) end
         walk(21,B);flush()
-        scout_camera()
+        view(4,false,5,true)
     elseif p.from=="spawn-start" then
         -- Fresh joins already stand at the circuit's start. The shared spawn
         -- direction check supplies yaw; no hive claim or return walk is needed.
-        scout_camera(true)
+        view(4,false,5)
     elseif p.from=="spawn" then
         turn("rotate_right");held={F};hold(10);glide(700);glide(700);move(1.25)
         turn("rotate_right");move(2.25);held={}
@@ -81,28 +83,28 @@ return function(p)
         held={F};glide(650);move(2.5);jump(600);jump(400);turn("rotate_right");hold(200)
         glide(650);walk(.5,F);held={F};jump(100);move(2);turn("rotate_right");move(1)
         glide(650);move(2);turn("rotate_left",2);walk(3.25,F,R);walk(2.75,F)
-        jump(100);walk(2,F);walk(2,R);pitch(6);zoom(10)
+        jump(100);walk(2,F);walk(2,R);view(6,false,10)
     elseif p.from=="pepper" then
         turn("rotate_left",3);jump(200);walk(1.5,B,L);hold(200);glide(2875)
         turn("rotate_right");hold(550);tap_jump(700);flush()
         path[#path+1]={kind="marker",name="cannon"}
         hold(1800);glide(1000);tap_jump(1);turn("rotate_right")
         walk(5,B);walk(.5,F);hold(100);jump(250);walk(7,B);walk(5,B,L)
-        walk(2,R,F);walk(1,B,R);pitch(6,true);zoom(11)
+        walk(2,R,F);walk(1,B,R);view(6,true,11)
     elseif p.from=="mountaintop" then
-        pitch(6);walk(6,F,R);glide(700);turn("rotate_right");hold(2000)
+        view(6);walk(6,F,R);glide(700);turn("rotate_right");hold(2000)
         turn("rotate_right");hold(1500);turn("rotate_right");hold(550);tap_jump(750)
-        walk(3,F,L);walk(7,F);walk(3,B,R);walk(6,R);zoom(10)
+        walk(3,F,L);walk(7,F);walk(3,B,R);walk(6,R);view(nil,nil,10)
     elseif p.from=="spider" then
         walk(2,L);walk(2,F,L);walk(2,F);turn("rotate_right");jump(150);walk(2,F)
         held={F};move(5);glide(750);glide(750);move(6);jump(150);move(7)
         walk(7,F,L);hold(200);turn("rotate_left");walk(2,B,R);walk(4,B)
-        jump(200);walk(1,B);hold(450);pitch(6);zoom(10)
+        jump(200);walk(1,B);hold(450);view(6,false,10)
     elseif p.from=="cactus" then
         turn("rotate_left");glide(1000);walk(14,F);walk(5,F,L);jump(150)
         walk(12,F);walk(4,F,L);turn("rotate_left");hold(200);walk(8,B)
         -- Bound the original's keys held during/after camera adjustment.
-        held={B,R};hold(500);held={};pitch(5);zoom(11)
+        held={B,R};hold(500);held={};view(5,false,11)
     else error("Unknown Vicious scout segment") end
     held={};hold(1);flush()
     return path
