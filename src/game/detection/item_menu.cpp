@@ -42,7 +42,9 @@ std::vector<cv::Rect> panels(const Frame& frame) {
     for (int y=0;y<h;++y) for (int x=0;x<w;++x) {
         const auto i=(std::size_t(y*step)*frame.width+x*step)*4;
         const int r=frame.rgba[i],g=frame.rgba[i+1],b=frame.rgba[i+2];
-        blue.at<unsigned char>(y,x)=b>=80 && b>r*1.35 && b>g*1.15?255:0;
+        // Require the panel's blue chroma, not merely a blue hue. Dim scenery
+        // behind a modal must not merge with it and expand its input bounds.
+        blue.at<unsigned char>(y,x)=b>=80 && b-r>=60 && b-g>=40?255:0;
     }
     cv::morphologyEx(blue,blue,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_RECT,{3,3}));
     std::vector<std::vector<cv::Point>> contours;
