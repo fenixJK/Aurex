@@ -241,6 +241,9 @@ void Controller::abandon_unstarted_placement(std::uint64_t ticket,WallTime wall)
 }
 void Controller::reserve_unconfirmed() {
     if (!ledger_.pending) throw std::logic_error("No pending planter action to reserve");
+    // A confirmed result can still be pending if its save failed. Preserve
+    // that result instead of changing a successful harvest into a missing timer.
+    if (confirmed_at_) { finish(ledger_.pending->operation==Operation::place,*confirmed_at_); return; }
     auto next=ledger_;
     if (next.pending->operation==Operation::place) {
         auto plant=next.pending->plant; plant.missing=true;

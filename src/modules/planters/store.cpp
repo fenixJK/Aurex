@@ -9,6 +9,8 @@
 #include <QSaveFile>
 #include <charconv>
 #include <algorithm>
+#include <mutex>
+#include <thread>
 
 namespace hive::features::planters {
 namespace {
@@ -77,6 +79,9 @@ Plant decode(const QJsonValue& value,int version) {
 class FileStore final : public Store {
     QString path_;
     std::unique_ptr<QLockFile> lock_;
+    // QFile readers on Windows deny replacement until their handles close.
+    // Timer/report reads share this store with the planter worker.
+    mutable std::mutex mutex_;
 public:
     explicit FileStore(const std::filesystem::path& path) {
         path_=QFileInfo(path).filePath();
@@ -87,6 +92,7 @@ public:
         if (!lock_->tryLock(0)) throw std::runtime_error("Planter state is already in use or cannot be locked");
     }
     std::optional<Ledger> load() const override {
+        std::lock_guard guard(mutex_);
         QFileInfo info(path_);
         if (info.isSymLink()) throw std::runtime_error("Planter state cannot be a symbolic link");
         if (!info.exists()) return {};
@@ -145,6 +151,7 @@ public:
         validate(result); return result;
     }
     void save(const Ledger& ledger) override {
+        std::lock_guard guard(mutex_);
         validate(ledger);
         QJsonArray plants; for (const auto& plant : ledger.plants) plants.append(encode(plant));
         QJsonValue pending=QJsonValue::Null;
@@ -164,8 +171,30 @@ public:
             {"plants",plants},{"pending",pending},{"travel",travel},{"fields",fields},{"materials",materials},{"placementLimits",limits}}).toJson(QJsonDocument::Compact);
         if (bytes.size()>65536 || QFileInfo(path_).isSymLink() || !QDir().mkpath(QFileInfo(path_).absolutePath()))
             throw std::runtime_error("Cannot prepare planter state file");
-        QSaveFile file(path_); file.setDirectWriteFallback(false);
-        if (!file.open(QIODevice::WriteOnly) || file.write(bytes)!=bytes.size() || !file.commit()) throw std::runtime_error("Cannot save planter state atomically");
+        for (unsigned attempt=0;;++attempt) {
+            QFileDevice::FileError error;
+            QString detail;
+            const char* stage="creating the temporary file";
+            {
+                QSaveFile file(path_); file.setDirectWriteFallback(false);
+                if (file.open(QIODevice::WriteOnly)) {
+                    stage="writing the temporary file";
+                    if (file.write(bytes)==bytes.size()) {
+                        stage="replacing the saved file";
+                        if (file.commit()) return;
+                    }
+                }
+                error=file.error(); detail=file.errorString();
+            }
+            // A scanner or another reader can briefly block an atomic rename.
+            // Retry the same saved data, never the in-game placement/harvest.
+            if (error==QFileDevice::RenameError && attempt<2) {
+                std::this_thread::sleep_for(Time(50*(attempt+1)));
+                continue;
+            }
+            throw std::runtime_error("Cannot save planter timers while "+std::string(stage)+": "+detail.toStdString()
+                +". File: "+QDir::toNativeSeparators(path_).toStdString());
+        }
     }
 };
 }

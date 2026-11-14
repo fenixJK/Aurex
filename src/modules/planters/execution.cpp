@@ -626,15 +626,20 @@ public:
         }
     }
     void finished(State state) override {
-        // An inventory search can fail before the placement dialog is opened.
-        // Keep its slot free and defer only this equipment, not every placement.
-        if (state==State::failed && !harvest_ && phase_==Phase::acting && action_step_==1
-            && !steps_.empty() && std::holds_alternative<DragInventoryItem>(steps_.front()))
-            account_->defer_placement(selected_.planter,wall());
-        settle_action();
-        release(); std::lock_guard lock(results_->mutex_); auto& report=results_->report_; report.state=state;
+        std::exception_ptr error;
+        try {
+            // An inventory search can fail before the placement dialog is opened.
+            // Keep its slot free and defer only this equipment, not every placement.
+            if (state==State::failed && !harvest_ && phase_==Phase::acting && action_step_==1
+                && !steps_.empty() && std::holds_alternative<DragInventoryItem>(steps_.front()))
+                account_->defer_placement(selected_.planter,wall());
+            settle_action();
+        } catch (...) { error=std::current_exception(); state=State::failed; }
+        release();
+        std::lock_guard lock(results_->mutex_); auto& report=results_->report_; report.state=state;
         if (controller_) { report.pending=controller_->ledger().pending;
             report.growing=std::count_if(controller_->ledger().plants.begin(),controller_->ledger().plants.end(),[](const Plant& plant) { return !plant.missing; }); }
+        if (error) std::rethrow_exception(error);
     }
 };
 ExecutionRun program(ExecutionPlan plan,std::shared_ptr<const game::RouteNetwork> network,std::shared_ptr<Account> account,
