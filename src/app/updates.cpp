@@ -14,6 +14,7 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QToolButton>
+#include <utility>
 
 namespace hive::app {
 namespace {
@@ -45,6 +46,15 @@ QWidget* Updates::version_row() {
     auto row=new QWidget(window_); auto layout=new QHBoxLayout(row); layout->setContentsMargins(0,0,0,0); layout->setSpacing(0);
     layout->addWidget(version_); layout->addWidget(update_); layout->addStretch(); return row;
 }
+void Updates::install_remotely(std::function<void()> stop,Completion completion) {
+    if (reply_ || installing()) { completion("An update check or installation is already in progress. Try again shortly.",{}); return; }
+    remote_stop_=std::move(stop); remote_result_=std::move(completion);
+    check(false);
+}
+void Updates::finish_remote(QString message,std::function<void()> continuation) {
+    auto completion=std::exchange(remote_result_,{}); remote_stop_={};
+    if (completion) completion(std::move(message),std::move(continuation));
+}
 void Updates::check(bool manual) {
     if (reply_ || installing_) return;
     version_->setEnabled(false);
@@ -61,20 +71,29 @@ void Updates::check(bool manual) {
         try {
             if (reply->error()!=QNetworkReply::NoError || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()!=200)
                 throw std::runtime_error("Could not check for updates. Try again later using the version number.");
-            release_=updates::newer_release(*bytes,QCoreApplication::applicationVersion(),updates::platform());
+            release_=updates::newer_release(*bytes,QCoreApplication::applicationVersion(),updates::platform(),!remote_result_);
             update_->setText(release_ && release_->prerelease?"Beta":"Update");
             update_->setVisible(release_.has_value());
             version_->setToolTip(release_?"Update to v"+release_->version+(release_->prerelease?" (Beta)":""):"Check for updates");
-            if (release_) { if (manual || !busy_()) offer(); }
+            if (remote_result_) {
+                if (!release_) finish_remote("You're up to date (v"+QCoreApplication::applicationVersion()+"). No newer stable release is available.");
+                else {
+                    remote_stop_();
+                    if (busy_()) throw std::runtime_error("The macro could not be stopped. The app has not been changed.");
+                    install();
+                }
+            }
+            else if (release_) { if (manual || !busy_()) offer(); }
             else if (manual) QMessageBox::information(window_,"Aurex updates","You're up to date.");
         } catch (const std::exception& error) {
             version_->setToolTip(QString::fromUtf8(error.what()));
-            if (manual) QMessageBox::warning(window_,"Aurex updates",QString::fromUtf8(error.what()));
+            if (remote_result_) finish_remote(QString::fromUtf8(error.what()));
+            else if (manual) QMessageBox::warning(window_,"Aurex updates",QString::fromUtf8(error.what()));
         }
     });
 }
 void Updates::offer() {
-    if (!release_ || installing_) return;
+    if (!release_ || installing()) return;
     auto box=new QMessageBox(QMessageBox::Information,release_->prerelease?"Aurex beta update":"Aurex update",
         "Aurex "+release_->version+(release_->prerelease?" (Beta)":"")+" is available.",QMessageBox::NoButton,window_);
     box->setAttribute(Qt::WA_DeleteOnClose);
@@ -83,14 +102,15 @@ void Updates::offer() {
     auto install_button=box->addButton(release_->prerelease?"Install beta and restart":"Update and restart",QMessageBox::AcceptRole);
     install_button->setEnabled(!busy_());
     auto later=box->addButton("Later",QMessageBox::RejectRole); box->setDefaultButton(later);
-    connect(box,&QMessageBox::buttonClicked,this,[this,install_button](QAbstractButton* button) { if (button==install_button) install(); });
+    connect(box,&QMessageBox::buttonClicked,this,[this,install_button](QAbstractButton* button) { if (button==install_button && !remote_result_) install(); });
     box->open();
 }
 void Updates::fail(const QString& error) {
     reply_=nullptr; download_.close(); stage_.reset(); installing_=false;
     if (progress_) { progress_->close(); progress_->deleteLater(); progress_=nullptr; }
     version_->setEnabled(true); update_->setEnabled(true);
-    if (!error.isEmpty()) QMessageBox::warning(window_,"Aurex update",error);
+    if (remote_result_) finish_remote(error.isEmpty()?QString("Update cancelled. Your app has not been changed."):error);
+    else if (!error.isEmpty()) QMessageBox::warning(window_,"Aurex update",error);
 }
 void Updates::install() {
     if (!release_ || installing_ || busy_()) return;
@@ -167,7 +187,9 @@ void Updates::handoff() {
             requested=true; attempts=0; return;
         }
         timer->stop(); timer->deleteLater();
-        stage_->setAutoRemove(false); QCoreApplication::quit();
+        stage_->setAutoRemove(false);
+        if (remote_result_) finish_remote("Update to v"+release_->version+" verified. Restarting Aurex now. Your settings are kept; use /start when it reconnects to resume macroing.",[] { QCoreApplication::quit(); });
+        else QCoreApplication::quit();
     }); timer->start();
 }
 }

@@ -57,7 +57,7 @@ bool download_url(const QUrl& url) {
         && (url.host()=="github.com" || url.host()=="release-assets.githubusercontent.com"
             || url.host()=="objects.githubusercontent.com");
 }
-std::optional<Release> newer_release(const QByteArray& json, const QString& current, const QString& system) {
+std::optional<Release> newer_release(const QByteArray& json, const QString& current, const QString& system, bool include_prereleases) {
     const auto doc=QJsonDocument::fromJson(json);
     if (!doc.isObject() && !doc.isArray()) throw std::runtime_error("GitHub returned an unreadable release.");
     const auto installed=version(current);
@@ -70,6 +70,7 @@ std::optional<Release> newer_release(const QByteArray& json, const QString& curr
         Version available;
         try { available=version(release.value("tag_name").toString()); }
         catch (const std::exception&) { if (doc.isObject()) throw; else continue; }
+        if (!include_prereleases && (release.value("prerelease").toBool() || !available.suffix.isEmpty())) continue;
         if (compare(available,newest)>0) { root=release; newest=available; }
     }
     if (root.isEmpty()) return {};

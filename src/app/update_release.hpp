@@ -13,7 +13,7 @@ struct Release {
     bool prerelease{};
 };
 QString platform();
-std::optional<Release> newer_release(const QByteArray& json, const QString& current, const QString& platform);
+std::optional<Release> newer_release(const QByteArray& json, const QString& current, const QString& platform, bool include_prereleases=true);
 bool download_url(const QUrl& url);
 void verify_download(const QString& path, const Release& release);
 }

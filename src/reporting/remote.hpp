@@ -23,6 +23,9 @@ struct RemoteReply {
     bool inline_fields{};
     std::function<RemoteReply()> deferred;
     std::optional<MessageFile> attachment;
+    // Event-driven work stays on the application thread; deferred work runs in a worker.
+    std::function<void(std::function<void(RemoteReply)>)> asynchronous;
+    std::function<void()> after_send;
 };
 enum class RemoteOptionType { text=3, integer=4, boolean=5, number=10 };
 struct RemoteOption {

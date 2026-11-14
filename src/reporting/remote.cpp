@@ -10,9 +10,11 @@
 #include <QRandomGenerator>
 #include <QDeadlineTimer>
 #include <QRegularExpression>
+#include <QPointer>
 #include <QSysInfo>
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace hive::reporting {
 namespace {
@@ -306,6 +308,19 @@ void DiscordRemote::register_commands(int index,QJsonArray existing) {
     });
 }
 void DiscordRemote::respond(const QString& key,RemoteReply reply,qsizetype upload_limit) {
+    if (reply.asynchronous) {
+        const QPointer<DiscordRemote> self(this); const auto revision=revision_;
+        const auto completed=std::make_shared<bool>(false);
+        auto finish=[self,revision,key,upload_limit,completed](RemoteReply result) {
+            if (std::exchange(*completed,true)) return;
+            if (self && revision==self->revision_ && self->settings_.enabled) self->respond(key,std::move(result),upload_limit);
+            else if (result.after_send) result.after_send();
+        };
+        try { reply.asynchronous(finish); }
+        catch (const std::exception& error) { finish({reply.title,"Could not complete the command: "+QString::fromUtf8(error.what())}); }
+        catch (...) { finish({reply.title,"Could not complete the command."}); }
+        return;
+    }
     if (reply.deferred) {
         if (preparing_response_) { respond(key,{reply.title,"Another command is being prepared. Try again shortly."}); return; }
         preparing_response_=true;
@@ -343,15 +358,19 @@ void DiscordRemote::respond(const QString& key,RemoteReply reply,qsizetype uploa
     }
     content["fields"]=fields;
     const bool has_image=!reply.image.isNull();
-    auto deliver=[this,key,has_image,content=std::move(content),attachment=std::move(reply.attachment)](const QByteArray& image) mutable {
+    auto deliver=[this,key,has_image,content=std::move(content),attachment=std::move(reply.attachment),after_send=std::move(reply.after_send)](const QByteArray& image) mutable {
         if (!image.isEmpty()) content["image"]=QJsonObject{{"url","attachment://game.jpg"}};
         else if (has_image) content["description"]="Could not prepare the screenshot.";
         auto body=message({}); body["embeds"]=QJsonArray{content};
         QList<MessageFile> files;
         if (attachment) files.append(std::move(*attachment));
         if (!image.isEmpty()) files.append({"game.jpg","image/jpeg","Roblox window",image});
+        auto pending=std::make_shared<std::function<void()>>(std::move(after_send));
+        auto sent=[pending] { auto continuation=std::exchange(*pending,{}); if (continuation) continuation(); };
+        // Flush restart results first; a lost Discord connection must not block the update helper.
+        if (*pending) QTimer::singleShot(10000,this,sent);
         request("PATCH","/webhooks/"+application_+"/"+key+"/messages/@original",body,false,
-            [this](int code,const QJsonDocument&) { if (code!=200) status("Command handled; Discord could not receive its response."); },files);
+            [this,sent](int code,const QJsonDocument&) { if (code!=200) status("Command handled; Discord could not receive its response."); sent(); },files);
     };
     if (reply.image.isNull()) { deliver({}); return; }
     preparing_image_=true;

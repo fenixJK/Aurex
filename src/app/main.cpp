@@ -274,6 +274,15 @@ class Window final : public QMainWindow {
                 const auto recent=status_page_->recent_log(args["lines"].toInt(20));
                 return RemoteReply{"Recent activity",recent.isEmpty()?QString("No activity yet."):recent};
             },{{"lines","Maximum recent lines to include",RemoteOptionType::integer,false,{},1,100}}},
+            {"update","Install the latest stable release and restart Aurex; stops the macro",true,[this](const RemoteArguments&) {
+                RemoteReply reply{"Update"};
+                reply.asynchronous=[this](auto complete) {
+                    updates_->install_remotely([this] { stop_run(); },[complete=std::move(complete)](QString message,std::function<void()> sent) {
+                        RemoteReply result{"Update",std::move(message)}; result.after_send=std::move(sent); complete(std::move(result));
+                    });
+                };
+                return reply;
+            }},
             {"rejoin","Rejoin the configured server and restart the farming routine",true,[this](const RemoteArguments&) {
                 if (updates_ && updates_->installing()) return RemoteReply{"Rejoin","An app update is in progress."};
                 if (start_timer_.isActive()) return RemoteReply{"Rejoin","Already starting or rejoining."};

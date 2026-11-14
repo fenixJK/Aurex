@@ -108,6 +108,8 @@ RemoteSettingsPage::RemoteSettingsPage(QSettings& settings,reporting::DiscordRem
             "<p><b>/report</b> creates a report now. <b>/diagnostics</b> shows recent activity and a screenshot. "
             "<b>/clip</b> records 10 seconds of Roblox by default (3–30 seconds). To record a desktop, choose <b>view: screen</b> and select a screen. "
             "Clips are silent and uploaded by the bot; Discord does not need to be open.</p>"
+            "<p><b>/update</b> installs the newest stable release for the selected device and restarts Aurex. "
+            "It stops the macro only when an update is available and keeps your settings. Use <b>/start</b> after it reconnects.</p>"
             "<p>Keep Aurex open. Only the configured User ID can control it. No privileged intents or Interactions Endpoint URL are needed.</p>");
         layout->addWidget(guide,1);
         auto buttons=new QHBoxLayout; auto portal=new QPushButton("Developer Portal"); buttons->addWidget(portal); buttons->addStretch(); auto done=new QPushButton("Done"); buttons->addWidget(done); layout->addLayout(buttons);

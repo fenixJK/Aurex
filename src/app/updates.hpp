@@ -15,6 +15,10 @@ class QWidget;
 
 namespace hive::app {
 class Updates final : public QObject {
+public:
+    // Invoke the supplied continuation after reporting the result, before restart.
+    using Completion=std::function<void(QString,std::function<void()>)>;
+private:
     QWidget* window_;
     std::function<bool()> busy_;
     QNetworkAccessManager* network_;
@@ -28,6 +32,9 @@ class Updates final : public QObject {
     QString error_;
     bool installing_{};
     bool canceled_{};
+    Completion remote_result_;
+    std::function<void()> remote_stop_;
+    void finish_remote(QString message,std::function<void()> continuation={});
     void check(bool manual);
     void offer();
     void install();
@@ -37,6 +44,7 @@ class Updates final : public QObject {
 public:
     Updates(QWidget* window,std::function<bool()> busy,QNetworkAccessManager* network=nullptr);
     QWidget* version_row();
-    bool installing() const { return installing_; }
+    bool installing() const { return installing_ || bool(remote_result_); }
+    void install_remotely(std::function<void()> stop,Completion completion);
 };
 }
