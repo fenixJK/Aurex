@@ -10,6 +10,7 @@ class NavigationPerception {
 public:
     virtual ~NavigationPerception()=default;
     virtual void input_submitted(const std::vector<Action>&) const {}
+    virtual void invalidate_position(const ObservationContext&) const {}
     virtual NavigationView read(const ObservationContext& context,const game::State& state) const=0;
 };
 struct NavigationServices {

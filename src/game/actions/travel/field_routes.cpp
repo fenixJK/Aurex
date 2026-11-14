@@ -14,6 +14,10 @@ public:
         :perception_(std::move(perception)),setup_(std::move(setup)) {
         if (!perception_ || !setup_) throw std::invalid_argument("Hive navigation requires observations and setup state");
     }
+    void invalidate_position(const ObservationContext& context) const override {
+        setup_->invalidate_camera();
+        perception_->invalidate_position(context);
+    }
     void input_submitted(const std::vector<Action>& actions) const override {
         perception_->input_submitted(actions);
         for (const auto& action:actions) {

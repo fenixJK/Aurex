@@ -469,8 +469,12 @@ bool Runner::activity(const ObservationContext& c,const game::State& s) {
             if(hive_conversion_ && conversion_->converts_balloon()) hive_conversion_->completed(c);
             complete_step(c,s);
         }
-        else if (conversion_->stage()==workflows::ConversionStage::recovery_required)
+        else if (conversion_->stage()==workflows::ConversionStage::recovery_required) {
+            // Recovery must re-establish the hive position. Otherwise setup
+            // can reuse the saved arrival and retry from the same missed pad.
+            if (navigation_services_.perception) navigation_services_.perception->invalidate_position(c);
             interrupt(Interruption::lost_observations,c,s,conversion_->reason());
+        }
         return true;
     }
     if (auto* pattern=std::get_if<Pattern>(&*step_)) {

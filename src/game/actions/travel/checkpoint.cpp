@@ -227,12 +227,16 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
             // the untravelled distance, without restarting or backtracking.
             if (present) stage_=CheckpointStage::confirming;
         }
-        if (launch && !launched_ && present && stage_!=CheckpointStage::confirming) {
+        if (!motion && !launched_ && present
+            && (stage_==CheckpointStage::moving || (launch && stage_==CheckpointStage::waiting))) {
+            const auto& actions=nudging_?plan_.nudge:plan_.approach;
+            const bool camera=!actions.empty() && actions.at(std::min(index_,actions.size()-1)).held.size()==1
+                && camera_key(actions.at(std::min(index_,actions.size()-1)).held.front());
             const auto stopped=pending_.empty()?c.now:cancel_tasks(tasks,c.now);
             pending_.clear();
             // A prompt captured during walking may already be behind us.
             // Release input and confirm from a new, stationary observation.
-            confirm(stopped); return;
+            confirm(stopped+(camera?plan_.camera_settle:Time{})); return;
         }
         if (stage_==CheckpointStage::waiting) {
             if (launch && !present && plan_.path.empty()) return;
@@ -245,12 +249,6 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
                 return;
             }
             stage_=CheckpointStage::moving;
-        } else if (stage_==CheckpointStage::moving && present && !launch) {
-            const auto& actions=nudging_?plan_.nudge:plan_.approach;
-            const bool camera=!actions.empty() && actions.at(std::min(index_,actions.size()-1)).held.size()==1
-                && camera_key(actions.at(std::min(index_,actions.size()-1)).held.front());
-            if (!camera) { finish(CheckpointStage::completed,"Checkpoint confirmed",tasks); return; }
-            cancel_tasks(tasks); pending_.clear(); confirm(c.now+plan_.camera_settle); return;
         } else if (stage_==CheckpointStage::confirming) {
             if (!fresh) return;
             if (present) {

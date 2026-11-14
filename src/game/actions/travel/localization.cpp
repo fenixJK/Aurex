@@ -9,6 +9,10 @@ constexpr std::array prompt_checkpoints{"interaction.prompt","transport.red-cann
 LandmarkNavigation::LandmarkNavigation(std::shared_ptr<const game::DetectionSource> source):source_(std::move(source)) {
     if (!source_) throw std::invalid_argument("Navigation needs landmark observations");
 }
+void LandmarkNavigation::invalidate_position(const ObservationContext& context) const {
+    std::lock_guard lock(mutex_);
+    localization_.invalidate(context);
+}
 NavigationView LandmarkNavigation::read(const ObservationContext& c,const game::State& state) const {
     std::lock_guard lock(mutex_);
     NavigationView result;
