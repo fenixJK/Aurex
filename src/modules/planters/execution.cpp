@@ -40,6 +40,7 @@ class Execution final : public automation::Program {
     bool harvest_action_{},initialized_{},ready_for_travel_{};
     bool capacity_armed_{},capacity_rejected_{};
     Time placement_started_{};
+    std::optional<Time> occupied_since_;
     std::shared_ptr<Observation<workflows::InventoryMatch>> placement_inventory_;
     bool harvest_action() const {
         if (steps_.empty() || steps_.size()>2) return false;
@@ -235,7 +236,8 @@ class Execution final : public automation::Program {
     void begin_baseline(const View& view) {
         phase_=Phase::baseline;
         capacity_armed_=capacity_rejected_=false;
-        minimum_=view.context.now;
+        occupied_since_.reset();
+        minimum_=view.context.now+Time(1);
         deadline_=view.context.now+Time(10000);
         publish(ExecutionStage::checking);
     }
@@ -517,12 +519,20 @@ public:
             if (!harvest_ && view.context.now>=deadline_) return failed_placement(view,"Placement location could not be read");
             if (!harvest_) {
                 const auto prompt=source_->placement_visible(view);
-                if (!prompt.usable(view.context,Time(2000),minimum_)) return wait("Reading placement location");
+                if (!prompt.usable(view.context,Time(2000),minimum_)) {
+                    occupied_since_.reset();
+                    return wait("Reading placement location");
+                }
                 // A planter already visible before the drag cannot confirm a new placement.
                 if (prompt.value) {
+                    // Reserving a slot persists beyond this visit. A single
+                    // transient match must not make the field unusable.
+                    if (!occupied_since_) occupied_since_=prompt.captured;
+                    if (prompt.captured-*occupied_since_<Time(500)) return wait("Confirming an existing planter");
                     controller_->record_occupied(selected_.field);
                     return defer_result(view,"A planter is already here; field and slot reserved. Other planters can continue; reconcile it in Timers.");
                 }
+                occupied_since_.reset();
             }
             if (!scan(view,snapshot)) {
                 if (view.context.now>=deadline_) {

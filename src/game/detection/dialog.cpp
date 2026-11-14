@@ -35,14 +35,19 @@ Observation<DialogButtons> read_confirmation(const Frame& frame,std::uint64_t ge
         std::vector<cv::Rect> found;
         for (const auto& contour:contours) {
             const auto box=cv::boundingRect(contour);
-            if (box.area()>20 && cv::contourArea(contour)>=box.area()*.8) found.push_back(box);
+            // Contours run through pixel centers: a solid w-by-h rectangle
+            // has geometric area (w-1)*(h-1), especially relevant to small UI.
+            const double area=double(box.width-1)*(box.height-1);
+            if (box.area()>20 && area>0 && cv::contourArea(contour)>=area*.8) found.push_back(box);
         }
         return found;
     };
     result.knowledge=Knowledge::absent;
     bool found=false;
     for (const auto& panel:boxes(blue)) {
-        if (panel.width<w*.18 || panel.width>w*.7 || panel.height<h*.1 || panel.height>h*.5
+        // Roblox UI scale is independent of the capture size. Recognize the
+        // panel by its paired button layout, not a minimum screen percentage.
+        if (panel.width>w*.7 || panel.height>h*.5
             || panel.width<panel.height*1.5 || panel.width>panel.height*5
             || std::abs(panel.x+panel.width/2.-w/2.)>w*.12) continue;
         if (!found) result.knowledge=Knowledge::unknown;
