@@ -84,18 +84,17 @@ bool notification_ink(const DetectionInput& input,const Rect& box,std::size_t& b
     return yellow>=box.width*box.height*.03 && max_x-min_x>=box.width*.5 && max_y-min_y>=box.height*.25;
 }
 struct HealthBar { Rect bounds; double fraction; };
-std::optional<HealthBar> health_bar(const DetectionInput& input,const Rect& label,std::size_t& budget) {
+std::optional<HealthBar> health_bar(const DetectionInput& input,const Rect& region,std::size_t& budget) {
     const auto& frame=input.frame;
-    const int left=std::max(0,int(std::floor(label.x-label.height*.4)));
-    const int right=std::min(frame.width,int(std::ceil(label.x+label.width+label.height*.4)));
-    const int top=std::max(0,int(std::floor(label.y+label.height*.6)));
-    // Countdown labels occupy a line between the species name and its HP.
-    const int bottom=std::min(frame.height,int(std::ceil(label.y+label.height*4.5)));
+    const int left=std::max(0,int(std::floor(region.x)));
+    const int right=std::min(frame.width,int(std::ceil(region.x+region.width)));
+    const int top=std::max(0,int(std::floor(region.y)));
+    const int bottom=std::min(frame.height,int(std::ceil(region.y+region.height)));
     const auto cost=static_cast<std::size_t>(right-left)*(bottom-top);
     if (cost>=budget) { budget=0; return {}; }
     budget-=cost;
     int rows=0,first_y=0,min_x=right,max_x=left,filled=0,colored=0;
-    const int required=std::max(2,int(std::ceil(label.height*.12)));
+    const int required=std::max(2,int(std::ceil(region.height*.25)));
     for (int y=top;y<bottom;++y) {
         if (input.cancelled && input.cancelled()) return {};
         int first=right,last=left,total=0,green=0;
@@ -105,10 +104,10 @@ std::optional<HealthBar> health_bar(const DetectionInput& input,const Rect& labe
         const int width=last-first+1;
         // Outlined HP digits can cover the middle of a small bar. Require
         // aligned colored ends across consecutive rows, rather than a solid fill.
-        if (width>=label.width*.55 && width<=label.width*1.4 && total>=width*.3 && green>=2
-            && std::abs((first+last)/2.0-(label.x+label.width/2))<=label.height*.7) {
+        if (width>=region.width*.8 && total>=width*.3 && green>=2
+            && std::abs((first+last)/2.0-(region.x+region.width/2))<=region.height*.5) {
             if (!rows) { first_y=y; min_x=first; max_x=last; filled=colored=0; }
-            else if (std::abs(first-min_x)>label.height*.35 || std::abs(last-max_x)>label.height*.35) {
+            else if (std::abs(first-min_x)>region.height*.35 || std::abs(last-max_x)>region.height*.35) {
                 rows=0; continue;
             }
             min_x=std::min(min_x,first); max_x=std::max(max_x,last);
@@ -117,6 +116,26 @@ std::optional<HealthBar> health_bar(const DetectionInput& input,const Rect& labe
         } else rows=0;
     }
     return {};
+}
+bool health_caption(const DetectionInput& input,const Rect& label,const HealthBar& bar) {
+    // An unreadable species can still have a readable numeric HP caption.
+    // Require both separate text rows and the caption inside its own bar;
+    // scenery, planter percentages and a name by itself are not evidence.
+    if (label.y+label.height>bar.bounds.y+1) return false;
+    for (const auto& line:input.text) {
+        const auto& r=line.pixels;
+        if (!r.valid() || line.text.size()>128 || !confidence(line,.3f)
+            || r.height<label.height*.45 || r.height>label.height*1.6
+            || r.width<bar.bounds.width*.25 || r.width>bar.bounds.width+label.height
+            || r.y>bar.bounds.y+label.height*.5 || r.y+r.height<bar.bounds.y
+            || r.y<label.y+label.height
+            || std::abs(r.x+r.width/2-bar.bounds.x-bar.bounds.width/2)>label.height
+            || line.text.find('%')!=std::string::npos) continue;
+        const bool digits=std::any_of(line.text.begin(),line.text.end(),[](unsigned char c) { return std::isdigit(c); });
+        const bool letters=std::any_of(line.text.begin(),line.text.end(),[](unsigned char c) { return std::isalpha(c); });
+        if (digits && letters) return true;
+    }
+    return false;
 }
 class Enemies final : public Detector {
     mutable ObservationContext previous_;
@@ -146,6 +165,13 @@ public:
         std::map<std::string,unsigned> counts;
         std::vector<std::pair<std::string,Rect>> notifications;
         std::size_t budget=4000000;
+        // Locate and validate each bar once. Neither its geometry nor its HP
+        // caption depends on OCR recovering the width/spelling of the name.
+        std::vector<HealthBar> bars;
+        for (const auto& region:detail::bar_regions(frame,health_pixel,true)) {
+            if (auto bar=health_bar(input,region,budget)) bars.push_back(*bar);
+            if (!budget || (input.cancelled && input.cancelled())) return {};
+        }
         for (const auto& line : input.text) {
             if (input.cancelled && input.cancelled()) return {};
             const auto& box=line.pixels;
@@ -159,8 +185,16 @@ public:
             std::string species;
             std::optional<HealthBar> health;
             if (confidence(line,.3f) && box.y>=frame.height*.1 && box.height>=5 && box.height<=frame.height*.12
-                && box.width<=frame.width*.5 && !(species=enemy_name(text)).empty()) {
-                health=health_bar(input,box,budget);
+                && box.width<=frame.width*.5) {
+                species=enemy_name(text);
+                for (const auto& bar:bars) {
+                    // Names and optional countdowns sit above their own bar.
+                    const auto& b=bar.bounds;
+                    if (b.y<box.y+box.height*.6 || b.y>box.y+box.height*4.5
+                        || box.width<b.width*.25 || box.width>b.width*1.8
+                        || std::abs(box.x+box.width/2-b.x-b.width/2)>box.height*.7) continue;
+                    if (!species.empty() || health_caption(input,box,bar)) { health=bar; break; }
+                }
             }
             const bool enemy_label=health.has_value();
             if (box.x>=frame.width*.5 && !enemy_label) {
@@ -202,13 +236,14 @@ public:
             }
             if (!budget || (input.cancelled && input.cancelled())) return {};
             if (!health) continue;
-            for (std::size_t i=0;i<names.size();++i) if (const auto* name=names[i]; normalized(name)==species) {
-                const auto duplicate=std::any_of(result->visible.value.begin(),result->visible.value.end(),[&](const auto& enemy) {
-                    return enemy.name==name && std::abs(enemy.health_bar.x-health->bounds.x)<box.height
-                        && std::abs(enemy.health_bar.y-health->bounds.y)<box.height;
-                });
-                if (!duplicate) result->visible.value.push_back({name,health->bounds,health->fraction});
-            }
+            std::string name;
+            for (const auto* entry:names) if (normalized(entry)==species) { name=entry; break; }
+            const auto duplicate=std::find_if(result->visible.value.begin(),result->visible.value.end(),[&](const auto& enemy) {
+                return std::abs(enemy.health_bar.x-health->bounds.x)<box.height
+                    && std::abs(enemy.health_bar.y-health->bounds.y)<box.height;
+            });
+            if (duplicate==result->visible.value.end()) result->visible.value.push_back({std::move(name),health->bounds,health->fraction});
+            else if (duplicate->name.empty() && !name.empty()) *duplicate={std::move(name),health->bounds,health->fraction};
             if (result->visible.value.size()>64) return {};
         }
         const bool continuity=previous_.generation==input.generation && previous_.window.id==frame.window.id

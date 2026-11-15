@@ -5,6 +5,7 @@
 
 namespace hive::game {
 struct VisibleEnemy {
+    // Empty when the health bar is confirmed but the species is unreadable.
     std::string name;
     Rect health_bar;
     std::optional<double> health_fraction;

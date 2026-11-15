@@ -107,7 +107,12 @@ public:
         if (announced && enemy_.search.empty() && !engaged_) engaged_=view.context.now;
         visible_=unsigned(count);
         visible_peak_=std::max(visible_peak_,visible_);
-        if (visible_ && !engaged_) engaged_=view.context.now;
+        // At a single-target destination, an unidentified local health bar is
+        // enough to fight. It is not a species sighting, health estimate or kill:
+        // those still need identity/result evidence. Hunts cannot use this.
+        const bool contact=enemy_.count==1 && enemy_.search.empty() && enemy_.hunt_fields.empty()
+            && observed->visible.value.size()==1 && observed->visible.value.front().name.empty();
+        if ((visible_ || contact) && !engaged_) engaged_=view.context.now;
         if (count==1 && enemy_.progress) for (const auto& enemy:observed->visible.value)
             if (enemy.name==enemy_.species && enemy.health_fraction) enemy_.progress->sample(*enemy.health_fraction,last_frame_);
         for (const auto& event:observed->recent_defeats)
