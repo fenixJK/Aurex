@@ -13,7 +13,8 @@ std::optional<Rect> centered_honeycomb(const Frame& f) {
         std::max(1,static_cast<int>(std::lround(f.width*shrink))),CV_8U,cv::Scalar(0));
     const double scale_x=double(f.width)/gold.cols,scale_y=double(f.height)/gold.rows;
     const std::size_t stride=std::size_t(f.width)*4;
-    for (int y=gold.rows*.15;y<gold.rows*.65;++y) {
+    // Keep the upper cell rows available when tools obscure the lower hive.
+    for (int y=gold.rows*.10;y<gold.rows*.65;++y) {
         const double sy=(y+.5)*scale_y-.5,dy=sy-std::floor(sy);
         const auto* row=f.rgba.data()+static_cast<std::size_t>(sy)*stride;
         for (int x=gold.cols*.2;x<gold.cols*.8;++x) {
@@ -35,66 +36,53 @@ std::optional<Rect> centered_honeycomb(const Frame& f) {
     for (std::size_t i=0;i<contours.size();++i) {
         if (hierarchy[i][3]<0) continue;
         const auto box=cv::boundingRect(contours[i]);
-        const double x=box.x+box.width*.5,y=box.y+box.height*.5;
+        const double y=box.y+box.height*.5;
         if (box.width<8 || box.height<8 || box.width>140 || box.height>140
             || y>gold.rows*.5) continue;
-        const double aspect=double(box.width)/box.height,fill=cv::contourArea(contours[i])/box.area();
-        // A frontal flat-top hexagon is wider than tall. Near-square holes
-        // also occur in bee faces and in a hive viewed obliquely.
-        if (aspect<1.1 || aspect>1.6 || fill<.55 || fill>.85) continue;
-        std::vector<cv::Point> hull,polygon;
+        const double aspect=double(box.width)/box.height;
+        // A frontal flat-top hexagon is wider than tall. A slightly clipped
+        // supporting cell is usable only beside a clearly frontal neighbor;
+        // square holes in bee faces and oblique hives still do not qualify.
+        if (aspect<1.05 || aspect>1.6) continue;
+        std::vector<cv::Point> hull;
         cv::convexHull(contours[i],hull);
-        cv::approxPolyDP(hull,polygon,cv::arcLength(hull,true)*.04,true);
-        if (polygon.size()<5 || polygon.size()>7) continue;
-        // A number or highlight can merge/split a corner; compare the whole outline too.
+        // Bees and lettering cut into cell interiors. Compare the enclosing
+        // outline directly with a hexagon instead of counting its corners
+        // or requiring an unobstructed interior.
         std::vector<cv::Point2f> normalized;
         for (const auto point : hull)
             normalized.push_back({float(point.x-box.x)/(box.width-1),float(point.y-box.y)/(box.height-1)});
         static const std::vector<cv::Point2f> hexagon{{0,.5},{.25,0},{.75,0},{1,.5},{.75,1},{.25,1}};
-        if (cv::matchShapes(normalized,hexagon,cv::CONTOURS_MATCH_I1,0)>.12) continue;
-        // A centered cell and a similar neighbor survive tool occlusion without accepting a hive only at the screen edge.
-        for (const auto& other : cells) {
-            const double other_x=other.x+other.width*.5;
-            if ((x<gold.cols*.44 || x>gold.cols*.56)
-                && (other_x<gold.cols*.44 || other_x>gold.cols*.56)) continue;
-            const int height=std::max(box.height,other.height);
-            const double dx=std::abs(x-other_x),dy=std::abs(y-other.y-other.height*.5);
-            if (std::min(box.height,other.height)*2<height || dy<std::min(box.height,other.height)*.5
-                || dy>height*4 || dx>std::max(box.width,other.width)*1.5) continue;
-            const auto region=box|other;
-            return Rect{double(region.x)/gold.cols,double(region.y)/gold.rows,
-                double(region.width)/gold.cols,double(region.height)/gold.rows};
-        }
+        std::vector<cv::Point2f> intersection;
+        const double overlap=cv::intersectConvexConvex(normalized,hexagon,intersection);
+        if (overlap/(cv::contourArea(normalized)+cv::contourArea(hexagon)-overlap)<.78) continue;
         cells.push_back(box);
     }
-    // Equipment can cover the middle column of an otherwise frontal hive.
-    // Two level cells on opposite sides, backed by a vertical neighbor,
-    // establish the same centered honeycomb without requiring a visible
-    // central cell. Keep size and spacing checks to reject oblique views.
+    // Match pairs from the same honeycomb, including a hidden intervening
+    // cell. A central column or a balanced row establishes the screen's
+    // heading without depending on which cells equipment happens to cover.
     for (std::size_t i=0;i<cells.size();++i) for (std::size_t j=i+1;j<cells.size();++j) {
         const auto& a=cells[i]; const auto& b=cells[j];
+        if (a.width<a.height*1.1 && b.width<b.height*1.1) continue;
+        // A clipped cell may be smaller, but unrelated gold effects should
+        // not pair with a full-sized cell merely because they are nearby.
+        if (std::min(a.width,b.width)*1.5<std::max(a.width,b.width)
+            || std::min(a.height,b.height)*1.5<std::max(a.height,b.height)) continue;
         const double ax=a.x+a.width*.5,bx=b.x+b.width*.5;
         const double ay=a.y+a.height*.5,by=b.y+b.height*.5;
+        const double dx=std::abs(ax-bx),dy=std::abs(ay-by);
         const double width=(a.width+b.width)*.5,height=(a.height+b.height)*.5;
-        if (std::min(ax,bx)>=gold.cols*.44 || std::max(ax,bx)<=gold.cols*.56
-            || std::abs((ax+bx)*.5-gold.cols*.5)>gold.cols*.035
-            || std::min(a.width,b.width)<std::max(a.width,b.width)*.8
-            || std::min(a.height,b.height)<std::max(a.height,b.height)*.8
-            || std::abs(ay-by)>height*.25 || std::abs(ax-bx)<width*2 || std::abs(ax-bx)>width*4.25) continue;
-        for (std::size_t k=0;k<cells.size();++k) {
-            if (k==i || k==j) continue;
-            const auto& neighbor=cells[k];
-            const double nx=neighbor.x+neighbor.width*.5,ny=neighbor.y+neighbor.height*.5;
-            if (neighbor.width<width*.8 || neighbor.width>width*1.25
-                || neighbor.height<height*.8 || neighbor.height>height*1.25) continue;
-            const auto aligned=[&](double x,double y) {
-                return std::abs(nx-x)<width*.3 && std::abs(ny-y)>height*.7 && std::abs(ny-y)<height*1.5;
-            };
-            if (!aligned(ax,ay) && !aligned(bx,by)) continue;
-            const auto region=a|b|neighbor;
-            return Rect{double(region.x)/gold.cols,double(region.y)/gold.rows,
-                double(region.width)/gold.cols,double(region.height)/gold.rows};
-        }
+        const auto central=[&](double x) { return x>=gold.cols*.44 && x<=gold.cols*.56; };
+        const bool column=(central(ax) || central(bx))
+            && dy>=std::min(a.height,b.height)*.5 && dy<=std::max(a.height,b.height)*4
+            && dx<=std::max(a.width,b.width)*2.5;
+        const bool row=std::min(ax,bx)<gold.cols*.44 && std::max(ax,bx)>gold.cols*.56
+            && std::abs((ax+bx)*.5-gold.cols*.5)<=gold.cols*.035
+            && dy<=height*.25 && dx>=width*2 && dx<=width*4.25;
+        if (!column && !row) continue;
+        const auto region=a|b;
+        return Rect{double(region.x)/gold.cols,double(region.y)/gold.rows,
+            double(region.width)/gold.cols,double(region.height)/gold.rows};
     }
     return {};
 }

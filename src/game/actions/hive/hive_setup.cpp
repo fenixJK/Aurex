@@ -98,11 +98,12 @@ class PrepareHiveView final : public Program {
     Observation<bool> heading_;
     std::shared_ptr<ActivityImage> first_view_{std::make_shared<ActivityImage>()};
     unsigned turns_{};
+    unsigned missing_frames_{};
     bool lowered_{};
     bool started_{};
     HiveCameraStart camera_start_;
     void observe(Time finished) {
-        stage_=Stage::observe; minimum_=finished+Time(1); seen_=Time(-1);
+        stage_=Stage::observe; minimum_=finished+Time(1); seen_=Time(-1); missing_frames_=0;
     }
 public:
     PrepareHiveView(std::shared_ptr<const game::LandmarkSource> reference,std::shared_ptr<const game::LandmarkSource> proximity,
@@ -153,6 +154,9 @@ public:
                 stage_=Stage::reference;
                 return next(view);
             }
+            // Accept a clear view immediately. Bees can cover the remaining
+            // cells for a frame, so require another fresh miss before moving.
+            if (++missing_frames_<2) return Wait{Time(50),"Checking the settled hive view"};
             // Check both pitches before abandoning a heading. Then try the
             // opposite direction and each remaining heading once, skipping
             // the original direction already checked: 0,4,5,6,7,1,2,3.
