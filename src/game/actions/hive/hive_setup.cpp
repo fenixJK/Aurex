@@ -90,12 +90,13 @@ public:
     }
 };
 class PrepareHiveView final : public Program {
-    enum class Stage { claim, unlock, zoom, pitch_limit, pitch, observe, turn, lower, raise, reference, restore, zoom_out, done };
+    enum class Stage { claim, unlock, zoom, pitch_limit, pitch, observe, capture, turn, lower, raise, reference, restore, zoom_out, done };
     std::shared_ptr<const game::LandmarkSource> reference_,proximity_;
     std::shared_ptr<HiveSetupResult> result_;
     Stage stage_{Stage::claim};
     Time minimum_{},seen_{Time(-1)};
     Observation<bool> heading_;
+    std::shared_ptr<ActivityImage> first_view_{std::make_shared<ActivityImage>()};
     unsigned turns_{};
     bool lowered_{};
     bool started_{};
@@ -130,6 +131,7 @@ public:
         case Stage::zoom: return MoveCamera{{Key::zoom_in,10}};
         case Stage::pitch_limit: return MoveCamera{hive_overhead_move(camera_start_)};
         case Stage::pitch: return MoveCamera{{Key::pitch_down,4,game::CameraInput::automatic,game::CameraFinish::observation}};
+        case Stage::capture: return ReportActivity{{},{},first_view_};
         case Stage::turn: return MoveCamera{{Key::rotate_right,turns_==0?4u:turns_==4?2u:1u,
             game::CameraInput::automatic,game::CameraFinish::observation}};
         case Stage::lower: return MoveCamera{{Key::pitch_down,1,game::CameraInput::automatic,game::CameraFinish::observation}};
@@ -156,11 +158,12 @@ public:
             // the original direction already checked: 0,4,5,6,7,1,2,3.
             if (!lowered_) stage_=Stage::lower;
             else if (turns_<7) stage_=Stage::raise;
-            else throw HiveAlignmentError("Hive reference was not found at either camera pitch");
+            else throw HiveAlignmentError("Hive reference was not found at either camera pitch",first_view_);
+            if (!turns_ && !lowered_) stage_=Stage::capture;
             return next(view);
         }
         if (c.now-minimum_>=Time(2000))
-            throw HiveAlignmentError("No fresh hive camera frame; alignment was not confirmed");
+            throw HiveAlignmentError("No fresh hive camera frame; alignment was not confirmed",first_view_);
         return Wait{Time(50),"Checking the settled hive view"};
     }
     void step_completed(const View& view) override {
@@ -171,6 +174,7 @@ public:
         case Stage::zoom: stage_=Stage::pitch_limit; break;
         case Stage::pitch_limit: stage_=Stage::pitch; break;
         case Stage::pitch: observe(view.context.now); break;
+        case Stage::capture: stage_=Stage::lower; break;
         case Stage::turn: ++turns_; observe(view.context.now); break;
         case Stage::lower: lowered_=true; observe(view.context.now); break;
         case Stage::raise: lowered_=false; stage_=Stage::turn; break;

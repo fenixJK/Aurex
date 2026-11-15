@@ -125,7 +125,7 @@ class AcquireHive final : public Program {
         catch (const HiveAlignmentError& error) {
             if (stage_!=Stage::prepare) throw;
             // Reset restores a reproducible view before considering a rejoin.
-            return options_.recovery?recover(view,error.what()):Step(Defer{std::string(error.what())+"; departure skipped"});
+            return options_.recovery?recover(view,error.what(),error.image):Step(Defer{std::string(error.what())+"; departure skipped"});
         }
         catch (const ObservationUnavailable&) {
             if (stage_!=Stage::claim || !recovered_) throw;
@@ -201,7 +201,7 @@ public:
             return reason==Interruption::death?wait_for_respawn(source,result):request_respawn(source,result);
         };
     }
-    Step recover(const View& view,const std::string& reason="Hive position was not confirmed after respawn") {
+    Step recover(const View& view,const std::string& reason="Hive position was not confirmed after respawn",std::shared_ptr<ActivityImage> image={}) {
         if (!options_.recovery) throw ObservationUnavailable("Hive position could not be found");
         if (reason.empty()) reserve_reset();
         else reserve_reset(reason);
@@ -212,7 +212,7 @@ public:
         begin(Stage::recover,view);
         // Capture the failed view before the reset starts. Planned startup
         // resets pass no failure reason and keep their normal status message.
-        if (!reason.empty()) return ReportActivity{{"Recovering hive",reason+"; resetting character",ActivityKind::recovery}};
+        if (!reason.empty()) return ReportActivity{{"Recovering hive",reason+"; resetting character",ActivityKind::recovery},{},std::move(image)};
         return child_step(view);
     }
     Step prepare_owned(const View& view,const Observation<bool>& owned) {

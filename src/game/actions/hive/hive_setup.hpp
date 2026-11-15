@@ -9,7 +9,9 @@
 namespace hive::automation {
 class HiveAlignmentError : public std::runtime_error {
 public:
-    using std::runtime_error::runtime_error;
+    std::shared_ptr<ActivityImage> image;
+    explicit HiveAlignmentError(const std::string& reason,std::shared_ptr<ActivityImage> first_view={})
+        :std::runtime_error(reason),image(std::move(first_view)) {}
 };
 struct HiveSetupSnapshot {
     std::optional<unsigned> claimed_slot;

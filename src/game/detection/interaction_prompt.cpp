@@ -416,22 +416,30 @@ std::optional<TextLine> interaction_label(const Frame& image,const std::string& 
         if (target.empty()?label.match==Match::first_word:target!=label.text) continue;
         if (result && result->text==label.text) continue;
         auto area=label.match==Match::first_line || label.match==Match::first_word || label.match==Match::words?first:bounds;
+        float prefix_score=0;
         if (label.match==Match::first_word) {
             // At small UI scales entire strokes can be antialiased. Keep them
             // when separating the prefix, instead of splitting its letters.
             if (prefix_ink.empty()) cv::inRange(rgba,cv::Scalar(0,0,0,255),cv::Scalar(128,128,128,255),prefix_ink);
             const auto line=first_line(prefix_ink,std::max(6.,image.height*.12));
             if (line.empty()) continue;
-            const auto words=word_boxes(prefix_ink(line));
-            if (words.empty()) continue;
-            area=words.front()+line.tl();
+            // At tiny sizes letter gaps occupy a larger fraction of the line
+            // height. Score both segmentations against the same word template.
+            for (const double gap:{.25,.4}) {
+                const auto words=word_boxes(prefix_ink(line),gap);
+                if (words.empty()) continue;
+                const auto candidate=words.front()+line.tl();
+                const auto score=similarity(prefix_ink(candidate),label.pattern);
+                if (score>prefix_score) { prefix_score=score;area=candidate; }
+            }
         }
         if ((label.match==Match::phrase || label.match==Match::first_line) && caption_ink.empty()) {
             cv::extractChannel(rgba,caption_ink,0);cv::bitwise_not(caption_ink,caption_ink);
         }
-        const auto score=label.match==Match::words?words_similarity(first_ink,label.pattern,label.prefix_words)
+        const auto score=label.match==Match::first_word?prefix_score
+            :label.match==Match::words?words_similarity(first_ink,label.pattern,label.prefix_words)
             :label.match==Match::phrase?phrase_similarity(caption_ink,label.pattern)
-            :similarity(label.match==Match::first_word?prefix_ink(area):label.match==Match::first_line?caption_ink(first):ink(area),label.pattern);
+            :similarity(label.match==Match::first_line?caption_ink(first):ink(area),label.pattern);
         if (score<label.minimum) continue;
         if (result) return {};
         result=TextLine{label.text,{double(area.x),double(area.y),double(area.width),double(area.height)},std::clamp(score,0.f,1.f)};

@@ -7,6 +7,18 @@
 namespace hive::features::planters {
 using namespace automation;
 ExecutionReport ExecutionResults::read() const { std::lock_guard lock(mutex_); return report_; }
+namespace {
+class FindPlacedPlanter final : public Program {
+    ApproachLandmark approach_;
+    double speed_;
+    bool finished_{};
+public:
+    FindPlacedPlanter(ApproachLandmark approach,double speed):approach_(std::move(approach)),speed_(speed) {}
+    RunConfig config() const override { return {approach_.movement.timeout+Time(5000),speed_,{},true,true}; }
+    Step next(const View&) override { return finished_?Step(Done{"Planter proximity confirmed"}):Step(approach_); }
+    void step_completed(const View&) override { finished_=true; }
+};
+}
 class Execution final : public automation::Program {
     ExecutionPlan plan_;
     std::shared_ptr<Account> account_;
@@ -28,7 +40,7 @@ class Execution final : public automation::Program {
     std::vector<Step> steps_;
     std::size_t action_step_{},loot_step_{},issued_{},acknowledged_{},confirmed_{},placements_{},harvests_{};
     unsigned recoveries_{};
-    enum class Phase { select, initializing, planning, preparing, arriving, locating, approaching, baseline, acting, placed, confirming, looting, departing, returning, checking_backpack, converting, done } phase_{Phase::select};
+    enum class Phase { select, initializing, planning, preparing, arriving, locating, approaching, baseline, acting, placed, confirming, verifying_placement, looting, departing, returning, checking_backpack, converting, done } phase_{Phase::select};
     std::optional<ActivityStatus> pending_report_;
     Time started_{},deadline_{},planned_at_{},minimum_{},travel_started_{};
     bool leased_{},harvest_confirmed_{},passive_step_{};
@@ -40,6 +52,7 @@ class Execution final : public automation::Program {
     bool harvest_action_{},initialized_{},ready_for_travel_{};
     bool capacity_armed_{},capacity_rejected_{};
     Time placement_started_{};
+    bool placement_searched_{};
     std::optional<Time> occupied_since_;
     std::shared_ptr<Observation<workflows::InventoryMatch>> placement_inventory_;
     bool harvest_action() const {
@@ -108,7 +121,15 @@ class Execution final : public automation::Program {
         settle_action();
         controller_->interrupt();
         pending_report_=ActivityStatus{"Planter deferred",planter_target()+" · "+reason
-            +"; retrying this planter in five minutes. Continuing with other planters."};
+            +"; retrying this planter in five minutes. Continuing with other planters.",ActivityKind::recovery};
+        phase_=Phase::placed; publish(ExecutionStage::returning);
+        return next(view);
+    }
+    Step unconfirmed_placement(const View& view) {
+        settle_action();
+        controller_->interrupt();
+        pending_report_=ActivityStatus{"Planter needs review",planter_target()
+            +" · Placement could not be confirmed; this planter and field are reserved in Timers. Continuing with other planters.",ActivityKind::recovery};
         phase_=Phase::placed; publish(ExecutionStage::returning);
         return next(view);
     }
@@ -237,6 +258,7 @@ class Execution final : public automation::Program {
         phase_=Phase::baseline;
         capacity_armed_=capacity_rejected_=false;
         occupied_since_.reset();
+        placement_searched_=false;
         minimum_=view.context.now+Time(1);
         deadline_=view.context.now+Time(10000);
         publish(ExecutionStage::checking);
@@ -328,7 +350,7 @@ public:
             && (phase_==Phase::approaching || phase_==Phase::baseline || phase_==Phase::locating)) mark_missing();
         // A missing placement result cannot be fixed by resetting and repeating the placement.
         if (reason==Interruption::lost_observations && !harvest_
-            && (phase_==Phase::acting || phase_==Phase::confirming)) return {};
+            && (phase_==Phase::acting || phase_==Phase::confirming || phase_==Phase::verifying_placement)) return {};
         const auto recover=reason==Interruption::death?plan_.death_recovery:plan_.route_recovery;
         if ((reason!=Interruption::death && reason!=Interruption::lost_route && reason!=Interruption::lost_observations)
             || !recover || recoveries_>=3) return {};
@@ -578,15 +600,27 @@ public:
             if (!harvest_) {
                 const auto prompt=source_->placement_visible(view);
                 if (prompt.usable(view.context,Time(2000),minimum_)) {
-                    Placements local{{},true,selected_.field};
+                    // A missing prompt/bar is not a complete scan of the field:
+                    // the new planter can be behind the character or scenery.
+                    Placements local{{},false,selected_.field};
                     if (prompt.value) local.identities.insert(identity(selected_));
                     evidence={Knowledge::present,std::move(local),prompt.captured,prompt.window,prompt.generation};
+                }
+                if (!evidence.has_value(view.context,Time(2000),minimum_) && view.context.now<deadline_)
+                    return wait("Reading planter placement");
+                if ((!evidence.has_value(view.context,Time(2000),minimum_) || evidence.value.identities.empty())
+                    && view.context.now>=deadline_ && !placement_searched_) {
+                    placement_searched_=true;
+                    if (auto approach=actions_->locate(selected_)) {
+                        phase_=Phase::verifying_placement; publish(ExecutionStage::locating);
+                        return emit(RunProgram{[approach=*approach,speed=plan_.config.speed] { return std::make_unique<FindPlacedPlanter>(approach,speed); },true});
+                    }
                 }
             }
             const auto receipt=harvest_action_?harvest_receipt(selected_,snapshot,view,minimum_):Observation<HarvestEvidence>{};
             const auto result=controller_->observe(controller_->ledger().pending->ticket,view.context,now,evidence,receipt);
             if (result==Outcome::failed) return failed_placement(view,"No planter appeared after placement");
-            if (result==Outcome::uncertain) return defer_result(view);
+            if (result==Outcome::uncertain) return harvest_?defer_result(view):unconfirmed_placement(view);
             if (result==Outcome::confirmed) {
                 complete_action();
             } else if (harvest_action_ && action_step_<steps_.size() && view.observations
@@ -615,6 +649,9 @@ public:
             deadline_=view.context.now+Time(10000);
         } else if (phase_==Phase::approaching) {
             begin_baseline(view);
+        } else if (phase_==Phase::verifying_placement) {
+            phase_=Phase::confirming; minimum_=view.context.now+Time(1); deadline_=view.context.now+Time(2000);
+            publish(ExecutionStage::confirming);
         } else if (phase_==Phase::acting && !harvest_ && action_step_==1 && std::holds_alternative<DragInventoryItem>(steps_.front())) {
             minimum_=view.context.now+Time(1); deadline_=view.context.now+Time(10000);
         } else if (phase_==Phase::acting && (action_step_==steps_.size() || (harvest_action_ && action_step_==1))) {

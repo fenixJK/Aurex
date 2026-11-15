@@ -31,7 +31,10 @@ std::vector<ConversationView> panels(const Frame& f) {
     std::vector<ConversationView> found;
     for (const auto& contour:contours) {
         const auto box=cv::boundingRect(contour);
-        if (box.width<small.cols*.23 || box.width>small.cols*.68 || box.height<small.rows*.06 || box.height>small.rows*.25
+        // UI scale changes panel width independently of the game window.
+        // Validate the panel's proportions and controls, not a minimum share
+        // of the screen that rejects compact, otherwise complete dialogues.
+        if (box.width>small.cols*.68 || box.height<small.rows*.06 || box.height>small.rows*.25
             || box.width<box.height*2.8 || box.width>box.height*7 || box.y<small.rows*.55
             || std::abs(box.x+box.width/2.-small.cols/2.)>small.cols*.08
             || cv::contourArea(contour)<box.area()*.92) continue;
@@ -42,14 +45,24 @@ std::vector<ConversationView> panels(const Frame& f) {
             if ((area&cv::Rect(0,0,small.cols,small.rows))!=area) return 0.;
             return double(cv::countNonZero(mask(area)))/area.area();
         };
+        const auto frame_edge=[&](const cv::Rect& area,bool horizontal) {
+            // A thin border can straddle two pixels after capture scaling.
+            // Find a continuous line within the frame band, rather than
+            // requiring one rounded sample to carry the entire border.
+            for (int i=0;i<(horizontal?area.height:area.width);++i) {
+                const cv::Rect line=horizontal?cv::Rect{area.x,area.y+i,area.width,1}:cv::Rect{area.x+i,area.y,1,area.height};
+                if (fraction(bright,line)>=.85) return true;
+            }
+            return false;
+        };
         const auto name=region(.02,-.46,.22,.32),footer=region(.73,1.07,.25,.2);
         if (fraction(blue,box)<.85
             || fraction(dark,name)<.55 || fraction(letters,name)<.025
             || fraction(bright,region(.6,-.46,.32,.32))<.85
-            || fraction(bright,region(.05,-.08,.9,.05))<.85
-            || fraction(bright,region(-.02,.08,.015,.8))<.8
-            || fraction(bright,region(1.01,.08,.015,.8))<.8
-            || fraction(bright,region(.08,1.1,.5,.17))<.85) continue;
+            || !frame_edge(region(.05,-.12,.9,.12),true)
+            || !frame_edge(region(-.03,.08,.03,.8),false)
+            || !frame_edge(region(1.01,.08,.03,.8),false)
+            || !frame_edge(region(.08,1.04,.5,.2),true)) continue;
         ConversationView panel{{},true};
         if (fraction(letters,box)>=.005 && fraction(letters,footer)>=.035 && fraction(letters,footer)<=.4) {
             const auto text=cv::boundingRect(letters(footer));

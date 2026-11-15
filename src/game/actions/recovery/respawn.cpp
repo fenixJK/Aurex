@@ -1,8 +1,37 @@
 #include "respawn.hpp"
+#include "game/detection/menus.hpp"
 #include <algorithm>
 
 namespace hive::automation {
 namespace {
+// Both an explicit reset and an observed death can leave the NPC camera open.
+// Use the shared dialogue detector's control, and require a post-click frame
+// before the reset workflow can hand control back to hive navigation.
+class RespawnDialogue {
+    bool active_{},issued_{};
+    Time minimum_{},deadline_{};
+public:
+    std::optional<Step> clear(const View& view,const Observation<game::RespawnView>& reading,Time minimum) {
+        const auto& c=view.context;
+        if (reading.has_value(c,Time(2000),std::max(minimum,minimum_))) {
+            if (reading.value.screen!=game::RespawnScreen::conversation) { active_=false; return {}; }
+            if (!active_) { active_=true; deadline_=c.now+Time(10000); }
+            if (reading.value.target && c.now<deadline_) {
+                issued_=true;
+                return UseControl{{Knowledge::present,*reading.value.target,reading.captured,reading.window,reading.generation},
+                    0,"Clear NPC dialogue before returning",view.observations?game::pointer_rest(c,*view.observations):Point{.9,.4}};
+            }
+        }
+        if (!active_) return {};
+        if (c.now>=deadline_) throw ClientRejoinRequired("NPC dialogue did not close during recovery; rejoining Bee Swarm");
+        return Wait{Time(50),"Waiting for NPC dialogue to close"};
+    }
+    bool step_completed(const View& view) {
+        if (!issued_) return false;
+        issued_=false; minimum_=view.context.now+Time(250); deadline_=view.context.now+Time(10000);
+        return true;
+    }
+};
 std::string unreadable_respawn(const Observation<game::RespawnView>& reading,const View& view,Time minimum) {
     const Observation<bool> captured{Knowledge::present,true,reading.captured,reading.window,reading.generation};
     if (captured.has_value(view.context,game::respawn_menu_response_time,minimum+Time(1))) {
@@ -57,7 +86,8 @@ public:
             died(reading.captured);
         const bool health=state && state->alive.has_value(c,Time(2000),minimum);
         const bool observed=reading.has_value(c,Time(2000),minimum);
-        if (observed && (reading.value.screen==game::RespawnScreen::menu || reading.value.screen==game::RespawnScreen::confirmation))
+        if (observed && (reading.value.screen==game::RespawnScreen::menu || reading.value.screen==game::RespawnScreen::confirmation
+            || reading.value.screen==game::RespawnScreen::conversation))
             return false;
         if (state && state->connection.has_value(c,Time(2000)) && state->connection.value==game::Connection::disconnected) return false;
         if (health && !state->alive.value) return false;
@@ -82,6 +112,7 @@ class AwaitRespawn final : public Program {
     std::shared_ptr<RespawnResult> result_;
     Time started_{Time(-1)};
     RespawnCompletion completion_{true};
+    RespawnDialogue dialogue_;
 public:
     AwaitRespawn(std::shared_ptr<const game::RespawnSource> source,std::shared_ptr<RespawnResult> result)
         :source_(std::move(source)),result_(std::move(result)) {
@@ -92,7 +123,9 @@ public:
     bool expects_respawn() const noexcept override { return true; }
     Step next(const View& view) override {
         if (started_<Time{}) started_=view.context.now;
-        if (completion_.ready(view,source_->read(view.context),started_,started_)) {
+        const auto reading=source_->read(view.context);
+        if (auto step=dialogue_.clear(view,reading,started_)) return *step;
+        if (completion_.ready(view,reading,started_,started_)) {
             if (result_) {
                 result_->transition={Knowledge::present,true,view.context.now,view.context.window,view.context.generation};
                 result_->at_hive=completion_.hive_arrival(view,started_);
@@ -102,6 +135,7 @@ public:
         if (view.context.now-started_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return the game view; rejoining Bee Swarm");
         return Wait{Time(100),"Waiting for player respawn"};
     }
+    void step_completed(const View& view) override { dialogue_.step_completed(view); }
 };
 class Respawn final : public Program {
     enum class Stage { locate,select,confirm,transition,done };
@@ -110,6 +144,7 @@ class Respawn final : public Program {
     Stage stage_{Stage::locate};
     Time started_{Time(-1)},minimum_{},transition_{Time(-1)};
     RespawnCompletion completion_;
+    RespawnDialogue dialogue_;
     bool issued_{},announced_{};
     bool retried_{};
     unsigned shortcut_{};
@@ -162,6 +197,7 @@ public:
             && !view.observations->alive.value) {
             stage_=Stage::transition; shortcut_=2; started_=c.now; transition_=view.observations->alive.captured;
         }
+        if (auto step=dialogue_.clear(view,reading,minimum_)) return *step;
         // Opening the menu may take longer than the key's 50 ms release gap.
         // Do not send R into that animation; each key follows its own page.
         if (shortcut_==0) {
@@ -249,6 +285,7 @@ public:
         return Wait{Time(50),"Waiting for respawn controls"};
     }
     void step_completed(const View& view) override {
+        if (dialogue_.step_completed(view)) { started_=view.context.now; return; }
         if (!issued_) return;
         issued_=false; minimum_=view.context.now;
     }

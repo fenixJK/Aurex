@@ -3,6 +3,7 @@
 #include "landmarks.hpp"
 #include "perception.hpp"
 #include "connection.hpp"
+#include "conversation.hpp"
 #include <algorithm>
 #include <array>
 
@@ -101,6 +102,7 @@ bool visible_game(const DetectionInput& input) {
     return connection.knowledge==Knowledge::present && connection.value==Connection::connected;
 }
 class RespawnDetector final : public Detector {
+    std::shared_ptr<const Detector> conversation_{conversation_detector()};
 public:
     std::shared_ptr<const Detection> detect(const DetectionInput& input) const override {
         const auto& f=input.frame;
@@ -110,6 +112,14 @@ public:
         const auto health=read_empty_health_bar(f,input.generation);
         const auto menu=read_respawn_menu(f,input.generation);
         if (menu.knowledge!=Knowledge::absent) { packet->view=menu; return packet; }
+        // NPC dialogue can keep its camera after the character respawns.
+        // A visible HUD behind it does not mean control returned to the player.
+        const auto talk=std::dynamic_pointer_cast<const ConversationDetection>(conversation_->detect(input));
+        if (talk && talk->view.visible) {
+            packet->view.knowledge=Knowledge::present;
+            packet->view.value={RespawnScreen::conversation,talk->view.next};
+            return packet;
+        }
         if (visible_game(input)) {
             packet->view.knowledge=Knowledge::present;
             packet->view.value={health.value?RespawnScreen::respawning:RespawnScreen::game,{}};

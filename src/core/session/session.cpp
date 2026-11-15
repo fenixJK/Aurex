@@ -263,14 +263,20 @@ void Session::launch_feature(Window window,automation::Launch launch,Time now) {
         });
         feature_=std::make_unique<automation::Runner>(std::move(launch.program),std::move(launch.permissions),*feature_tasks_,*feature_scope_,navigation_);
         feature_->configure_reporting([this](const automation::ReportActivity& event) {
-            if (activity_events_.size()>=8) activity_events_.erase(activity_events_.begin());
             std::shared_ptr<const Frame> frame;
-            if (event.image_region || event.status.is_alert()) {
-                frame=observer_.latest_frame();
+            const bool saved=event.image && event.image->frame && !event.status.empty();
+            if (event.image || event.image_region || event.status.is_alert()) {
+                frame=saved?event.image->frame:observer_.latest_frame();
                 const auto now=monotonic_now();
                 if (frame && (!frame->valid() || frame->window.id!=active_window_.id || frame->window.process!=active_window_.process
-                    || frame->window.bounds!=active_window_.bounds || frame->captured>now || now-frame->captured>Time(3000))) frame.reset();
+                    || frame->window.bounds!=active_window_.bounds || frame->captured>now
+                    || (saved?event.image->generation!=tasks_.generation():now-frame->captured>Time(3000)))) frame.reset();
             }
+            if (event.status.empty()) {
+                if (event.image) { event.image->frame=std::move(frame); event.image->generation=tasks_.generation(); }
+                return;
+            }
+            if (activity_events_.size()>=8) activity_events_.erase(activity_events_.begin());
             activity_events_.push_back({event.status,std::move(frame),event.image_region});
         });
         feature_->configure_conversion(hive_conversion_); feature_->configure_statistics(recovery_counts_);

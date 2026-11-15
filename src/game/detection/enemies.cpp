@@ -30,6 +30,33 @@ std::string normalized(const std::string& input) {
 bool confidence(const TextLine& line,float minimum) {
     return !line.confidence || (std::isfinite(*line.confidence) && *line.confidence>=minimum && *line.confidence<=1);
 }
+bool one_edit(std::string_view a,std::string_view b) {
+    if (a.size()>b.size()+1 || b.size()>a.size()+1) return false;
+    std::size_t i=0,j=0;unsigned edits=0;
+    while (i<a.size() && j<b.size()) {
+        if (a[i]==b[j]) { ++i;++j;continue; }
+        if (++edits>1) return false;
+        if (a.size()>=b.size()) ++i;
+        if (b.size()>=a.size()) ++j;
+    }
+    return edits+(i<a.size())+(j<b.size())<=1;
+}
+std::string enemy_name(std::string_view text) {
+    if (text.starts_with("gifted ")) text.remove_prefix(7);
+    std::string found;
+    for (const auto* name:names) {
+        const auto expected=normalized(name);
+        auto end=text.find(' ');
+        for (unsigned n=0;n<std::count(expected.begin(),expected.end(),' ') && end!=std::string_view::npos;++n)
+            end=text.find(' ',end+1);
+        // One damaged glyph is common in small outlined names. Accept only
+        // a unique catalog name; the caller must also confirm its own HP bar.
+        if (!one_edit(text.substr(0,end),expected)) continue;
+        if (!found.empty()) return {};
+        found=expected;
+    }
+    return found;
+}
 int health_pixel(const std::uint8_t* pixel) {
     const int r=pixel[0],g=pixel[1],b=pixel[2];
     const bool filled=(r<=66) & (g>=196) & (b>=28) & (b<=108);
@@ -62,7 +89,8 @@ std::optional<HealthBar> health_bar(const DetectionInput& input,const Rect& labe
     const int left=std::max(0,int(std::floor(label.x-label.height*.4)));
     const int right=std::min(frame.width,int(std::ceil(label.x+label.width+label.height*.4)));
     const int top=std::max(0,int(std::floor(label.y+label.height*.6)));
-    const int bottom=std::min(frame.height,int(std::ceil(label.y+label.height*2.8)));
+    // Countdown labels occupy a line between the species name and its HP.
+    const int bottom=std::min(frame.height,int(std::ceil(label.y+label.height*4.5)));
     const auto cost=static_cast<std::size_t>(right-left)*(bottom-top);
     if (cost>=budget) { budget=0; return {}; }
     budget-=cost;
@@ -75,7 +103,9 @@ std::optional<HealthBar> health_bar(const DetectionInput& input,const Rect& labe
             first=std::min(first,x); last=x; ++total; green+=color==1;
         }
         const int width=last-first+1;
-        if (width>=label.width*.55 && width<=label.width*1.4 && total>=width*.55 && green>=2
+        // Outlined HP digits can cover the middle of a small bar. Require
+        // aligned colored ends across consecutive rows, rather than a solid fill.
+        if (width>=label.width*.55 && width<=label.width*1.4 && total>=width*.3 && green>=2
             && std::abs((first+last)/2.0-(label.x+label.width/2))<=label.height*.7) {
             if (!rows) { first_y=y; min_x=first; max_x=last; filled=colored=0; }
             else if (std::abs(first-min_x)>label.height*.35 || std::abs(last-max_x)>label.height*.35) {
@@ -97,7 +127,7 @@ class Enemies final : public Detector {
 public:
     std::vector<Rect> text_regions(const Frame& frame,std::uint64_t) const override {
         std::vector<Rect> regions{{.5,.4,.5,.6}};
-        for (const auto& bar:detail::bar_regions(frame,health_pixel,true)) regions.push_back(detail::label_region(frame,bar,3,0.5));
+        for (const auto& bar:detail::bar_regions(frame,health_pixel,true)) regions.push_back(detail::label_region(frame,bar,3.5,0.5));
         return regions;
     }
 
@@ -110,7 +140,6 @@ public:
         for (const auto* name : names) result->defeats[name]={Knowledge::absent,false,frame.captured,frame.window,input.generation};
         // Identify the species at the start of its label. Level text is unused
         // and must never prevent a name plus its health bar from being recognized.
-        static const std::regex label(R"(^(?:gifted )?(ladybug|rhino beetle|mantis|spider|scorpion|werewolf|vicious bee|mondo chick|king beetle|tunnel bear|coconut crab|stump snail|commando chick)(?: |$))");
         static const std::regex boss_defeat(R"(^(?:gifted )?(vicious bee|mondo chick|king beetle|tunnel bear|coconut crab|stump snail|commando chick) has been defeated$)");
         static const std::regex defeat(R"(^(?:you )?defeated (ladybug|rhino beetle|mantis|spider|scorpion|werewolf|vicious bee|mondo chick|king beetle|tunnel bear|coconut crab|stump snail|commando chick)(?: ([1-9][0-9]{0,7}) battle points?)?$)");
         static const std::regex attacking(R"(^(?:gifted )?vicious bee is attacking .{1,40} in (?:the )?(.+?)(?: field| patch| forest)?$)");
@@ -130,8 +159,8 @@ public:
             std::string species;
             std::optional<HealthBar> health;
             if (confidence(line,.3f) && box.y>=frame.height*.1 && box.height>=5 && box.height<=frame.height*.12
-                && box.width<=frame.width*.5 && std::regex_search(text,match,label)) {
-                species=match[1];health=health_bar(input,box,budget);
+                && box.width<=frame.width*.5 && !(species=enemy_name(text)).empty()) {
+                health=health_bar(input,box,budget);
             }
             const bool enemy_label=health.has_value();
             if (box.x>=frame.width*.5 && !enemy_label) {

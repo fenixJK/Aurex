@@ -78,7 +78,9 @@ struct Hold { std::vector<Key> keys; Time duration{}; std::optional<Point> point
 struct Done { std::string reason; };
 struct Defer { std::string reason; };
 struct EndCycle {};
-struct ReportActivity { ActivityStatus status; std::optional<Rect> image_region; };
+struct ActivityImage { std::shared_ptr<const Frame> frame; std::uint64_t generation{}; };
+// An empty status captures an image for a later report without sending a message.
+struct ReportActivity { ActivityStatus status; std::optional<Rect> image_region; std::shared_ptr<ActivityImage> image; };
 struct Wait { Time duration{50}; std::string reason{"Waiting for observations"}; };
 struct AnswerDialog { workflows::DialogPlan plan; };
 struct UseControl { Observation<Point> target; int scroll{}; std::string label; std::optional<Point> rest; bool changes_menu{}; };

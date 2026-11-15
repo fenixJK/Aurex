@@ -42,10 +42,10 @@ template<class Color> std::vector<Rect> bar_regions(const Frame& frame,Color col
             const auto a=boxes[i],b=boxes[j];
             const int height=std::max(a.height,b.height),gap=b.x-(a.x+a.width);
             if (gap>frame.height*.24) break;
-            // The outlined HP caption spans more than three bar heights at
-            // small scales. Keep both ends of the same bar available to the
-            // label validator, rather than discarding each narrow fragment.
-            if (gap>height*4) continue;
+            // A multi-digit HP caption and its outline can hide most of a
+            // small bar. Keep aligned ends together across the caption; the
+            // caller still validates the label and the bar's straight edges.
+            if (gap>height*8) continue;
             if (gap>=0 && std::abs(a.y-b.y)<=height*.25 && std::abs(a.height-b.height)<=height*.25) {
                 boxes[i]|=b;merged[j]=true;
             }

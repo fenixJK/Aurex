@@ -68,50 +68,51 @@ std::vector<TextLine> RecognitionCache::read(Desktop& desktop,const Frame& frame
     }
     if (!changed.empty()) {
         check();
-        auto bounds=next[changed.front()].area;
+        // Scale each crop before packing. A large notification area must not
+        // suppress enlargement of a tiny enemy name in the same OCR request.
+        std::vector<int> scales;
+        std::vector<Rect> placements;
         int packed_width=0,packed_height=8;
+        auto bounds=next[changed.front()].area;
+        const bool single=changed.size()==1;
         for (const auto index:changed) {
             const auto r=next[index].area;
             bounds={std::min(bounds.x,r.x),std::min(bounds.y,r.y),
                 std::max(bounds.x+bounds.width,r.x+r.width)-std::min(bounds.x,r.x),
                 std::max(bounds.y+bounds.height,r.y+r.height)-std::min(bounds.y,r.y)};
-            packed_width=std::max(packed_width,int(r.width)+16);
-            packed_height+=int(r.height)+8;
+            const int scale=r.width<=320 && r.height<=320
+                ?int(std::clamp(std::floor(640./std::max(r.width,r.height)),1.,4.)):1;
+            scales.push_back(scale);
+            placements.push_back({single?0.:8.,single?0.:double(packed_height),r.width*scale,r.height*scale});
+            packed_width=std::max(packed_width,int(r.width)*scale+16);
+            packed_height+=int(r.height)*scale+8;
         }
-        // Disjoint labels use one OCR call, retaining their original screen coordinates.
-        const bool packed=changed.size()>1 && double(packed_width)*packed_height<bounds.width*bounds.height;
-        Frame crop{frame.window,frame.captured,packed?packed_width:int(bounds.width),packed?packed_height:int(bounds.height),{}};
-        std::vector<Rect> placements;
-        const bool single=changed.size()==1;
-        if (!single) crop.rgba.resize(std::size_t(crop.width)*crop.height*4);
+        // Preserve compact neighboring crops when they share a scale. Sparse
+        // crops or mixed font sizes still use the smaller packed atlas.
+        if (!single && std::all_of(scales.begin(),scales.end(),[&](int scale) { return scale==scales.front(); })
+            && bounds.width*bounds.height*scales.front()*scales.front()<=double(packed_width)*packed_height) {
+            packed_width=int(bounds.width)*scales.front();packed_height=int(bounds.height)*scales.front();
+            for (std::size_t j=0;j<changed.size();++j) {
+                const auto r=next[changed[j]].area;
+                placements[j]={(r.x-bounds.x)*scales[j],(r.y-bounds.y)*scales[j],r.width*scales[j],r.height*scales[j]};
+            }
+        }
+        Frame crop{frame.window,frame.captured,single?int(placements[0].width):packed_width,
+            single?int(placements[0].height):packed_height,{}};
+        crop.rgba.resize(std::size_t(crop.width)*crop.height*4);
         for (std::size_t i=3;i<crop.rgba.size();i+=4) crop.rgba[i]=255;
-        int cursor=8;
-        for (const auto index:changed) {
-            const auto& entry=next[index]; const auto r=entry.area;
-            Rect box{packed?8:r.x-bounds.x,packed?double(cursor):r.y-bounds.y,r.width,r.height};
-            placements.push_back(box);cursor+=int(r.height)+8;
-            if (single) crop.rgba=std::move(next[index].pixels);
-            else for (int y=0;y<int(r.height);++y) std::memcpy(crop.rgba.data()+(std::size_t(y+int(box.y))*crop.width+int(box.x))*4,
-                entry.pixels.data()+std::size_t(y)*std::size_t(r.width)*4,std::size_t(r.width)*4);
+        cv::Mat atlas(crop.height,crop.width,CV_8UC4,crop.rgba.data());
+        for (std::size_t j=0;j<changed.size();++j) {
+            check();
+            const auto& entry=next[changed[j]];
+            const auto box=placements[j];
+            cv::Mat source(int(entry.area.height),int(entry.area.width),CV_8UC4,
+                const_cast<std::uint8_t*>(entry.pixels.data()));
+            auto destination=atlas(cv::Rect(int(box.x),int(box.y),int(box.width),int(box.height)));
+            if (scales[j]==1) source.copyTo(destination);
+            else cv::resize(source,destination,destination.size(),0,0,cv::INTER_CUBIC);
         }
-        // Compact text crops are enlarged together. This keeps native
-        // engines from receiving unreadably tiny text and preserves one OCR call.
-        double scale=1;
-        if (crop.width<=320 && crop.height<=320)
-            scale=std::clamp(std::floor(640./std::max(crop.width,crop.height)),1.,4.);
-        Frame enlarged;
-        if (scale>1) {
-            enlarged={crop.window,crop.captured,int(crop.width*scale),int(crop.height*scale),{}};
-            enlarged.rgba.resize(std::size_t(enlarged.width)*enlarged.height*4);
-            cv::Mat source(crop.height,crop.width,CV_8UC4,crop.rgba.data());
-            cv::Mat dest(enlarged.height,enlarged.width,CV_8UC4,enlarged.rgba.data());
-            cv::resize(source,dest,dest.size(),0,0,cv::INTER_CUBIC);
-        }
-        auto lines=desktop.recognize(scale>1?enlarged:crop,cancelled);
-        if (scale>1) for (auto& line:lines) {
-            line.pixels.x/=scale;line.pixels.y/=scale;line.pixels.width/=scale;line.pixels.height/=scale;
-        }
-        if (single) next[changed.front()].pixels=std::move(crop.rgba);
+        auto lines=desktop.recognize(crop,cancelled);
         check();
         if (lines.size()>4096) throw std::runtime_error("OCR exceeded text limits");
         for (const auto& line:lines) for (std::size_t j=0;j<changed.size();++j) {
@@ -120,7 +121,9 @@ std::vector<TextLine> RecognitionCache::read(Desktop& desktop,const Frame& frame
             constexpr double rounding=1e-4;
             if (b.x+rounding<box.x || b.y+rounding<box.y
                 || b.x+b.width>box.x+box.width+rounding || b.y+b.height>box.y+box.height+rounding) continue;
-            auto mapped=line;mapped.pixels.x+=entry.area.x-box.x;mapped.pixels.y+=entry.area.y-box.y;
+            auto mapped=line;
+            const double scale=scales[j];
+            mapped.pixels={(b.x-box.x)/scale+entry.area.x,(b.y-box.y)/scale+entry.area.y,b.width/scale,b.height/scale};
             entry.lines.push_back(std::move(mapped));
         }
     }

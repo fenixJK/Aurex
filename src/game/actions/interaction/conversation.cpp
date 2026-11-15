@@ -1,4 +1,5 @@
 #include "conversation.hpp"
+#include "game/detection/menus.hpp"
 
 namespace hive::automation {
 namespace {
@@ -25,17 +26,18 @@ public:
         const auto& banner=view.observations->interaction_banner;
         const bool nearby=banner.has_value(c,Time(2000),minimum_) && banner.value==game::InteractionBanner::ready;
         if (stage_==Stage::prompt) {
-            if (scene.value.visible) throw std::runtime_error("Close the existing conversation before starting another");
-            if (!nearby) return Wait{Time(50),"Waiting for NPC interaction"};
-            issued_=true; stage_=Stage::opening;
-            return Hold{{Key::interact},Time(80)};
+            if (!scene.value.visible) {
+                if (!nearby) return Wait{Time(50),"Waiting for NPC interaction"};
+                issued_=true; stage_=Stage::opening;
+                return Hold{{Key::interact},Time(80)};
+            }
         }
         if (scene.value.visible) {
             stage_=Stage::dialogue;
             if (!scene.value.next) return Wait{Time(50),"Waiting for dialogue control"};
             if (++clicks_>120) throw std::runtime_error("NPC conversation exceeded its page limit");
             issued_=true;
-            return UseControl{{Knowledge::present,*scene.value.next,scene.captured,scene.window,scene.generation},0,"Continue NPC dialogue",Point{.9,.4}};
+            return UseControl{{Knowledge::present,*scene.value.next,scene.captured,scene.window,scene.generation},0,"Continue NPC dialogue",game::pointer_rest(c,*view.observations)};
         }
         if (stage_==Stage::dialogue && nearby) return Done{"NPC conversation closed"};
         return Wait{Time(50),"Waiting for NPC conversation"};
