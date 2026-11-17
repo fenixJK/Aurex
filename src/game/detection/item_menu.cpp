@@ -198,8 +198,9 @@ public:
             static constexpr std::array<std::string_view,8> controls{"Confirm","Donate","End Crafting","Cancel","Blender","Wind Shrine","Sticker Printer","Sticker Stack"};
             const Rect region{double(panel.x)/f.width,double(panel.y)/f.height,double(panel.width)/f.width,double(panel.height)/f.height};
             std::vector<TextLine> panel_text;
-            for (const auto& line:input.text) if (contains(panel,line.pixels)
-                && std::none_of(controls.begin(),controls.end(),[&](const auto& name) {return words(line.text)==words(name);})) panel_text.push_back(line);
+            // Keep recognized control names even when the visual matcher has
+            // no match (for example, at a different UI font or scale).
+            for (const auto& line:input.text) if (contains(panel,line.pixels)) panel_text.push_back(line);
             const auto fixed=fixed_ui_labels(f,region,controls);
             panel_text.insert(panel_text.end(),fixed.begin(),fixed.end());
             const auto rows=text_candidates(panel_text,1);
@@ -227,8 +228,12 @@ public:
                     result->submit=Point{(area.x+b.x+b.width/2.)/f.width,(area.y+b.y+b.height/2.)/f.height};
                 }
                 for (const auto& line:rows) {
-                    const auto label=words(line.text);
-                    if (label.find("stack boost")!=std::string::npos) {
+                    // OCR may split the label, stack count and duration into
+                    // separate lines. Read the duration from the boost summary,
+                    // rather than requiring the label in the same OCR span.
+                    const auto x=(line.pixels.x+line.pixels.width/2-panel.x)/panel.width;
+                    const auto y=(line.pixels.y+line.pixels.height/2-panel.y)/panel.height;
+                    if (x>.5 && y>.4 && y<.55) {
                         const auto duration=timer(line.text);
                         if (duration && *duration>=std::chrono::minutes(15) && *duration<=std::chrono::hours(1)) result->boost_duration=duration;
                     }

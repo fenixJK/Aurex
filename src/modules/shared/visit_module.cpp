@@ -145,7 +145,8 @@ class VisitModule final : public extensions::Module {
     mutable std::uint64_t accounted_run_{};
     mutable std::map<std::string,Time> retry_after_;
     std::map<std::string,Time> travel_costs_;
-    mutable std::string planned_visit_,interrupt_visit_;
+    mutable std::optional<extensions::WorkEstimate> planned_work_;
+    mutable std::string interrupt_visit_;
     Interrupts interrupts_;
     void sync_session(const extensions::SessionView& view) const {
         if (!view.session_id || session_==view.session_id) return;
@@ -221,7 +222,7 @@ public:
         automation::visit_program(plan,network_,availability_);
         if (saved_) saved_->load();
         selected_=std::move(selected); interrupt_=std::get<bool>(values.at("interrupt-gather"));
-        plan_=std::move(plan); interrupt_visit_.clear(); results_.reset(); ready_.clear(); retry_after_.clear(); session_=0; demand_context_.reset(); detail_.clear(); started_=true;
+        plan_=std::move(plan); planned_work_.reset(); interrupt_visit_.clear(); results_.reset(); ready_.clear(); retry_after_.clear(); session_=0; demand_context_.reset(); detail_.clear(); started_=true;
     }
     void update(const extensions::SessionView& view) override {
         if (!started_) throw std::logic_error("Activity module is stopped");
@@ -324,7 +325,7 @@ public:
         if (pinned && (!gathering || pinned->interrupt_gather==true || !next || next->interrupt_gather!=true)) next=std::move(pinned);
         else interrupt_visit_.clear();
         if (!interrupts_.empty() && gathering && next && next->ready<=view.now) interrupt_visit_=next->label;
-        planned_visit_=next?next->label:std::string{};
+        planned_work_=next;
         return next;
     }
     std::unique_ptr<automation::Program> program() const override {
@@ -337,7 +338,7 @@ public:
         for (const auto& [id,time]:retry_after_) delayed[id]=std::max(delayed[id],time);
         if (!delayed.empty()) source=std::make_shared<RecheckSource>(source,std::move(delayed));
         auto plan=plan_;
-        auto first=std::find_if(plan.visits.begin(),plan.visits.end(),[&](const auto& visit) { return visit.id==planned_visit_; });
+        auto first=std::find_if(plan.visits.begin(),plan.visits.end(),[&](const auto& visit) { return planned_work_ && visit.id==planned_work_->label; });
         if (first!=plan.visits.end()) {
             auto last=first+1;
             if (!first->group.empty()) {
@@ -345,8 +346,9 @@ public:
                 while (first!=plan.visits.begin() && (first-1)->group==group) --first;
                 while (last!=plan.visits.end() && last->group==group) ++last;
             }
-            // Per-job permissions must not authorize unrelated visits in the same run.
-            if (!interrupt_visit_.empty()) plan.visits=std::vector<automation::Visit>(first,last);
+            // A request lends priority to this field, not the entire bug run.
+            // Return to the scheduler before starting unrelated work.
+            if (!interrupt_visit_.empty() || !planned_work_->requested_by.empty()) plan.visits=std::vector<automation::Visit>(first,last);
             else std::rotate(plan.visits.begin(),first,last);
         }
         interrupt_visit_.clear();

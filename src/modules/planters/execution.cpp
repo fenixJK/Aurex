@@ -490,10 +490,9 @@ public:
         const bool planning=phase_==Phase::select || phase_==Phase::planning || (phase_==Phase::baseline && !harvest_);
         const bool requires_nectar=!plan_.preferences || plan_.preferences->mode==Mode::nectar;
         const bool fresh=snapshot.nectar.has_value(view.context,Time(2000));
-        auto groups=fresh?snapshot.nectar.value:std::vector<Group>{};
+        auto groups=planning && fresh?std::move(snapshot.nectar.value):std::vector<Group>{};
         if (planning && !requires_nectar && groups.empty()) groups=candidate_groups();
         if (!groups.empty()) {
-            if (!planning) for (auto& group : groups) group.candidates.clear();
             validate_configuration(groups,{},plan_.capacity);
             account_->prepare_groups(groups,plan_.preferences,now);
             for (auto& group:groups) std::erase_if(group.candidates,[&](const auto& candidate) {
@@ -510,9 +509,7 @@ public:
                 publish(ExecutionStage::planning); return wait("Waiting for nectar readings");
             }
             for (auto& group : groups) {
-                std::erase_if(group.candidates,[&](const auto& c) {
-                    return !plan_.destinations.contains(c.stats.field) || unavailable_planters_.contains(c.stats.planter);
-                });
+                std::erase_if(group.candidates,[&](const auto& c) { return unavailable_planters_.contains(c.stats.planter); });
                 for (auto& candidate : group.candidates) {
                     candidate.travel=travel_.estimate(candidate.stats.field);
                 }
@@ -608,13 +605,18 @@ public:
                 }
                 if (!evidence.has_value(view.context,Time(2000),minimum_) && view.context.now<deadline_)
                     return wait("Reading planter placement");
-                if ((!evidence.has_value(view.context,Time(2000),minimum_) || evidence.value.identities.empty())
-                    && view.context.now>=deadline_ && !placement_searched_) {
-                    placement_searched_=true;
-                    if (auto approach=actions_->locate(selected_)) {
-                        phase_=Phase::verifying_placement; publish(ExecutionStage::locating);
-                        return emit(RunProgram{[approach=*approach,speed=plan_.config.speed] { return std::make_unique<FindPlacedPlanter>(approach,speed); },true});
+                if (!evidence.has_value(view.context,Time(2000),minimum_) || evidence.value.identities.empty()) {
+                    // Once the UI has responded with no visible planter, look
+                    // nearby instead of spending the full timeout stationary.
+                    const bool settled=prompt.usable(view.context,Time(2000),minimum_+Time(750));
+                    if (!placement_searched_ && (settled || view.context.now>=deadline_)) {
+                        placement_searched_=true;
+                        if (auto approach=actions_->locate(selected_)) {
+                            phase_=Phase::verifying_placement; publish(ExecutionStage::locating);
+                            return emit(RunProgram{[approach=*approach,speed=plan_.config.speed] { return std::make_unique<FindPlacedPlanter>(approach,speed); },true});
+                        }
                     }
+                    if (view.context.now>=deadline_) return unconfirmed_placement(view);
                 }
             }
             const auto receipt=harvest_action_?harvest_receipt(selected_,snapshot,view,minimum_):Observation<HarvestEvidence>{};

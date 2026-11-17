@@ -284,10 +284,10 @@ extensions::Manifest module_manifest(std::string id,std::string provider,bool br
         for (const auto& npc:game::npcs()) givers.choices.push_back(npc.name);
         givers.ordered=true; givers.inline_choices=true; result.settings.push_back(std::move(givers));
         result.settings.push_back({"interrupt-gather","Gather interrupt",true});
-        result.settings.back().help="Allow due quest work to interrupt gathering. Otherwise it waits for the current gather to finish.";
+        result.settings.back().help="Allow Quests to interrupt gathering for visits, kills and pickups. Combat and Collection also keep their own interrupt settings.";
         result.settings.push_back({"goo-slot","Gumdrop slot",std::string("Disabled"),0,0,{"Disabled","1","2","3","4","5","6","7"}});
         result.settings.back().help="Put Gumdrops in this slot. Used only while gathering for an unfinished Goo objective.";
-        result.page=extensions::PageLayout{{{"givers","Quest givers","Enemy-defeat objectives require Combat. When Combat is disabled, other quest objectives can still run.",{"givers"},false,1},
+        result.page=extensions::PageLayout{{{"givers","Quest givers","Quest kills run through Combat; quest pickups run through Collection. Keep those modules enabled. Requested work uses the Quests position in the running order when it is higher.",{"givers"},false,1},
             {"options","Options",{},{"interrupt-gather","goo-slot"},false,2},
             {"objectives","Quest progress",{},{},true,2}},true};
     } else result.page=extensions::PageLayout{{{"objectives","Quest progress",{},{},true,2}}};

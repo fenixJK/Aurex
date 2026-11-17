@@ -14,18 +14,45 @@ std::array<int,3> totals(const BuffIcon& icon) {
     for(unsigned i=0;i<icon.columns*icon.rows;++i) for(int c=0;c<3;++c) result[c]+=(icon.pixels[i]>>(16-c*8))&255;
     return result;
 }
-bool color_matches(const Frame& frame,double left,double top,double scale,const BuffColorCheck& check) {
+BuffIcon raster_profile(const BuffAppearance& appearance,double left,double scale,Rect& region) {
+    auto icon=*appearance.icon;
+    // HUD cells are rasterized to whole pixels; the measured anchor scale can
+    // differ slightly from that size because its border is antialiased.
+    const double raster_scale=std::round(38*scale)/38;
+    const double begin=std::round(left)+region.x*raster_scale;
+    const int first=std::lround(begin),last=std::max(first+1,int(std::lround(begin+region.width*raster_scale)));
+    const double step=region.width/appearance.icon->columns;
+    icon.columns=std::min(icon.columns,unsigned(last-first));
+    // Compare both profiles at the captured pixel resolution. Sampling a small
+    // HUD back up to the native width cannot restore edges lost to rescaling.
+    for(unsigned x=0;x<icon.columns;++x) {
+        const double a=(std::lround(first+x*(last-first)/double(icon.columns))-begin)/(raster_scale*step);
+        const double b=(std::lround(first+(x+1)*(last-first)/double(icon.columns))-begin)/(raster_scale*step);
+        std::array<double,3> color{};
+        for(int i=int(std::floor(a));i<int(std::ceil(b));++i) {
+            const double weight=std::min(b,double(i+1))-std::max(a,double(i));
+            const auto pixel=appearance.icon->pixels[std::clamp(i,0,int(appearance.icon->columns)-1)];
+            for(int c=0;c<3;++c)color[c]+=weight*((pixel>>(16-c*8))&255);
+        }
+        icon.pixels[x]=0;
+        for(int c=0;c<3;++c)icon.pixels[x]|=std::uint32_t(std::lround(color[c]/(b-a)))<<(16-c*8);
+    }
+    region.x=(first-left)/scale;region.width=(last-first)/scale;
+    return icon;
+}
+double color_error(const Frame& frame,double left,double top,double scale,const BuffColorCheck& check) {
     const int x0=std::lround(left+check.region.x*scale),y0=std::lround(top+check.region.y*scale);
     const int x1=std::max(x0+1,int(std::lround(left+(check.region.x+check.region.width)*scale)));
     const int y1=std::max(y0+1,int(std::lround(top+(check.region.y+check.region.height)*scale)));
-    if(x0<0 || y0<0 || x1>frame.width || y1>frame.height) return false;
+    if(x0<0 || y0<0 || x1>frame.width || y1>frame.height) return 255.;
     std::array<double,3> error{};
     for(int y=y0;y<y1;++y) for(int x=x0;x<x1;++x) {
         const auto offset=(std::size_t(y)*frame.width+x)*4;
         for(int c=0;c<3;++c)error[c]+=std::abs(int(frame.rgba[offset+c])-check.color[c]);
     }
-    for(int c=0;c<3;++c)if(error[c]>check.tolerance[c]*(x1-x0)*(y1-y0))return false;
-    return true;
+    double result=0;
+    for(int c=0;c<3;++c)result=std::max(result,error[c]/(check.tolerance[c]*(x1-x0)*(y1-y0)));
+    return result;
 }
 double score(const Patch& patch,const std::array<int,3>& actual,const BuffAppearance& appearance,const std::array<int,3>& reference,double scale) {
     const auto& icon=*appearance.icon;
@@ -176,40 +203,81 @@ BuffScan scan_buffs(const DetectionInput& input,const BuffBar& layout,std::span<
         || layout.scale<.5 || layout.scale>4 || !std::isfinite(layout.pitch) || layout.pitch<15 || layout.pitch>160
         || !std::isfinite(layout.origin) || !std::isfinite(layout.bottom) || layout.bottom>input.frame.height || layout.bottom<layout.pitch) return result;
     struct Prepared {std::size_t definition,region;const BuffAppearance* appearance;std::array<int,3> reference;};
+    struct Profile {BuffIcon icon;BuffAppearance appearance;};
     struct Region {Rect area;unsigned columns,rows;bool operator==(const Region&) const=default;};
     std::vector<Region> regions;std::vector<Prepared> prepared;
+    std::vector<Profile> profiles;
+    std::size_t profile_count=0;
+    for(const auto& d:definitions)for(const auto& a:d.appearances)if(a.icon && a.icon->rows==1)++profile_count;
+    profiles.reserve(profile_count);
     int first=0,last=0;
-    for(std::size_t i=0;i<definitions.size();++i) for(const auto& a:definitions[i].appearances) {
-        if(!a.icon || !a.icon->columns || !a.icon->rows || a.icon->rows>8 || a.icon->columns>96/a.icon->rows) return result;
+    for(std::size_t i=0;i<definitions.size();++i) for(const auto& original:definitions[i].appearances) {
+        if(!original.icon || !original.icon->columns || !original.icon->rows || original.icon->rows>8 || original.icon->columns>96/original.icon->rows) return result;
+        const auto* appearance=&original;
+        if(original.icon->rows==1) {
+            profiles.push_back({{},original});auto& profile=profiles.back();
+            profile.icon=raster_profile(original,std::max(0.,layout.origin),layout.scale,profile.appearance.region);
+            profile.appearance.icon=&profile.icon;appearance=&profile.appearance;
+        }
+        const auto& a=*appearance;
         const Region key{a.region,a.icon->columns,a.icon->rows};
         auto region=std::find(regions.begin(),regions.end(),key);
         const auto index=std::size_t(region-regions.begin());if(region==regions.end())regions.push_back(key);
-        prepared.push_back({i,index,&a,totals(*a.icon)});first=std::min(first,a.first_offset);last=std::max(last,a.last_offset);
+        prepared.push_back({i,index,appearance,totals(*a.icon)});first=std::min(first,a.first_offset);last=std::max(last,a.last_offset);
     }
     struct Sample {Patch pixels;std::array<int,3> totals;};
     std::vector<std::optional<Sample>> patches(regions.size());
-    std::vector<double> errors(definitions.size()),margins(definitions.size());
+    std::vector<double> errors(definitions.size()),margins(definitions.size()),cell_tops(definitions.size());
     std::vector<unsigned> specificity(definitions.size());
-    for(int dy=first;dy<=last;++dy) {
-        const double top=layout.bottom-layout.pitch+dy*layout.scale;
-        for(double left=std::max(0.,layout.origin);left+layout.pitch<=input.frame.width;left+=1) {
-            if(input.cancelled && input.cancelled()) return {};
-            if(layout.aligned) {
-                const double slot=(left-layout.origin)/layout.pitch;
-                const double tolerance=3*layout.scale+.005*(left-layout.origin);
-                if(std::abs(slot-std::round(slot))*layout.pitch>tolerance)continue;
+    struct Palette { double error,top; };
+    std::vector<Palette> palette(prepared.size());
+    std::vector<bool> palette_selected(prepared.size());
+    for(double left=std::max(0.,layout.origin);left+layout.pitch<=input.frame.width;left+=1) {
+        if(input.cancelled && input.cancelled()) return {};
+        if(layout.aligned) {
+            const double slot=(left-layout.origin)/layout.pitch;
+            const double tolerance=3*layout.scale+.005*(left-layout.origin);
+            if(std::abs(slot-std::round(slot))*layout.pitch>tolerance)continue;
+        }
+        // Rasterization can shift the artwork relative to the narrow tile
+        // edge. Fit its palette independently, once per candidate column.
+        for(std::size_t i=0;i<prepared.size();++i) {
+            const auto& a=*prepared[i].appearance;
+            palette[i]={a.color_checks.empty()?0.:255.,layout.bottom-layout.pitch};
+            for(int offset=a.first_offset;!a.color_checks.empty() && offset<=a.last_offset;++offset) {
+                const double top=layout.bottom-layout.pitch+offset*layout.scale;
+                double error=0;
+                for(const auto& check:a.color_checks)error=std::max(error,color_error(input.frame,left,top,layout.scale,check));
+                if(error<palette[i].error)palette[i]={error,top};
             }
+        }
+        // When variants use the same color anchors, choose the closest palette.
+        // A drained tile's scenery must not outvote its remaining colored edge.
+        for(std::size_t i=0;i<prepared.size();++i) {
+            const auto& a=*prepared[i].appearance;
+            palette_selected[i]=palette[i].error<=1;
+            for(std::size_t j=0;palette_selected[i] && !a.color_checks.empty() && j<prepared.size();++j) {
+                const auto& other=*prepared[j].appearance;
+                if(palette[j].error>=palette[i].error || a.region!=other.region || a.color_checks.size()!=other.color_checks.size())continue;
+                if(std::equal(a.color_checks.begin(),a.color_checks.end(),other.color_checks.begin(),
+                    [](const auto& x,const auto& y){return x.region==y.region;}))palette_selected[i]=false;
+            }
+        }
+        for(int dy=first;dy<=last;++dy) {
+            const double top=layout.bottom-layout.pitch+dy*layout.scale;
             std::fill(patches.begin(),patches.end(),std::nullopt);std::fill(errors.begin(),errors.end(),255);std::fill(specificity.begin(),specificity.end(),0);
-            for(const auto& p:prepared) {
+            for(std::size_t i=0;i<prepared.size();++i) {
+                const auto& p=prepared[i];
                 const auto& a=*p.appearance;
-                if(dy<a.first_offset || dy>a.last_offset)continue;
-                if(!std::all_of(a.color_checks.begin(),a.color_checks.end(),[&](const auto& check){return color_matches(input.frame,left,top,layout.scale,check);}))continue;
+                if(!palette_selected[i] || dy<a.first_offset || dy>a.last_offset)continue;
                 auto& patch=patches[p.region];
                 if(!patch) if(auto pixels=sample(input.frame,left,top,layout.scale,a.region,a.icon->columns,a.icon->rows))patch=Sample{*pixels,totals(*pixels,a.icon->columns*a.icon->rows)};
                 if(!patch)continue;
                 const auto error=score(patch->pixels,patch->totals,a,p.reference,layout.scale);
                 if(error<a.icon->maximum_error && (a.specificity>specificity[p.definition] || (a.specificity==specificity[p.definition] && error<errors[p.definition]))) {
                     errors[p.definition]=error;specificity[p.definition]=a.specificity;margins[p.definition]=a.minimum_margin;
+                    // Counts belong to the tile, not the shifted artwork fit.
+                    cell_tops[p.definition]=a.color_checks.empty()?top:palette[i].top;
                 }
             }
             const auto rank=*std::max_element(specificity.begin(),specificity.end());
@@ -220,7 +288,7 @@ BuffScan scan_buffs(const DetectionInput& input,const BuffBar& layout,std::span<
             if(*next-error<=margins[selected]) {
                 result.ambiguous[selected]=true;result.ambiguous[next-errors.begin()]=true;continue;
             }
-            const Rect cell{left,top,layout.pitch,layout.pitch};
+            const Rect cell{left,cell_tops[selected],layout.pitch,layout.pitch};
             auto previous=std::find_if(result.matches.begin(),result.matches.end(),[&](const auto& m){return std::abs(m.cell.x-left)<layout.pitch*.7;});
             if(previous==result.matches.end())result.matches.push_back({selected,cell,error,rank});
             else if(rank>previous->specificity || (rank==previous->specificity && error<previous->error))*previous={selected,cell,error,rank};

@@ -5,7 +5,7 @@ namespace hive::automation {
 namespace {
 class Conversation final : public Program {
     std::shared_ptr<const game::ConversationSource> source_;
-    enum class Stage { prompt,opening,dialogue } stage_{Stage::prompt};
+    enum class Stage { prompt,opening,dialogue,closed } stage_{Stage::prompt};
     Time minimum_{},deadline_{},frame_{Time(-1)};
     bool started_{},issued_{};
     unsigned clicks_{};
@@ -17,6 +17,7 @@ public:
     RunConfig config() const override { return {Time(180000),28,{},true,true,true}; }
     Step next(const View& view) override {
         const auto& c=view.context;
+        if (stage_==Stage::closed) return Done{"NPC conversation closed"};
         if (!started_) { started_=true; minimum_=c.now; deadline_=c.now+Time(10000); }
         if (c.now>=deadline_) throw ObservationUnavailable("NPC conversation did not confirm its next state");
         if (!view.observations) return Wait{};
@@ -37,14 +38,19 @@ public:
             if (!scene.value.next) return Wait{Time(50),"Waiting for dialogue control"};
             if (++clicks_>120) throw std::runtime_error("NPC conversation exceeded its page limit");
             issued_=true;
-            return UseControl{{Knowledge::present,*scene.value.next,scene.captured,scene.window,scene.generation},0,"Continue NPC dialogue",game::pointer_rest(c,*view.observations)};
+            // Keep the pointer on the conversation until it closes. Every
+            // click still needs a new, post-input observation of the control.
+            return UseControl{{Knowledge::present,*scene.value.next,scene.captured,scene.window,scene.generation},0,"Continue NPC dialogue",*scene.value.next};
         }
-        if (stage_==Stage::dialogue && nearby) return Done{"NPC conversation closed"};
+        if (stage_==Stage::dialogue && nearby) {
+            stage_=Stage::closed;
+            return Hold{{},Time(40),game::pointer_rest(c,*view.observations)};
+        }
         return Wait{Time(50),"Waiting for NPC conversation"};
     }
     void step_completed(const View& view) override {
         if (!issued_) return;
-        issued_=false; minimum_=view.context.now+Time(250);
+        issued_=false; minimum_=view.context.now+Time(1);
         deadline_=view.context.now+Time(10000);
     }
 };

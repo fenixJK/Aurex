@@ -15,7 +15,7 @@ return function(p)
         path[#path+1]=h.walk({{30,"forward"},{25,"left"},{2,"forward"},{30,"backward"},{23,"backward","right"},{3,"backward"},{5,"right"},{13,"backward"}})
         local mount=h.motion()
         mount:walk(5,{"backward"},true); mount:hold({"backward","jump"},200)
-        mount:walk(3.5,{"right"}); mount:walk(5,{"forward"}); mount:walk(7,{"backward"}); path[#path+1]=mount:finish()
+        mount:walk(3.5,{"right"}); mount:walk(8,{"forward"}); mount:walk(7,{"backward"}); path[#path+1]=mount:finish()
         path[#path+1]={kind="shift_lock",enabled=true}
         path[#path+1]={kind="turn",key="rotate_right",count=4,press=50,release=200}
         local flight={kind="checkpoint",detector="interaction.prompt",timeout=10200,age=2000,attempts=0,completion="launch",continuous=true,approach={}}

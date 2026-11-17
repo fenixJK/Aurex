@@ -79,7 +79,9 @@ public:
                 result_->retry=duration_;
                 return close("Sticker Stack activation could not be confirmed; waiting before another purchase");
             }
-            throw ObservationUnavailable("Sticker Stack menu could not be read");
+            throw ObservationUnavailable(phase_==Phase::purchase
+                ?"Sticker Stack confirmation did not appear after choosing 25 tickets"
+                :"Sticker Stack menu or boost duration could not be read");
         }
         if (phase_==Phase::menu && menu && menu->kind==game::ItemMenuKind::sticker_stack
             && menu->submit && menu->boost_duration) {

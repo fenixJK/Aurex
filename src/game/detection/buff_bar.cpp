@@ -120,7 +120,10 @@ std::optional<BuffBar> hud_buff_bar(const DetectionInput& input) {
         if (std::abs(sx-sy)>.15*std::max(sx,sy)) return {};
         scale=(sx+sy)/2; center=anchor.center(); offset=inventory?29.5:85;
     }
-    BuffBar bar{scale,38*scale,center.x*f.width-offset*scale,std::round(center.y*f.height-37*scale),true,true};
+    // Menu icon bounds give an approximate scale. Rounding error accumulates
+    // across the buff row, so don't use that estimate to exclude icon positions.
+    // The resource-box scale above can still use the faster aligned search.
+    BuffBar bar{scale,38*scale,center.x*f.width-offset*scale,std::round(center.y*f.height-37*scale),true,false};
     if (scale<.5 || scale>4 || bar.origin < -8*scale || bar.bottom<bar.pitch || bar.bottom>f.height) return {};
     return bar;
 }

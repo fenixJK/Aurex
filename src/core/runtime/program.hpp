@@ -84,7 +84,7 @@ struct ReportActivity { ActivityStatus status; std::optional<Rect> image_region;
 struct Wait { Time duration{50}; std::string reason{"Waiting for observations"}; };
 struct AnswerDialog { workflows::DialogPlan plan; };
 struct UseControl { Observation<Point> target; int scroll{}; std::string label; std::optional<Point> rest; bool changes_menu{}; };
-struct TapMenuKey { Key key; std::string label; Time press{}; };
+struct TapMenuKey { Key key; std::string label; };
 struct EnterNumber { Observation<Point> target; unsigned value{}; };
 struct AwaitText { game::TextTarget target; Time timeout{10000}; };
 struct UseStation { std::string name; Time timeout{15000}; };

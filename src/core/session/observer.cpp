@@ -96,7 +96,12 @@ void Observer::watch(const ObservationContext& context,ObservationNeeds needs) {
     wake_->changed.notify_all();
 }
 void Observer::stop() {
-    { std::lock_guard lock(mutex_); target_.reset(); needs_.clear(); latest_={}; text_regions_.clear(); label_queries_.clear(); ++label_revision_; ++revision_; clear_detections(); }
+    {
+        std::lock_guard lock(mutex_);
+        if (!target_ && text_regions_.empty() && label_queries_.empty()) return;
+        target_.reset(); needs_.clear(); latest_={}; text_regions_.clear(); label_queries_.clear();
+        ++label_revision_; ++revision_; clear_detections();
+    }
     wake_->changed.notify_all();
 }
 void Observer::request_text(std::vector<Rect> regions) {
@@ -185,7 +190,7 @@ void Observer::capture() {
         const auto next_regional=regional_interval==Time::max()?Time::max():last_responsive+regional_interval;
         auto due=std::min(next_full,next_regional);
         if (due==Time::max()) {
-            wake_->changed.wait_for(lock,Time(250),[this,revision,demand] { return exiting_ || revision!=revision_ || demand!=wake_->revision; }); continue;
+            wake_->changed.wait(lock,[this,revision,demand] { return exiting_ || revision!=revision_ || demand!=wake_->revision; }); continue;
         }
         due=std::max(due,retry_after);
         if (now<due) {

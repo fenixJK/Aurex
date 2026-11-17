@@ -134,20 +134,22 @@ void InventoryDrag::update(const ObservationContext& c,const game::State& state,
                 return;
             }
             if (!view.drop || view.target!=plan_.target) { reason_="Waiting for the item destination"; return; }
-            // The inventory may still be settling when its first readable
-            // frame arrives. Hover, then recheck the row before pressing; a
-            // queued drag would otherwise use coordinates from before the move.
-            if (!aimed_ || game::inventory_name(aimed_->name)!=game::inventory_name(selected->name)
+            // Opening or scrolling can leave rows moving in the first readable
+            // frame. Recheck those rows, but moving the pointer alone does not
+            // invalidate an already open, unchanged inventory page.
+            if ((scrolls_ || open_attempts_) && (!aimed_ || game::inventory_name(aimed_->name)!=game::inventory_name(selected->name)
                 || std::abs(aimed_->grab.x-selected->grab.x)>2/c.window.bounds.width
-                || std::abs(aimed_->grab.y-selected->grab.y)>2/c.window.bounds.height) {
+                || std::abs(aimed_->grab.y-selected->grab.y)>2/c.window.bounds.height)) {
                 aimed_=*selected;
                 pending_=tasks.submit(scope,TaskClass::interaction,
                     {{"Move to inventory item",{},Time(50),selected->grab}},Time(2000));
                 stage_=InventoryStage::aiming; reason_="Checking the settled inventory item"; return;
             }
             match_={Knowledge::present,{*selected,first_seen_},reading.captured,reading.window,reading.generation};
-            pending_=tasks.submit(scope,TaskClass::interaction,{
-                {"Drag inventory item",{Key::primary},plan_.drag,selected->grab,0,view.drop}},Time(2000));
+            std::vector<Action> actions;
+            if (!aimed_) actions.push_back({"Move to inventory item",{},Time(50),selected->grab});
+            actions.push_back({"Drag inventory item",{Key::primary},plan_.drag,selected->grab,0,view.drop});
+            pending_=tasks.submit(scope,TaskClass::interaction,std::move(actions),Time(2000));
             stage_=InventoryStage::dragging; reason_="Dragging "+selected->name; return;
         }
         aimed_.reset();

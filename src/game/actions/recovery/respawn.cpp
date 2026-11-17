@@ -28,7 +28,7 @@ public:
     }
     bool step_completed(const View& view) {
         if (!issued_) return false;
-        issued_=false; minimum_=view.context.now+Time(250); deadline_=view.context.now+Time(10000);
+        issued_=false; minimum_=view.context.now+Time(1); deadline_=view.context.now+Time(10000);
         return true;
     }
 };
@@ -148,7 +148,6 @@ class Respawn final : public Program {
     bool issued_{},announced_{};
     bool retried_{};
     unsigned shortcut_{};
-    unsigned key_retries_{};
     std::optional<game::RespawnScreen> requested_from_;
     Step complete(const View& view,bool confirmed) {
         if (result_) {
@@ -161,7 +160,7 @@ class Respawn final : public Program {
     Step retry(Time now,std::string reason) {
         if (retried_) throw ClientRejoinRequired("Reset could not be verified after retrying; rejoining Bee Swarm");
         retried_=true; stage_=Stage::locate; started_=minimum_=now; transition_=Time(-1);
-        requested_from_.reset(); key_retries_=0; shortcut_=0; completion_=RespawnCompletion{};
+        requested_from_.reset(); shortcut_=0; completion_=RespawnCompletion{};
         return ReportActivity{{"Retrying reset",std::move(reason),ActivityKind::recovery}};
     }
 public:
@@ -198,8 +197,7 @@ public:
             stage_=Stage::transition; shortcut_=2; started_=c.now; transition_=view.observations->alive.captured;
         }
         if (auto step=dialogue_.clear(view,reading,minimum_)) return *step;
-        // Opening the menu may take longer than the key's 50 ms release gap.
-        // Do not send R into that animation; each key follows its own page.
+        // Do not send R into the menu animation; each key follows its own page.
         if (shortcut_==0) {
             issued_=true;
             ++shortcut_;
@@ -266,21 +264,17 @@ public:
         // Retry only from a capture taken after the previous key completed.
         // The new frame determines whether R or Enter is still needed; no
         // additional delay is necessary once its page is visibly still open.
-        // Keep the first press instantaneous. Only a control that remains
-        // visible after a missed input gets a longer press, capped at 100 ms.
-        key_retries_=requested_from_==screen?std::min(key_retries_+1,2u):0;
-        const auto press=Time(50*key_retries_);
         requested_from_=screen;
         if (screen==game::RespawnScreen::confirmation) {
             // Retrying Enter must not move the start of this reset attempt
             // past a death frame that was captured while the menu was fading.
             if (transition_<Time{}) transition_=c.now;
             stage_=Stage::transition; shortcut_=2; issued_=true;
-            return TapMenuKey{Key::confirm,"Confirm respawn",press};
+            return TapMenuKey{Key::confirm,"Confirm respawn"};
         }
         if (screen==game::RespawnScreen::menu) {
             stage_=Stage::confirm; shortcut_=2; issued_=true;
-            return TapMenuKey{Key::respawn,"Select respawn",press};
+            return TapMenuKey{Key::respawn,"Select respawn"};
         }
         return Wait{Time(50),"Waiting for respawn controls"};
     }
