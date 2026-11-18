@@ -46,6 +46,10 @@ public:
         return !enemy_.amulet.empty() && !amulet_kept_?std::vector<game::FixedLabelQuery>{{{.1,.1,.8,.85},{"Keep Old","Replace"}}}:std::vector<game::FixedLabelQuery>{};
     }
     WorkActivity activity() const noexcept override { return engaged_ && !complete_ && !session_finished_?WorkActivity::fighting:WorkActivity::other; }
+    std::string field() const override {
+        const auto field=game::field_at(enemy_.destination);
+        return field?field->name:std::string{};
+    }
     ActivityStatus activity_status() const override {
         const auto field=game::field_at(enemy_.field+".entry");
         return {engaged_?"Fighting":"Searching",field?enemy_.species+" · "+field->name:enemy_.id};

@@ -1,5 +1,6 @@
 #include "module.hpp"
 #include "server_visit.hpp"
+#include "defeats.hpp"
 #include <algorithm>
 #include <iomanip>
 #include <sstream>
@@ -102,6 +103,7 @@ class CombatModule final : public extensions::Module {
     std::optional<vichop::Services> hopping_;
     std::shared_ptr<vichop::Controller> hunt_;
     std::shared_ptr<visits::Cooldowns> saved_;
+    DefeatCooldowns defeats_;
     bool hop_enabled_{},daily_only_{};
     mutable bool hop_next_{};
     Time hop_limit_{};
@@ -110,7 +112,7 @@ class CombatModule final : public extensions::Module {
     SettingSelection hunt_fields_;
 public:
     CombatModule(const extensions::Manifest& manifest,const Plan& plan,const Plan& available,Builder build,std::shared_ptr<MondoTrip> trip,std::optional<vichop::Services> hopping,std::shared_ptr<visits::Cooldowns> saved)
-        :visits_(manifest),available_(visit_plan(plan),visit_plan(available)),options_(option_settings(plan)),build_(std::move(build)),trip_(std::move(trip)),clock_(plan.wall_clock),hopping_(std::move(hopping)),hunt_(std::make_shared<vichop::Controller>(manifest.id)),saved_(std::move(saved)) {
+        :visits_(manifest),available_(visit_plan(plan),visit_plan(available)),options_(option_settings(plan)),build_(std::move(build)),trip_(std::move(trip)),clock_(plan.wall_clock),hopping_(std::move(hopping)),hunt_(std::make_shared<vichop::Controller>(manifest.id)),saved_(std::move(saved)),defeats_(plan,saved_) {
         if (manifest.settings.size()>maximum_settings) throw std::invalid_argument("Too many Combat settings");
         for (const auto& enemy:plan.enemies) targets_.push_back({enemy.id,enemy.species,enemy.boss,enemy.maximum_health,enemy.progress,!enemy.hunt_fields.empty()});
         for (const auto& expected:options_) {
@@ -137,6 +139,7 @@ public:
         }
         Options options; if (values.contains("bosses")) options.boss_order=std::get<SettingSelection>(values.at("bosses"));
         options.respawn_reduction=std::get<int>(values.at("respawn-reduction"));
+        defeats_.configure(options.respawn_reduction);
         options.reset_return=std::get<std::string>(values.at("return-method"))=="Reset";
         for (const auto& target:targets_) {
             const auto& id=target.id;
@@ -190,6 +193,7 @@ public:
         delegate_=std::move(next); connected_=false;
     }
     void update(const extensions::SessionView& view) override {
+        defeats_.update(view);
         hunt_->update(view);
         if(hopping_ && hopping_->servers) hopping_->servers->update(view.now);
         if(hop_enabled_ && view.status.state==RunState::running && hunt_session_!=view.session_id) {

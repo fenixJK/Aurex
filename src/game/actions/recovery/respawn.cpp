@@ -232,7 +232,16 @@ public:
             if (completion_.ready(view,reading,minimum_,transition_)) {
                 return complete(view,true);
             }
-            if (!completion_.transitioned() && live && game
+            // A post-key game frame can arrive late on a busy capture worker,
+            // just like a menu frame. Hand it to the location verifier instead
+            // of treating processing latency as a failed reset. This does not
+            // prove death or authorize movement from the old capture.
+            const bool observed_game=reading.has_value(c,game::respawn_menu_response_time,minimum_+Time(1))
+                && reading.value.screen==game::RespawnScreen::game
+                && !(state && state->connection.has_value(c,Time(2000)) && state->connection.value==game::Connection::disconnected)
+                && !(state && state->game_hud.has_value(c,Time(2000),reading.captured)
+                    && !state->game_hud.value);
+            if (!completion_.transitioned() && ((live && game) || observed_game)
                 && c.now-transition_>=game::respawn_menu_response_time) {
                 // Death may fall between captures. Verify the hive or spawn
                 // through the shared location workflow before resetting or
