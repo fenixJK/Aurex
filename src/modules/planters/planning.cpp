@@ -140,7 +140,9 @@ PlanDecision AdaptivePlanner::select(const PlanningSnapshot& snapshot,PlanningLi
         }
     }
     auto next=*this; next.now_=snapshot.now; next.gaps_={};
-    for (const auto& group : groups) if (group.target.minimum>0 && group.current_known) {
+    // Track unmet targets from the same lower bound used for planning. A
+    // missing meter must not erase a nectar's wait and keep postponing it.
+    for (const auto& group : groups) if (group.target.minimum>0) {
         const auto index=static_cast<std::size_t>(group.nectar); const auto floor=bounds(group.target).lower;
         double age=0; const auto& old=gaps_[index];
         if (old && old->target.minimum==group.target.minimum && old->target.buffer==group.target.buffer && group.current<floor) {
@@ -159,10 +161,9 @@ PlanDecision AdaptivePlanner::select(const PlanningSnapshot& snapshot,PlanningLi
         next.previous_=decision.selection; *this=std::move(next); return decision;
     };
     if (decision.assignments.empty()) { decision.reason=snapshot.growing.size()>=snapshot.capacity?PlanReason::no_capacity:PlanReason::unavailable; return finish(); }
-    if (std::any_of(groups.begin(),groups.end(),[](const Group& g) { return g.target.minimum>0 && !g.current_known; })) {
-        decision.selection={}; decision.assignments=assign(groups,occupied,snapshot.capacity);
-        decision.reason=PlanReason::partial_readings; return finish();
-    }
+    // Unknown nectar already carries a conservative zero lower bound. Keep
+    // planning from that bound: an inactive or unreadable nectar must not
+    // disable adaptive selection for every other nectar.
     bool uncovered=false;
     for (const auto& group : groups) if (group.target.minimum>0 && group.current<bounds(group.target).lower) {
         const bool pending=std::any_of(group.pending.begin(),group.pending.end(),[&](const Event& event) {

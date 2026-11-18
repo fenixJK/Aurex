@@ -21,7 +21,7 @@ struct Ledger;
 PlanningSnapshot planning_snapshot(const Ledger& ledger,std::vector<Group> groups,const TravelTimes& travel,
     std::chrono::sys_time<Time> wall,double session_seconds,std::size_t capacity=3);
 std::vector<Group> planning_groups(const PlanningSnapshot& snapshot);
-enum class PlanReason { no_capacity, unavailable, covered, stable, shortage, partial_readings };
+enum class PlanReason { no_capacity, unavailable, covered, stable, shortage };
 struct PlanDecision {
     std::vector<Assignment> assignments;
     Selection selection;

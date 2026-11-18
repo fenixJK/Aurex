@@ -210,10 +210,12 @@ public:
     extensions::PlotProgress plot_progress() const override { return {preview_status_=="Running",preview_status_=="Running"?"Simulating…":preview_status_}; }
     std::map<std::string,std::string> setting_summaries() const override {
         std::map<std::string,std::string> result;
+        if (plan_.preferences->mode==Mode::items)
+            result["mode"]=plan_.preferences->secondary?"Item goals come first; spare slots follow the nectar targets.":"Only item goals are used. Nectar targets are inactive.";
         for (std::size_t i=0;i<5;++i) {
             const auto& target=plan_.preferences->targets[i];
             const auto band=bounds(target);
-            result["nectar-"+std::to_string(i)]=!plan_.preferences->needs_nectar() || target.minimum==0?"Not maintained":
+            result["nectar-buffer-"+std::to_string(i)]=!plan_.preferences->needs_nectar() || target.minimum==0?"Not maintained":
                 (plan_.preferences->mode==Mode::items?"Spare slots · ":"Band ")+std::to_string(int(std::lround(band.lower)))+"–"+std::to_string(int(std::lround(band.upper)))+"%";
         }
         if(plan_.preferences && !plan_.preferences->materials.empty()) {
@@ -385,7 +387,7 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
     result.enabled_by_default=true;
     result.description="Prioritize nectar or item drops, with optional work in spare capacity."; result.permissions=permissions;
     result.settings={{"run-seconds","Run limit (seconds)",static_cast<int>(plan.config.duration.count()/1000),1,28800,{}},
-        {"capacity","Slots",static_cast<int>(plan.capacity),0,3,{}},{"max-actions","Actions per run",static_cast<int>(plan.max_actions),1,32,{}}};
+        {"capacity","Max planters",static_cast<int>(plan.capacity),0,3,{}},{"max-actions","Actions per run",static_cast<int>(plan.max_actions),1,32,{}}};
     for (auto& setting:result.settings) if (setting.id=="capacity") {
         setting.minimum_label="Harvest only";
         setting.help="Maximum managed planters. A confirmed in-game limit lowers this value. Raise it after freeing a slot to retry placements.";
@@ -394,7 +396,7 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
     result.settings.push_back({"max-growth-minutes","Max growth (minutes)",preferences.max_growth_minutes,0,1440,{}});
     result.settings.back().minimum_label="No limit";
     result.settings.back().help="Optional nectar harvest limit; 120 means two hours of growth. No limit keeps full growth during nectar buildup and adaptive maintenance. Item planters always grow fully. Existing nectar timers can be shortened, never postponed. Travel and higher-priority work can delay collection.";
-    result.settings.push_back({"mode","Priority",std::string(preferences.mode==Mode::items?"Items":"Nectar"),0,0,{"Nectar","Items"}});
+    result.settings.push_back({"mode","Focus",std::string(preferences.mode==Mode::items?"Items":"Nectar"),0,0,{"Nectar","Items"}});
     result.settings.push_back({"secondary","Also farm items",preferences.secondary});
     result.settings.back().enabled_by="mode"; result.settings.back().enabled_values={"Nectar","Items"};
     result.settings.back().dependent_labels={{"Nectar","Also farm items"},{"Items","Use spare slots for nectar"}};
@@ -405,7 +407,8 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
     for (const auto& field : all.fields) if (plan.destinations.empty() || plan.destinations.contains(field)) fields.push_back(field);
     SettingSelection selected_fields;
     for (const auto& field : fields) if (preferences.fields.contains(field)) selected_fields.push_back(field);
-    result.settings.push_back({"equipment","Planters",selected,0,0,labels});
+    result.settings.push_back({"equipment","Owned planters",selected,0,0,labels});
+    result.settings.back().help="Select the planters you own. Planted ones are tracked in Timers and are not selected for another field.";
     result.settings.push_back({"fields","Fields",selected_fields,0,0,fields});
     for (std::size_t i=0;i<nectar_names().size();++i) {
         extensions::ChoiceGroup group{nectar_names()[i],{}};
@@ -439,31 +442,44 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
         if (preferences.targets[i].minimum!=std::floor(preferences.targets[i].minimum) || preferences.targets[i].buffer!=std::floor(preferences.targets[i].buffer))
             throw std::invalid_argument("Module nectar defaults require whole percentages");
         result.settings.push_back({"target-"+std::to_string(i),"Target (%)",static_cast<int>(preferences.targets[i].minimum),0,100,{}});
+        result.settings.back().minimum_label="Off";
+        result.settings.back().help="Nectar to aim for. Off disables this nectar. Reaching every target depends on your available planters and fields.";
         result.settings.push_back({"buffer-"+std::to_string(i),"Buffer (%)",static_cast<int>(preferences.targets[i].buffer),0,20,{}});
         result.settings.push_back({"priority-"+std::to_string(i),"Priority",preferences.priorities[i],0,100,{}});
     }
-    result.page=extensions::PageLayout{{{"equipment","Planters",{},{"equipment"},false,1},
+    result.page=extensions::PageLayout{{{"equipment","Owned planters",{},{"equipment"},false,1},
         {"fields","Fields",{},{"fields"},false,1}},true};
     for (std::size_t i=0;i<5;++i) { result.page->sections.push_back({"nectar-"+std::to_string(i),nectar_names()[i],{},
-        {"target-"+std::to_string(i),"buffer-"+std::to_string(i),"priority-"+std::to_string(i)},false,3}); result.page->sections.back().row=true; result.page->sections.back().order_group="nectar"; result.page->sections.back().order_setting="priority-"+std::to_string(i); }
-    extensions::PageSection run{"run","Harvesting",{},{"capacity","max-growth-minutes","max-actions","run-seconds"},false,2};
-    if (!returns.empty()) run.settings.push_back("return-method");
-    if (has_loot(plan)) run.settings.push_back("collect-loot");
-    run.settings.push_back("gather-planter-fields"); run.settings.push_back("interrupt-gather");
-    if (plan.conversion) { run.settings.push_back("convert-after-harvest"); run.settings.push_back("conversion-threshold"); }
+        {"target-"+std::to_string(i),"priority-"+std::to_string(i)},false,1}); result.page->sections.back().row=true; result.page->sections.back().order_group="nectar"; result.page->sections.back().order_setting="priority-"+std::to_string(i); }
+    extensions::PageSection run{"run","Harvesting",{},{"capacity","max-growth-minutes","interrupt-gather"},false,2};
     result.page->sections.push_back(std::move(run));
+    result.page->sections.push_back({"tuning","Nectar buffer","Allows nectar to vary around its target, reducing harvest trips.",{},false,1});
+    result.page->sections.back().tab="Advanced"; result.page->sections.back().panel="tuning";
+    for (std::size_t i=0;i<5;++i) {
+        extensions::PageSection section{"nectar-buffer-"+std::to_string(i),nectar_names()[i],{},
+            {"buffer-"+std::to_string(i)},false,1};
+        section.row=true; section.tab="Advanced"; section.panel="tuning";
+        result.page->sections.push_back(std::move(section));
+    }
+    extensions::PageSection behavior{"behavior","Other behavior",{},{"max-actions","run-seconds"},false,1};
+    behavior.tab="Advanced"; behavior.panel="behavior";
+    if (!returns.empty()) behavior.settings.push_back("return-method");
+    if (has_loot(plan)) behavior.settings.push_back("collect-loot");
+    behavior.settings.push_back("gather-planter-fields");
+    if (plan.conversion) { behavior.settings.push_back("convert-after-harvest"); behavior.settings.push_back("conversion-threshold"); }
+    result.page->sections.push_back(std::move(behavior));
     result.page->sections.push_back({"materials","Item goals",{},{"materials"},false,1});
     result.page->sections.back().tool="Item goals";
     result.page->sections.push_back({"material-progress","Progress","Next steps for the selected items.",{},false,1,true});
     result.page->sections.back().tool="Item goals";
     result.page->sections.push_back({"simulation","Simulation",{},{"simulation-days"},false,1});
     result.page->sections.back().tool="Simulation";
-    for(auto& section:result.page->sections) if(section.tool.empty() && !section.metrics)
+    for(auto& section:result.page->sections) if(section.tool.empty() && !section.metrics && section.tab.empty())
         section.tab=section.id=="fields"?"Fields":"Setup";
     std::stable_partition(result.page->sections.begin(),result.page->sections.end(),[](const auto& section) { return !section.order_group.empty(); });
     const auto materials=std::find_if(result.page->sections.begin(),result.page->sections.end(),[](const auto& section) { return section.id=="materials"; });
     std::rotate(result.page->sections.begin(),materials,materials+1);
-    result.page->sections.insert(result.page->sections.begin(),{"mode","Setup",{},{"mode","secondary"},false,2});
+    result.page->sections.insert(result.page->sections.begin(),{"mode","Setup","Drag nectars to set their priority. Set a target to Off to skip it.",{"mode","secondary"},false,2});
     result.page->sections.front().tab="Setup";
     for (auto& section:result.page->sections) {
         section.inline_labels=true;
