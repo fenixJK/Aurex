@@ -21,7 +21,8 @@ struct Ledger;
 PlanningSnapshot planning_snapshot(const Ledger& ledger,std::vector<Group> groups,const TravelTimes& travel,
     std::chrono::sys_time<Time> wall,double session_seconds,std::size_t capacity=3);
 std::vector<Group> planning_groups(const PlanningSnapshot& snapshot);
-enum class PlanReason { no_capacity, unavailable, covered, stable, shortage };
+std::vector<Growing> harvest_schedule(const PlanningSnapshot& snapshot);
+enum class PlanReason { no_capacity, unavailable, covered, forecast };
 struct PlanDecision {
     std::vector<Assignment> assignments;
     Selection selection;
@@ -41,6 +42,5 @@ private:
     struct Gap { double age{},at{},value{}; Target target; };
     std::array<std::optional<Gap>,5> gaps_;
     std::optional<double> now_;
-    Selection previous_;
 };
 }

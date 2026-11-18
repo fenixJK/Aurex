@@ -2,7 +2,6 @@
 #include "simulation.hpp"
 #include "controller.hpp"
 #include <algorithm>
-#include <numeric>
 #include <tuple>
 
 namespace hive::features::planters {
@@ -12,67 +11,43 @@ std::vector<Active> active(const PlanningSnapshot& snapshot) {
     for (const auto& p : snapshot.growing) result.push_back({p.stats.planter,p.stats.field,p.material});
     return result;
 }
-std::size_t support_limit(std::span<const Group> groups,std::size_t capacity) {
-    std::map<std::string,double> types;
-    std::size_t count=0;
-    for (const auto& group : groups) if (group.target.minimum>0) {
-        ++count;
-        for (const auto& candidate : group.candidates) {
-            const auto& s=candidate.stats; types[s.planter]=std::max(types[s.planter],s.nectar_bonus*s.speed_bonus);
-        }
-    }
-    std::vector<double> rates;
-    for (const auto& [name,rate] : types) rates.push_back(rate);
-    std::sort(rates.begin(),rates.end(),std::greater<>());
-    const auto production=std::accumulate(rates.begin(),rates.begin()+std::min(capacity,rates.size()),0.0);
-    return std::min(std::max<std::size_t>(1,count?count-1:0),static_cast<std::size_t>(std::max(1.0,std::floor(production))));
-}
-bool stable(const SimulationResult& result,std::span<const Group> groups,double start,double end) {
-    for (const auto& group : groups) if (group.target.minimum>0) {
-        double coverage=0;
-        for (const auto& segment : result.segments) {
-            const auto left=std::max(start,segment.begin), span=std::max(0.0,segment.end-left);
-            const auto value=std::max(0.0,segment.levels[static_cast<std::size_t>(group.nectar)]-(left-segment.begin)/864);
-            coverage+=std::min(span,std::max(0.0,value-bounds(group.target).lower)*864);
-        }
-        if (coverage<end-start-1) return false;
-    }
-    return true;
-}
-struct Score { double utility{},terminal{}; std::size_t collections{}; };
-Score score(const SimulationResult& result,std::span<const Group> groups,std::array<double,5> ages,std::size_t support,double horizon) {
+struct Score { std::vector<double> deficits; double travel{}; std::size_t collections{}; };
+Score score(const SimulationResult& result,std::span<const Group> groups,std::array<double,5> ages,double horizon) {
     std::vector<const Group*> enabled;
     for (const auto& group : groups) if (group.target.minimum>0) enabled.push_back(&group);
     std::stable_sort(enabled.begin(),enabled.end(),[](const Group* a,const Group* b) { return a->priority<b->priority; });
     const auto count=enabled.size();
-    std::vector<double> weights; double total=0;
-    for (std::size_t i=0;i<count;++i) { weights.push_back(std::pow(count-i,0.25)); total+=weights.back(); }
-    Score value{0,0,result.harvests};
+    Score value{{},result.travel_seconds,result.harvests};
+    std::vector<std::size_t> ranks;
+    std::vector<double> resolution;
+    for (std::size_t i=0;i<count;++i) {
+        if (i==0 || enabled[i]->priority!=enabled[i-1]->priority) { value.deficits.push_back(0); resolution.push_back(0); }
+        ranks.push_back(value.deficits.size()-1);
+        resolution.back()+=enabled[i]->uncertainty*864/horizon;
+    }
     for (const auto& segment : result.segments) {
         const auto span=segment.end-segment.begin;
-        std::vector<double> covered;
         for (std::size_t i=0;i<count;++i) {
             const auto& group=*enabled[i]; const auto index=static_cast<std::size_t>(group.nectar);
             const auto good=std::min(span,std::max(0.0,segment.levels[index]-bounds(group.target).lower)*864);
-            covered.push_back(good);
             if (good>0) ages[index]=0;
             const auto below=span-good, gap=ages[index]*below+below*below/2;
             ages[index]+=below;
-            value.utility+=weights[i]*count/total*(good/horizon-2*gap/(horizon*horizon));
+            value.deficits[ranks[i]]+=below/horizon+2*gap/(horizon*horizon);
         }
-        std::sort(covered.begin(),covered.end());
-        if (count) value.utility+=count*covered[count-std::min(support,count)]/horizon;
     }
-    for (std::size_t i=0;i<count;++i) {
-        const auto& group=*enabled[i];
-        value.terminal+=weights[i]*count/total*std::min(result.final[static_cast<std::size_t>(group.nectar)],group.target.minimum)/100;
-    }
-    value.utility-=count*result.travel_seconds/horizon;
+    // Do not trade entire crops over forecast differences smaller than the
+    // source meter can resolve. Exact readings retain exact comparisons.
+    for (std::size_t i=0;i<value.deficits.size();++i) if (resolution[i]>0)
+        value.deficits[i]=std::round(value.deficits[i]/resolution[i])*resolution[i];
     return value;
 }
 bool before(const Score& a,const Score& b) {
-    return std::tie(a.utility,a.terminal)>std::tie(b.utility,b.terminal)
-        || (a.utility==b.utility && a.terminal==b.terminal && a.collections<b.collections);
+    // Lower-priority coverage cannot buy a deficit in a higher priority.
+    // Once coverage is equal, prefer fewer trips over excess nectar reserve.
+    for (std::size_t i=0;i<a.deficits.size();++i)
+        if (std::abs(a.deficits[i]-b.deficits[i])>1e-9) return a.deficits[i]<b.deficits[i];
+    return std::tie(a.travel,a.collections)<std::tie(b.travel,b.collections);
 }
 }
 PlanningSnapshot planning_snapshot(const Ledger& ledger,std::vector<Group> groups,const TravelTimes& travel,
@@ -113,7 +88,32 @@ PlanningSnapshot planning_snapshot(const Ledger& ledger,std::vector<Group> group
     }
     planning_groups(snapshot); return snapshot;
 }
-void AdaptivePlanner::reset() noexcept { gaps_={}; now_.reset(); previous_={}; }
+std::vector<Growing> harvest_schedule(const PlanningSnapshot& snapshot) {
+    planning_groups(snapshot); // Validate before changing any intent.
+    auto result=snapshot.growing;
+    for (auto& plant:result) {
+        // Build and item planters keep their promised growth. Unreadable
+        // nectar cannot change a saved timer, and an overdue job stays due.
+        if (plant.phase==Phase::build || !plant.material.empty() || plant.due_in<=0) continue;
+        auto others=snapshot; others.growing=result;
+        std::erase_if(others.growing,[&](const Growing& p) { return p.stats.planter==plant.stats.planter; });
+        const auto groups=planning_groups(others);
+        const auto group=std::find_if(groups.begin(),groups.end(),[&](const Group& g) { return g.nectar==plant.stats.nectar; });
+        if (group==groups.end() || !group->current_known || group->target.minimum==0) continue;
+        auto remaining=std::max(1.0-plant.age,interval(group->current,group->pending,plant.stats.rate(),plant.stats.full_seconds,
+            group->target,false,plant.travel.learned?0:plant.travel.seconds,plant.age,plant.travel.seconds,group->uncertainty));
+        if (group->max_growth_seconds>0) remaining=std::min(remaining,std::max(0.0,group->max_growth_seconds-plant.age));
+        const auto arrival=std::max(plant.travel.seconds,remaining+(plant.travel.learned?0:plant.travel.seconds));
+        const auto restored=forecast(group->current,group->pending,arrival)
+            +plant.stats.rate()*std::min(plant.stats.full_seconds,plant.age+arrival);
+        if (restored<group->target.minimum) continue;
+        // Recompute from observed reserves and other deliveries. Full growth
+        // (or the configured cap) bounds postponement; meter noise cannot churn timers.
+        if (std::abs(plant.due_in-remaining)>std::max(1.0,group->uncertainty*864)) plant.due_in=remaining;
+    }
+    return result;
+}
+void AdaptivePlanner::reset() noexcept { gaps_={}; now_.reset(); }
 std::array<double,5> AdaptivePlanner::deficit_seconds() const {
     std::array<double,5> result{};
     for (std::size_t i=0;i<gaps_.size();++i) if (gaps_[i]) result[i]=gaps_[i]->age;
@@ -152,47 +152,43 @@ PlanDecision AdaptivePlanner::select(const PlanningSnapshot& snapshot,PlanningLi
         next.gaps_[index]=Gap{age,snapshot.now,group.current,group.target};
     }
     const auto occupied=active(snapshot);
-    PlanDecision decision; decision.selection={previous_.concentrated,{}};
-    decision.assignments=assign(groups,occupied,snapshot.capacity,decision.selection);
-    if (decision.assignments.empty()) { decision.selection={}; decision.assignments=assign(groups,occupied,snapshot.capacity); }
+    PlanDecision decision;
     auto finish=[&] {
         if (limits.cancelled && limits.cancelled()) throw std::runtime_error("Planter planning cancelled");
         if (auto materials=material_choices(groups,occupied,snapshot.capacity,decision.selection,snapshot.materials);!materials.empty()) decision.assignments=std::move(materials);
-        next.previous_=decision.selection; *this=std::move(next); return decision;
+        *this=std::move(next); return decision;
     };
-    if (decision.assignments.empty()) { decision.reason=snapshot.growing.size()>=snapshot.capacity?PlanReason::no_capacity:PlanReason::unavailable; return finish(); }
-    // Unknown nectar already carries a conservative zero lower bound. Keep
-    // planning from that bound: an inactive or unreadable nectar must not
-    // disable adaptive selection for every other nectar.
-    bool uncovered=false;
-    for (const auto& group : groups) if (group.target.minimum>0 && group.current<bounds(group.target).lower) {
-        const bool pending=std::any_of(group.pending.begin(),group.pending.end(),[&](const Event& event) {
-            return forecast(group.current,group.pending,event.seconds)>=bounds(group.target).lower;
-        });
-        if (!pending) uncovered=true;
-    }
-    if (!uncovered) { decision.reason=PlanReason::covered; return finish(); }
-    auto preview=[&](Selection selection,double hours) {
-        SimulationConfig config{snapshot.groups,hours*3600,snapshot.capacity,snapshot.growing};
-        for (auto& group : config.groups) group.current=std::round(group.current*38/100)*100/38;
+    if (occupied.size()>=snapshot.capacity) { decision.reason=PlanReason::no_capacity; return finish(); }
+    auto preview=[&](Selection selection) {
+        SimulationConfig config{snapshot.groups,48*3600.,snapshot.capacity,snapshot.growing};
+        // Forecast from the current reading and known decay; do not simulate a
+        // second layer of HUD rounding inside each candidate plan.
+        config.readings=NectarReading::exact;
         config.selection=selection; config.record_segments=true; config.max_steps=limits.preview_steps; config.cancelled=limits.cancelled;
         ++decision.previews; return simulate(std::move(config));
     };
-    const auto baseline=preview({},96);
-    if (stable(baseline,groups,72*3600,96*3600)) {
-        decision.selection={}; decision.assignments=assign(groups,occupied,snapshot.capacity); decision.reason=PlanReason::stable; return finish();
+    std::vector<Selection> choices{{false},{true}};
+    unsigned enabled=0;
+    for (const auto& group:groups) if (group.target.minimum>0) enabled|=1u<<static_cast<unsigned>(group.nectar);
+    std::set<unsigned> masks;
+    for (const auto& group:groups) if (group.target.minimum>0) {
+        // A currently growing crop can cover a nectar without another planting.
+        masks.insert(enabled & ~(1u<<static_cast<unsigned>(group.nectar)));
+        unsigned prefix=0;
+        for (const auto& other:groups) if (other.target.minimum>0 && other.priority<=group.priority)
+            prefix|=1u<<static_cast<unsigned>(other.nectar);
+        masks.insert(prefix);
     }
-    const auto support=support_limit(groups,snapshot.capacity);
-    std::vector<Selection> choices{{false,{}},{true,{}}};
-    for (const auto& group : groups) if (group.target.minimum>0 && !group.candidates.empty()) choices.push_back({true,group.nectar});
+    masks.erase(enabled); masks.erase(0);
+    for (unsigned mask:masks) choices.push_back({true,mask});
     std::optional<Score> best;
     for (const auto& choice : choices) {
         const auto assignments=assign(groups,occupied,snapshot.capacity,choice);
         if (assignments.empty()) continue;
-        const auto result=preview(choice,48);
-        const auto candidate=score(result,groups,next.deficit_seconds(),support,48*3600);
+        const auto result=preview(choice);
+        const auto candidate=score(result,groups,next.deficit_seconds(),48*3600);
         if (!best || before(candidate,*best)) { best=candidate; decision.selection=choice; decision.assignments=assignments; }
     }
-    decision.reason=PlanReason::shortage; return finish();
+    decision.reason=decision.assignments.empty()?PlanReason::unavailable:PlanReason::forecast; return finish();
 }
 }

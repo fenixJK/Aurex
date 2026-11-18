@@ -469,12 +469,6 @@ public:
                 settle_action();
                 return emit(ReportActivity{{"Saved planter needs review",planter_target()+" · previous action unconfirmed; slot reserved. Correct or remove its timer."}});
             }
-            if (const auto* due=due_plant(now)) {
-                selected_=due->stats; harvest_=due->id; assignment_.reset(); return travel(view);
-            }
-            if (controller_->ledger().plants.size()>=placement_capacity(controller_->ledger().placement_limits,plan_.capacity)) {
-                phase_=Phase::done; publish(ExecutionStage::finished); return Done{"No planter visit is due"};
-            }
             account_->resume_placements(now);
         }
         if (phase_==Phase::planning) {
@@ -495,11 +489,21 @@ public:
         if (!groups.empty()) {
             validate_configuration(groups,{},plan_.capacity);
             account_->prepare_groups(groups,plan_.preferences,now);
+            if (phase_==Phase::select) {
+                controller_->replan(groups,account_->nectar_phases_,travel_,now);
+                account_->publish(controller_->ledger());
+            }
             for (auto& group:groups) std::erase_if(group.candidates,[&](const auto& candidate) {
                 return failed_fields_.contains(candidate.stats.field) || !plan_.destinations.contains(candidate.stats.field);
             });
         }
         if (phase_==Phase::select) {
+            if (const auto* due=due_plant(now)) {
+                selected_=due->stats; harvest_=due->id; assignment_.reset(); return travel(view);
+            }
+            if (controller_->ledger().plants.size()>=placement_capacity(controller_->ledger().placement_limits,plan_.capacity)) {
+                phase_=Phase::done; publish(ExecutionStage::finished); return Done{"No planter visit is due"};
+            }
             if (requires_nectar && !snapshot.nectar.has_value(view.context,Time(2000),started_)) {
                 if (!initialized_ && plan_.setup) {
                     initialized_=true; phase_=Phase::initializing; publish(ExecutionStage::preparing);

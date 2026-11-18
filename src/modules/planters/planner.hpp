@@ -10,7 +10,9 @@ enum class Nectar { comforting, refreshing, satisfying, motivating, invigorating
 enum class Phase { build, maintain, recover };
 struct Bounds { double lower{}, upper{}; };
 struct Event { double seconds{}, amount{}; };
-struct Target { double minimum{70}, buffer{10}; };
+struct Target { double minimum{70}, buffer{10}; bool operator==(const Target&) const=default; };
+struct NectarPhase { Phase phase{}; Target target; bool operator==(const NectarPhase&) const=default; };
+using NectarPhases=std::array<std::optional<NectarPhase>,5>;
 struct Stats {
     std::string planter, field;
     Nectar nectar{};
@@ -30,6 +32,7 @@ struct Group {
     std::vector<Candidate> candidates;
     bool current_known{true};
     double max_growth_seconds{}; // Zero leaves the nectar interval uncapped.
+    double uncertainty{}; // Percentage points supplied by the reader, not a fixed HUD size.
 };
 struct Assignment {
     Stats stats;
@@ -38,12 +41,13 @@ struct Assignment {
     std::string material;
 };
 struct Active { std::string planter, field, material; };
-struct Selection { bool concentrated{}; std::optional<Nectar> omitted; };
+struct Selection { bool concentrated{}; unsigned nectars{31}; };
 Bounds bounds(Target target);
 Phase phase(Phase previous,double current,Target target);
+void update_phases(std::span<Group> groups,NectarPhases& remembered);
 double forecast(double current,std::span<const Event> events,double seconds);
 double floor_time(double current,std::span<const Event> events,double floor);
-double interval(double current,std::span<const Event> events,double rate,double full_seconds,Target target,bool building,double delivery_delay=0);
+double interval(double current,std::span<const Event> events,double rate,double full_seconds,Target target,bool building,double delivery_delay=0,double age=0,double travel=0,double uncertainty=0);
 void validate_configuration(std::span<const Group> groups,std::span<const Active> active,std::size_t capacity);
 std::vector<Assignment> assign(std::span<const Group> groups,std::span<const Active> active,std::size_t capacity=3,Selection selection={},bool at_destination=false);
 std::span<const Stats> catalog();

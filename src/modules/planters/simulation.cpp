@@ -55,6 +55,18 @@ SimulationResult simulate(SimulationConfig config) {
             if (candidate.stats.field==field) candidate.last_used=history_origin+Time(static_cast<Time::rep>(now*1000));
     };
     auto observed=[&](double level) { return config.readings==NectarReading::exact?level:std::round(std::floor(level*38/100+1e-9)*100/38); };
+    const auto snapshot=[&] {
+        PlanningSnapshot state{config.groups,{},config.capacity,now};
+        for (auto& group:state.groups) {
+            group.current=observed(group.current);
+            if (config.readings==NectarReading::hud) group.uncertainty=100.0/38;
+        }
+        for (const auto& job:jobs) {
+            auto plant=job.plant; plant.age=now-job.start; plant.due_in=job.due-now; state.growing.push_back(plant);
+        }
+        state.materials=config.materials; state.materials.now+=Time(static_cast<Time::rep>(now*1000));
+        return state;
+    };
     auto update_phases=[&] {
         for (auto& group : config.groups) {
             group.phase=phase(group.phase,observed(group.current),group.target);
@@ -83,6 +95,8 @@ SimulationResult simulate(SimulationConfig config) {
     while (now<=config.seconds) {
         if (config.cancelled && config.cancelled()) throw std::runtime_error("Planter simulation cancelled");
         if (++iterations>config.max_steps) throw std::runtime_error("Planter simulation exceeded its work limit");
+        const auto schedule=harvest_schedule(snapshot());
+        for (std::size_t i=0;i<jobs.size();++i) jobs[i].due=now+schedule[i].due_in;
         std::stable_sort(jobs.begin(),jobs.end(),[](const Job& a,const Job& b) { return a.due<b.due; });
         const auto departure=jobs.empty()?config.seconds+1:std::max(now,jobs.front().due-(jobs.front().plant.travel.learned?jobs.front().plant.travel.seconds:0));
         if (!jobs.empty() && departure<=now) {
@@ -106,15 +120,10 @@ SimulationResult simulate(SimulationConfig config) {
         }
         if (now>=config.seconds) break;
         if (jobs.size()<config.capacity) {
-            PlanningSnapshot snapshot{config.groups,{},config.capacity,now};
-            for (auto& group : snapshot.groups) group.current=observed(group.current);
-            for (const auto& job : jobs) {
-                auto plant=job.plant; plant.age=now-job.start; plant.due_in=job.due-now; snapshot.growing.push_back(plant);
-            }
-            snapshot.materials=config.materials; snapshot.materials.now+=Time(static_cast<Time::rep>(now*1000));
-            const auto selection=config.choose && snapshot.materials.needs_nectar()?config.choose(snapshot):config.selection;
-            const auto groups=planning_groups(snapshot);
-            auto choices=placement_choices(groups,occupied(snapshot.growing),config.capacity,selection,snapshot.materials);
+            const auto state=snapshot();
+            const auto selection=config.choose && state.materials.needs_nectar()?config.choose(state):config.selection;
+            const auto groups=planning_groups(state);
+            auto choices=placement_choices(groups,occupied(state.growing),config.capacity,selection,state.materials);
             if (!choices.empty()) {
                 const auto& choice=choices.front();
                 const auto group=std::find_if(config.groups.begin(),config.groups.end(),[&](const Group& g) { return g.nectar==choice.stats.nectar; });

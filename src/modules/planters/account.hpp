@@ -13,7 +13,7 @@ class Account {
     std::atomic_bool busy_{};
     std::atomic_uint64_t edit_revision_{};
     AdaptivePlanner planner_;
-    std::array<std::optional<Phase>,5> nectar_phases_;
+    NectarPhases nectar_phases_;
     mutable std::mutex snapshot_mutex_;
     std::vector<Plant> plants_;
     MaterialHistory materials_;

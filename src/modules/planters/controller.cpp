@@ -1,4 +1,5 @@
 #include "controller.hpp"
+#include "planning.hpp"
 #include <algorithm>
 #include <limits>
 
@@ -81,6 +82,10 @@ std::size_t placement_capacity(const PlacementLimits& limits,std::size_t configu
 }
 void validate(const Ledger& ledger) {
     validate_materials(ledger.materials);
+    for (const auto& saved:ledger.nectar_phases) if (saved) {
+        bounds(saved->target);
+        phase(saved->phase,0,saved->target);
+    }
     if (!ledger.next_ticket || ledger.plants.size()>3) throw std::invalid_argument("Invalid planter ledger");
     std::set<std::uint64_t> ids; std::set<std::string> types,fields;
     for (const auto& plant : ledger.plants) {
@@ -132,6 +137,18 @@ void Controller::record_travel(const std::string& field,double seconds) {
     if (!name(field) || !std::isfinite(seconds) || seconds<1 || seconds>1800) throw std::invalid_argument("Invalid planter travel sample");
     auto next=ledger_; auto& samples=next.travel[field]; samples.push_back(seconds);
     if (samples.size()>3) samples.erase(samples.begin()); commit(std::move(next));
+}
+void Controller::replan(const std::vector<Group>& groups,const NectarPhases& phases,const TravelTimes& travel,WallTime now) {
+    if (ledger_.pending) return;
+    auto next=ledger_; bool changed=phases!=next.nectar_phases; next.nectar_phases=phases;
+    const auto snapshot=planning_snapshot(next,groups,travel,now,0,capacity_);
+    const auto schedule=harvest_schedule(snapshot);
+    for (std::size_t i=0;i<schedule.size();++i) if (schedule[i].due_in!=snapshot.growing[i].due_in) {
+        auto& plant=*std::find_if(next.plants.begin(),next.plants.end(),[&](const Plant& p) { return p.stats.planter==schedule[i].stats.planter; });
+        const auto due=plant.placed+Time(static_cast<Time::rep>(std::ceil((schedule[i].age+schedule[i].due_in)*1000)));
+        if (due>plant.placed && due!=plant.due) { plant.due=due; changed=true; }
+    }
+    if (changed) commit(std::move(next));
 }
 Controller::Controller(std::shared_ptr<Store> store,std::size_t capacity):store_(std::move(store)),capacity_(capacity) {
     if (!store_ || capacity_>3) throw std::invalid_argument("Invalid planter controller");

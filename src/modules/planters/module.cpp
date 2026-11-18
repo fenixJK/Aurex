@@ -143,8 +143,15 @@ public:
         if (view.feature && view.feature->module_id!=id_) {
             if (view.feature->state==automation::State::running) other_running_=true;
             else if (other_running_ && automation::can_handoff(view.feature->state)) {
-                if (view.feature->state==automation::State::completed && view.feature->steps>0
-                    && account_->plants().size()<account_->placement_capacity(plan_.capacity)) check_requested_=true;
+                // Recheck reserves at normal task handoffs, including when all
+                // slots are occupied. A maintenance timer may need rescheduling.
+                if (view.feature->state==automation::State::completed && view.feature->steps>0) {
+                    const auto plants=account_->plants();
+                    if (plants.size()<account_->placement_capacity(plan_.capacity)
+                        || std::any_of(plants.begin(),plants.end(),[](const Plant& p) {
+                            return !p.missing && p.material.empty() && p.phase!=Phase::build;
+                        })) check_requested_=true;
+                }
                 other_running_=false;
             }
         }

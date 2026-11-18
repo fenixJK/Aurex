@@ -35,22 +35,18 @@ double floor_time_sorted(double current,std::span<const Event> events,double flo
     }
     return previous+std::max(0.0,level-floor)*864;
 }
-double useful_seconds(double rate,double full,Target t) {
-    const auto points=std::max(bounds(t).upper-t.minimum,100.0/38);
-    return std::min(full,std::max(1.0,std::ceil(points/rate)));
-}
-double target_time(double current,std::span<const Event> events,double rate,double full,double goal,double earliest) {
+double target_time(double current,std::span<const Event> events,double rate,double full,double goal,double earliest,double age) {
     std::vector<double> boundaries{earliest,full};
     for (const auto& e : events) if (e.seconds>earliest && e.seconds<full) boundaries.push_back(e.seconds);
     std::sort(boundaries.begin(),boundaries.end());
     double left=earliest;
     for (double right : boundaries) {
-        if (forecast_sorted(current,events,left)+rate*left>=goal) return left;
-        if (forecast_sorted(current,events,right)+rate*right>=goal) {
+        if (forecast_sorted(current,events,left)+rate*(age+left)>=goal) return left;
+        if (forecast_sorted(current,events,right)+rate*(age+right)>=goal) {
             double low=left,high=right;
             for (int i=0;i<40;++i) {
                 const auto middle=(low+high)/2;
-                if (forecast_sorted(current,events,middle)+rate*middle>=goal) high=middle; else low=middle;
+                if (forecast_sorted(current,events,middle)+rate*(age+middle)>=goal) high=middle; else low=middle;
             }
             return std::min(full,std::ceil(high));
         }
@@ -58,24 +54,24 @@ double target_time(double current,std::span<const Event> events,double rate,doub
     }
     return full;
 }
-double interval_sorted(double current,std::span<const Event> events,double rate,double full,Target t,bool building,double delay) {
-    full=std::max(1.0,std::round(full)); const auto band=bounds(t);
-    if (rate==0 || building || (current<band.lower && t.minimum-band.lower<100.0/38)) return full;
-    const auto protected_floor=std::max(0.0,t.minimum*(1-0.75*t.buffer/100));
-    const auto useful=useful_seconds(rate,full,t);
-    const auto protected_time=std::max(0.0,floor_time_sorted(current,events,protected_floor)-delay);
-    if (protected_time>=useful) return std::clamp(std::floor(protected_time),1.0,full);
-    const auto hard_time=std::max(0.0,floor_time_sorted(current,events,band.lower)-delay);
-    const auto pixel=std::min(full,std::max(1.0,std::ceil((100.0/38)/rate)));
-    if (hard_time>=std::min(useful,pixel)) return std::clamp(std::floor(hard_time),1.0,full);
-    auto recovery=target_time(current,events,rate,full,band.upper,useful);
+double interval_sorted(double current,std::span<const Event> events,double rate,double full,Target t,bool building,double delay,double age=0,double travel=0,double uncertainty=0) {
+    full=std::max(0.0,std::round(full)-age); const auto band=bounds(t);
+    if (rate==0 || building) return full;
+    // Refill a whole maintenance band, including uncertainty at both edges.
+    // A shorter crop can look like a new shortage as the meter rounds again.
+    const auto batch=std::max(band.upper-band.lower+2*uncertainty,rate*2*travel);
+    const auto earliest=std::min(full,std::max(0.0,std::ceil(batch/rate-age)));
+    const auto floor=std::min(t.minimum,band.lower+uncertainty);
+    const auto deadline=std::max(0.0,floor_time_sorted(current,events,floor)-delay);
+    if (deadline>=earliest) return std::min(full,std::floor(deadline));
+    const auto recovery=target_time(current,events,rate,full,band.upper,earliest,age);
     const auto restored=forecast_sorted(current,events,recovery);
     if (restored>=t.minimum) {
         std::vector<Event> later;
-        for (const auto& e : events) if (e.seconds>recovery) later.push_back({e.seconds-recovery,e.amount});
-        recovery+=std::max(0.0,floor_time_sorted(restored,later,protected_floor)-delay);
+        for (const auto& event:events) if (event.seconds>recovery) later.push_back({event.seconds-recovery,event.amount});
+        return std::min(full,recovery+std::max(0.0,floor_time_sorted(restored,later,floor)-delay));
     }
-    return std::clamp(recovery,1.0,full);
+    return recovery;
 }
 }
 Bounds bounds(Target t) { target(t); const auto band=t.minimum*t.buffer/100; return {std::max(0.0,t.minimum-band),std::min(100.0,t.minimum+band)}; }
@@ -85,6 +81,14 @@ Phase phase(Phase previous,double current,Target t) {
     if (previous==Phase::build || previous==Phase::recover) return current>=band.upper?Phase::maintain:previous;
     return current<band.lower?Phase::recover:Phase::maintain;
 }
+void update_phases(std::span<Group> groups,NectarPhases& remembered) {
+    for (auto& group:groups) {
+        auto& saved=remembered.at(static_cast<std::size_t>(group.nectar));
+        const auto previous=saved && saved->target==group.target?saved->phase:group.phase;
+        group.phase=group.current_known?phase(previous,group.current,group.target):Phase::build;
+        if (group.current_known) saved=NectarPhase{group.phase,group.target};
+    }
+}
 double forecast(double current,std::span<const Event> events,double seconds) {
     number(current,0,100); number(seconds,0,7*86400);
     return forecast_sorted(current,sorted(events),seconds);
@@ -93,9 +97,9 @@ double floor_time(double current,std::span<const Event> events,double floor) {
     number(current,0,100); number(floor,0,100);
     return floor_time_sorted(current,sorted(events),floor);
 }
-double interval(double current,std::span<const Event> events,double rate,double full,Target t,bool building,double delay) {
-    number(current,0,100); number(rate,0,1); number(full,1,86400); number(delay,0,1800); target(t);
-    return interval_sorted(current,sorted(events),rate,full,t,building,delay);
+double interval(double current,std::span<const Event> events,double rate,double full,Target t,bool building,double delay,double age,double travel,double uncertainty) {
+    number(current,0,100); number(rate,0,1); number(full,1,86400); number(delay,0,1800); number(age,0,30*86400); number(travel,0,1800); number(uncertainty,0,100); target(t);
+    return interval_sorted(current,sorted(events),rate,full,t,building,delay,age,travel,uncertainty);
 }
 void validate_configuration(std::span<const Group> groups,std::span<const Active> active,std::size_t capacity) {
     if (groups.size()>5 || capacity>3 || active.size()>3) throw std::invalid_argument("Invalid planter capacity");
@@ -106,6 +110,7 @@ void validate_configuration(std::span<const Group> groups,std::span<const Active
     for (const auto& g : groups) {
         number(g.current,0,100); target(g.target); validate_events(g.pending);
         number(g.max_growth_seconds,0,86400);
+        number(g.uncertainty,0,100);
         if (g.max_growth_seconds>0 && g.max_growth_seconds<1) throw std::invalid_argument("Invalid maximum planter growth time");
         if (!g.current_known && g.current!=0) throw std::invalid_argument("Unknown nectar must use its conservative lower bound");
         if (g.nectar<Nectar::comforting || g.nectar>Nectar::invigorating || g.phase<Phase::build || g.phase>Phase::recover
@@ -123,11 +128,12 @@ void validate_configuration(std::span<const Group> groups,std::span<const Active
 }
 std::vector<Assignment> assign(std::span<const Group> groups,std::span<const Active> active,std::size_t capacity,Selection selection,bool at_destination) {
     validate_configuration(groups,active,capacity);
-    if (selection.omitted && (*selection.omitted<Nectar::comforting || *selection.omitted>Nectar::invigorating)) throw std::invalid_argument("Invalid omitted nectar");
+    if (selection.nectars>31) throw std::invalid_argument("Invalid nectar selection");
     if (active.size()>=capacity) return {};
     std::set<std::string> busy_types,busy_fields;
     for (const auto& a : active) { busy_types.insert(a.planter); busy_fields.insert(a.field); }
-    struct Need { double urgency{},reserve{}; int priority{}; Nectar nectar{}; bool repair{},pending{}; std::vector<Assignment> options; };
+    struct Option { Assignment assignment; double efficiency{}; };
+    struct Need { double urgency{},reserve{}; int priority{}; Nectar nectar{}; bool repair{},pending{}; std::vector<Option> options; };
     std::vector<Need> needs; bool shortage=false;
     double maximum_band=0;
     for (const auto& g : groups) maximum_band=std::max(maximum_band,g.target.minimum-bounds(g.target).lower);
@@ -142,10 +148,21 @@ std::vector<Assignment> assign(std::span<const Group> groups,std::span<const Act
             if (g.phase!=Phase::build && s.field==g.sipping_field) sipping.push_back(&c);
         }
         if (!sipping.empty()) eligible=std::move(sipping); else if (!rotated.empty()) eligible=std::move(rotated);
-        if (eligible.empty() || selection.omitted==g.nectar) continue;
+        if (eligible.empty() || !(selection.nectars & (1u<<static_cast<unsigned>(g.nectar)))) continue;
         std::stable_sort(eligible.begin(),eligible.end(),[](const auto* a,const auto* b) { return a->last_used<b->last_used; });
         const auto ordered=sorted(g.pending);
-        auto reserve=g.current; for (const auto& e : g.pending) reserve+=e.amount;
+        // Reserve deliveries that can arrive before a new full-growth crop.
+        // A distant promise must not hide a gap that another crop can bridge.
+        double deadline=0;
+        for(const auto* c:eligible) deadline=std::max(deadline,c->stats.full_seconds+2*c->travel.seconds);
+        double reserve=g.current,level=g.current,previous=0;
+        for(const auto& e:ordered) {
+            if(e.seconds>deadline) break;
+            const auto before=std::max(0.0,level-(e.seconds-previous)/864);
+            const auto gain=std::min(e.amount,100-before);
+            reserve+=gain;
+            level=before+gain;previous=e.seconds;
+        }
         const auto band=bounds(g.target); shortage=shortage || reserve<band.lower;
         const auto goal=g.phase==Phase::build?band.upper:std::min(100.0,band.lower+2*maximum_band);
         const bool repair=selection.concentrated && (g.phase==Phase::build || (g.phase==Phase::recover && g.current<band.lower));
@@ -158,15 +175,16 @@ std::vector<Assignment> assign(std::span<const Group> groups,std::span<const Act
             const auto at_place=forecast_sorted(g.current,ordered,delay);
             std::vector<Event> later;
             for (const auto& e : ordered) if (e.seconds>delay) later.push_back({e.seconds-delay,e.amount});
-            auto growth=interval_sorted(at_place,later,c.stats.rate(),c.stats.full_seconds,g.target,!g.current_known || g.phase==Phase::build,c.travel.learned?0:c.travel.seconds);
-            growth=std::max(growth,c.travel.seconds);
+            auto growth=interval_sorted(at_place,later,c.stats.rate(),c.stats.full_seconds,g.target,!g.current_known || g.phase==Phase::build,c.travel.learned?0:c.travel.seconds,0,c.travel.seconds,g.uncertainty);
+            growth=std::max({1.0,growth,c.travel.seconds});
             if (g.max_growth_seconds>0) growth=std::min(growth,g.max_growth_seconds);
             const auto ready=delay+growth;
             const auto amount=c.stats.rate()*std::min(growth,c.stats.full_seconds);
             Assignment choice{c.stats,g.current_known?g.phase:Phase::build,growth,ready,std::min(amount,100-forecast_sorted(g.current,ordered,ready))};
-            const auto same=std::find_if(need.options.begin(),need.options.end(),[&](const Assignment& a) { return a.stats.planter==c.stats.planter; });
-            if (same==need.options.end()) need.options.push_back(choice);
-            else if (choice.useful/choice.growth>same->useful/same->growth+1e-12) *same=choice;
+            const auto same=std::find_if(need.options.begin(),need.options.end(),[&](const Option& a) { return a.assignment.stats.planter==c.stats.planter; });
+            const auto efficiency=choice.useful/(choice.growth+2*c.travel.seconds);
+            if (same==need.options.end()) need.options.push_back({choice,efficiency});
+            else if (efficiency>same->efficiency+1e-12) *same={choice,efficiency};
         }
         if (need.options.size()>32) throw std::invalid_argument("Too many planter types");
         needs.push_back(std::move(need));
@@ -191,10 +209,11 @@ std::vector<Assignment> assign(std::span<const Group> groups,std::span<const Act
         auto possible_coverage=coverage;
         for (std::size_t i=0;i<remaining;++i) possible_coverage+=1u<<(needs.size()-index-i-1);
         if (std::tuple{chosen.size()+remaining,possible_coverage}<std::tuple{std::get<0>(best_score),std::get<1>(best_score)}) return;
-        for (const auto& a : needs[index].options) {
+        for (const auto& option : needs[index].options) {
+            const auto& a=option.assignment;
             if (busy_types.contains(a.stats.planter) || busy_fields.contains(a.stats.field)) continue;
             busy_types.insert(a.stats.planter); busy_fields.insert(a.stats.field); chosen.push_back(a);
-            search(index+1,coverage+(1u<<(needs.size()-index-1)),production+a.useful/a.growth,growth+a.growth);
+            search(index+1,coverage+(1u<<(needs.size()-index-1)),production+option.efficiency,growth+a.growth);
             chosen.pop_back(); busy_types.erase(a.stats.planter); busy_fields.erase(a.stats.field);
         }
         search(index+1,coverage,production,growth);

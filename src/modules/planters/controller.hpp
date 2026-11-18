@@ -43,6 +43,7 @@ struct Ledger {
     std::map<std::string,WallTime> fields;
     MaterialHistory materials;
     PlacementLimits placement_limits;
+    NectarPhases nectar_phases;
 };
 void validate(const Ledger& ledger);
 bool exclude_offline(Ledger& ledger,WallTime begin,WallTime end);
@@ -69,6 +70,7 @@ public:
     void record_occupied(const std::string& field);
     void reject_capacity(std::uint64_t ticket);
     void record_travel(const std::string& field,double seconds);
+    void replan(const std::vector<Group>& groups,const NectarPhases& phases,const TravelTimes& travel,WallTime now);
     void exclude_offline(WallTime begin,WallTime end);
     void abandon_unstarted_placement(std::uint64_t ticket,WallTime wall);
     void reserve_unconfirmed();

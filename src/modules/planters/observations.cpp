@@ -49,6 +49,7 @@ public:
             const auto value=reading.value.percent[static_cast<std::size_t>(observed)];
             if (value && (!std::isfinite(*value) || *value<0 || *value>100)) return snapshot;
             Group group; group.nectar=kind; group.current=value.value_or(0); group.current_known=value.has_value();
+            group.uncertainty=reading.value.uncertainty_percent;
             for (const auto& stats : catalog()) if (stats.nectar==kind) group.candidates.push_back({stats,{}});
             groups.push_back(std::move(group));
         }

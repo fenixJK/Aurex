@@ -107,15 +107,9 @@ PlanningSnapshot Account::forecast_state(std::vector<Group> groups,const Prefere
     if (ledger.pending) throw std::runtime_error("A planter action is in progress. Try again after it finishes.");
     TravelTimes travel;
     for (const auto& [field,samples]:ledger.travel) for (double seconds:samples) travel.record(field,seconds);
-    {
-        std::lock_guard lock(snapshot_mutex_);
-        for (auto& group:groups) {
-            const auto i=static_cast<std::size_t>(group.nectar);
-            if (nectar_phases_.at(i)) group.phase=*nectar_phases_[i];
-            for (auto& candidate:group.candidates) candidate.travel=travel.estimate(candidate.stats.field);
-        }
-    }
+    for (auto& group:groups) for (auto& candidate:group.candidates) candidate.travel=travel.estimate(candidate.stats.field);
     apply_preferences(groups,preferences);
+    auto phases=ledger.nectar_phases; update_phases(groups,phases);
     auto snapshot=planning_snapshot(ledger,std::move(groups),travel,now,0,capacity);
     apply_preferences(snapshot.materials,preferences); return snapshot;
 }
@@ -175,21 +169,17 @@ void Account::set_saved(std::optional<std::uint64_t> id,const Stats& stats,doubl
 }
 void Account::publish(const Ledger& ledger) {
     std::lock_guard lock(snapshot_mutex_); plants_=ledger.plants; materials_=ledger.materials; placement_limits_=ledger.placement_limits;
+    nectar_phases_=ledger.nectar_phases;
 }
 void Account::prepare_groups(std::vector<Group>& groups,const std::optional<Preferences>& preferences,WallTime now) {
     std::lock_guard lock(snapshot_mutex_);
-    for (auto& group:groups) {
-        const auto remembered=nectar_phases_.at(static_cast<std::size_t>(group.nectar));
-        if (remembered) group.phase=*remembered;
-    }
     if (preferences) apply_preferences(groups,*preferences);
+    update_phases(groups,nectar_phases_);
     for (auto& group:groups) {
         std::erase_if(group.candidates,[&](const auto& candidate) {
             const auto retry=placement_retries_.find(candidate.stats.planter);
             return retry!=placement_retries_.end() && now<retry->second;
         });
-        group.phase=group.current_known?planters::phase(group.phase,group.current,group.target):Phase::build;
-        if (group.current_known) nectar_phases_.at(static_cast<std::size_t>(group.nectar))=group.phase;
     }
 }
 }
