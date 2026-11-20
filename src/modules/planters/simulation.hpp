@@ -1,8 +1,10 @@
 #pragma once
 #include "planning.hpp"
 #include <functional>
+#include <stdexcept>
 
 namespace hive::features::planters {
+struct SimulationLimit : std::runtime_error { using std::runtime_error::runtime_error; };
 enum class NectarReading { exact, hud };
 struct SimulationConfig {
     std::vector<Group> groups;

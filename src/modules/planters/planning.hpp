@@ -9,6 +9,7 @@ struct Growing {
     double age{}, due_in{};
     Travel travel;
     std::string material;
+    double growth_limit{};
 };
 struct PlanningSnapshot {
     std::vector<Group> groups;
@@ -21,7 +22,7 @@ struct Ledger;
 PlanningSnapshot planning_snapshot(const Ledger& ledger,std::vector<Group> groups,const TravelTimes& travel,
     std::chrono::sys_time<Time> wall,double session_seconds,std::size_t capacity=3);
 std::vector<Group> planning_groups(const PlanningSnapshot& snapshot);
-std::vector<Growing> harvest_schedule(const PlanningSnapshot& snapshot);
+std::vector<Growing> harvest_schedule(const PlanningSnapshot& snapshot,std::optional<double> growth_limit={});
 enum class PlanReason { no_capacity, unavailable, covered, forecast };
 struct PlanDecision {
     std::vector<Assignment> assignments;

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <functional>
 #include <tuple>
+#include <string_view>
 
 namespace hive::features::planters {
 namespace {
@@ -128,12 +129,16 @@ void validate_configuration(std::span<const Group> groups,std::span<const Active
 }
 std::vector<Assignment> assign(std::span<const Group> groups,std::span<const Active> active,std::size_t capacity,Selection selection,bool at_destination) {
     validate_configuration(groups,active,capacity);
-    if (selection.nectars>31) throw std::invalid_argument("Invalid nectar selection");
+    const auto max_growth_seconds=selection.max_growth_seconds.value_or(0);
+    number(max_growth_seconds,0,86400);
+    if (selection.nectars>31 || (max_growth_seconds>0 && max_growth_seconds<1)) throw std::invalid_argument("Invalid nectar selection");
     if (active.size()>=capacity) return {};
-    std::set<std::string> busy_types,busy_fields;
-    for (const auto& a : active) { busy_types.insert(a.planter); busy_fields.insert(a.field); }
+    std::vector<std::string_view> busy_types,busy_fields;
+    busy_types.reserve(capacity);busy_fields.reserve(capacity);
+    const auto contains=[](const auto& values,std::string_view value) { return std::find(values.begin(),values.end(),value)!=values.end(); };
+    for (const auto& a : active) { busy_types.push_back(a.planter); busy_fields.push_back(a.field); }
     struct Option { Assignment assignment; double efficiency{}; };
-    struct Need { double urgency{},reserve{}; int priority{}; Nectar nectar{}; bool repair{},pending{}; std::vector<Option> options; };
+    struct Need { double urgency{},reserve{}; int priority{}; Nectar nectar{}; bool repair{},pending{},due{}; std::vector<Option> options; };
     std::vector<Need> needs; bool shortage=false;
     double maximum_band=0;
     for (const auto& g : groups) maximum_band=std::max(maximum_band,g.target.minimum-bounds(g.target).lower);
@@ -142,7 +147,7 @@ std::vector<Assignment> assign(std::span<const Group> groups,std::span<const Act
         std::vector<const Candidate*> eligible,rotated,sipping;
         for (const auto& c : g.candidates) {
             const auto& s=c.stats;
-            if (busy_types.contains(s.planter) || busy_fields.contains(s.field)) continue;
+            if (contains(busy_types,s.planter) || contains(busy_fields,s.field)) continue;
             eligible.push_back(&c);
             if (s.field!=g.last_field) rotated.push_back(&c);
             if (g.phase!=Phase::build && s.field==g.sipping_field) sipping.push_back(&c);
@@ -165,10 +170,18 @@ std::vector<Assignment> assign(std::span<const Group> groups,std::span<const Act
         }
         const auto band=bounds(g.target); shortage=shortage || reserve<band.lower;
         const auto goal=g.phase==Phase::build?band.upper:std::min(100.0,band.lower+2*maximum_band);
+        const auto cadence=g.max_growth_seconds>0?(max_growth_seconds>0?std::min(g.max_growth_seconds,max_growth_seconds):g.max_growth_seconds):max_growth_seconds;
+        const auto preceding=std::count_if(groups.begin(),groups.end(),[&](const Group& other) { return other.target.minimum>0 && other.priority<=g.priority; });
+        // A refill needs a placement slot before it can grow. Start from the
+        // target reserve so the maintenance band remains available for that wait.
+        const auto rotation=cadence*(1+static_cast<double>(preceding)/std::max<std::size_t>(1,capacity));
+        const bool due=selection.concentrated && g.phase!=Phase::build && cadence>0 && floor_time_sorted(g.current,ordered,std::min(100.0,g.target.minimum+g.uncertainty))<=rotation;
         const bool repair=selection.concentrated && (g.phase==Phase::build || (g.phase==Phase::recover && g.current<band.lower));
-        const bool pending=repair && std::any_of(ordered.begin(),ordered.end(),[&](const Event& event) { return forecast_sorted(g.current,ordered,event.seconds)>=band.upper; });
-        Need need{reserve-goal,reserve,g.priority,g.nectar,repair,pending,{}};
-        if (selection.concentrated && !repair) need.urgency=reserve-band.upper-(reserve<band.upper?100:0);
+        const bool pending=repair && std::any_of(ordered.begin(),ordered.end(),[&](const Event& event) {
+            return forecast_sorted(g.current,ordered,event.seconds)>=band.upper;
+        });
+        Need need{reserve-goal,reserve,g.priority,g.nectar,repair,pending,due,{}};
+        if (selection.concentrated && !repair) need.urgency=reserve-band.upper-(due || reserve<band.upper?100:0);
         for (const auto* candidate : eligible) {
             const auto& c=*candidate;
             const auto delay=at_destination?0:c.travel.seconds;
@@ -178,11 +191,23 @@ std::vector<Assignment> assign(std::span<const Group> groups,std::span<const Act
             auto growth=interval_sorted(at_place,later,c.stats.rate(),c.stats.full_seconds,g.target,!g.current_known || g.phase==Phase::build,c.travel.learned?0:c.travel.seconds,0,c.travel.seconds,g.uncertainty);
             growth=std::max({1.0,growth,c.travel.seconds});
             if (g.max_growth_seconds>0) growth=std::min(growth,g.max_growth_seconds);
+            double limit=0;
+            if (max_growth_seconds>0 && g.current_known) {
+                limit=std::min(max_growth_seconds,std::round(c.stats.full_seconds));
+                if (g.max_growth_seconds>0) limit=std::min(limit,g.max_growth_seconds);
+                growth=std::min(growth,limit);
+            }
             const auto ready=delay+growth;
             const auto amount=c.stats.rate()*std::min(growth,c.stats.full_seconds);
             Assignment choice{c.stats,g.current_known?g.phase:Phase::build,growth,ready,std::min(amount,100-forecast_sorted(g.current,ordered,ready))};
+            choice.growth_limit=limit;
             const auto same=std::find_if(need.options.begin(),need.options.end(),[&](const Option& a) { return a.assignment.stats.planter==c.stats.planter; });
-            const auto efficiency=choice.useful/(choice.growth+2*c.travel.seconds);
+            // Compare a productive rotation and an economical maintenance
+            // rotation in the same search. Once a nectar is maintained, useful
+            // nectar per trip can matter more than raw production per hour.
+            const auto cost=selection.concentrated || g.phase!=Phase::maintain
+                ?choice.growth+2*c.travel.seconds:std::max(1.0,2*c.travel.seconds);
+            const auto efficiency=choice.useful/cost;
             if (same==need.options.end()) need.options.push_back({choice,efficiency});
             else if (efficiency>same->efficiency+1e-12) *same={choice,efficiency};
         }
@@ -194,16 +219,20 @@ std::vector<Assignment> assign(std::span<const Group> groups,std::span<const Act
     if (selection.concentrated) std::erase_if(needs,[&](const Need& need) { return need.repair && (need.pending || focus!=need.nectar); });
     if (shortage) std::erase_if(needs,[&](const Need& n) {
         const auto g=std::find_if(groups.begin(),groups.end(),[&](const Group& g) { return g.nectar==n.nectar; });
-        return n.reserve>=bounds(g->target).upper;
+        return !n.due && n.reserve>=bounds(g->target).upper;
     });
     std::stable_sort(needs.begin(),needs.end(),[](const Need& a,const Need& b) { return std::tie(a.urgency,a.priority)<std::tie(b.urgency,b.priority); });
     const auto slots=capacity>active.size()?capacity-active.size():0;
-    std::vector<Assignment> best,chosen;
+    std::vector<Assignment> best;
+    std::vector<const Assignment*> chosen;
     std::tuple<std::size_t,unsigned,double,double> best_score{};
     std::function<void(std::size_t,unsigned,double,double)> search=[&](std::size_t index,unsigned coverage,double production,double growth) {
         if (chosen.size()==slots || index==needs.size()) {
             const auto score=std::tuple{chosen.size(),coverage,production,growth};
-            if (score>best_score) { best_score=score; best=chosen; } return;
+            if (score>best_score) {
+                best_score=score;best.clear();
+                for (const auto* assignment:chosen) best.push_back(*assignment);
+            } return;
         }
         const auto remaining=std::min(slots-chosen.size(),needs.size()-index);
         auto possible_coverage=coverage;
@@ -211,10 +240,10 @@ std::vector<Assignment> assign(std::span<const Group> groups,std::span<const Act
         if (std::tuple{chosen.size()+remaining,possible_coverage}<std::tuple{std::get<0>(best_score),std::get<1>(best_score)}) return;
         for (const auto& option : needs[index].options) {
             const auto& a=option.assignment;
-            if (busy_types.contains(a.stats.planter) || busy_fields.contains(a.stats.field)) continue;
-            busy_types.insert(a.stats.planter); busy_fields.insert(a.stats.field); chosen.push_back(a);
+            if (contains(busy_types,a.stats.planter) || contains(busy_fields,a.stats.field)) continue;
+            busy_types.push_back(a.stats.planter); busy_fields.push_back(a.stats.field); chosen.push_back(&a);
             search(index+1,coverage+(1u<<(needs.size()-index-1)),production+option.efficiency,growth+a.growth);
-            chosen.pop_back(); busy_types.erase(a.stats.planter); busy_fields.erase(a.stats.field);
+            chosen.pop_back(); busy_types.pop_back(); busy_fields.pop_back();
         }
         search(index+1,coverage,production,growth);
     };

@@ -10,6 +10,9 @@ bool name(const std::string& value) {
 }
 void plant_valid(const Plant& plant) {
     const auto& s=plant.stats;
+    if (!std::isfinite(plant.growth_limit) || plant.growth_limit<0 || plant.growth_limit>86400
+        || (plant.growth_limit>0 && (plant.growth_limit<1 || !plant.material.empty())))
+        throw std::invalid_argument("Invalid planned planter harvest limit");
     if (!plant.material.empty() && (plant.phase!=Phase::build || !valid_material(plant.material,s)))
         throw std::invalid_argument("Invalid material planter");
     if (!plant.id || !name(s.planter) || !name(s.field) || s.nectar<Nectar::comforting || s.nectar>Nectar::invigorating
@@ -20,6 +23,8 @@ void plant_valid(const Plant& plant) {
         || plant.offline<Time{} || plant.offline>Time::max()-plant.due.time_since_epoch()-std::chrono::hours(24)
         || plant.due<=plant.placed || plant.due-plant.placed<Time(1000) || plant.due-plant.placed>std::chrono::hours(24)
         || (!plant.material.empty() && (plant.due-plant.placed).count()<std::round(s.full_seconds)*1000)) throw std::invalid_argument("Invalid saved planter");
+    if (plant.growth_limit>0 && (plant.due-plant.placed).count()>std::ceil(plant.growth_limit*1000))
+        throw std::invalid_argument("Planter timer exceeds its planned harvest limit");
     if (plant.growth && (plant.growth->observed<plant.placed || plant.growth->observed.time_since_epoch()>Time::max()-std::chrono::hours(24)
         || plant.growth->offline<Time{} || plant.growth->offline>plant.offline
         || !std::isfinite(plant.growth->fraction) || plant.growth->fraction<0 || plant.growth->fraction>1))
@@ -28,7 +33,7 @@ void plant_valid(const Plant& plant) {
 bool same(const Plant& a,const Plant& b) {
     return a.id==b.id && a.stats.planter==b.stats.planter && a.stats.field==b.stats.field && a.stats.nectar==b.stats.nectar
         && a.stats.nectar_bonus==b.stats.nectar_bonus && a.stats.speed_bonus==b.stats.speed_bonus && a.stats.full_seconds==b.stats.full_seconds
-        && a.phase==b.phase && a.placed==b.placed && a.due==b.due && a.growth==b.growth && a.offline==b.offline && a.material==b.material && a.missing==b.missing;
+        && a.phase==b.phase && a.placed==b.placed && a.due==b.due && a.growth==b.growth && a.offline==b.offline && a.material==b.material && a.missing==b.missing && a.growth_limit==b.growth_limit;
 }
 void scan_valid(const Placements& scan) {
     if ((!scan.field.empty() && !name(scan.field)) || scan.identities.size()>3) throw std::invalid_argument("Too many observed planters");
@@ -138,15 +143,17 @@ void Controller::record_travel(const std::string& field,double seconds) {
     auto next=ledger_; auto& samples=next.travel[field]; samples.push_back(seconds);
     if (samples.size()>3) samples.erase(samples.begin()); commit(std::move(next));
 }
-void Controller::replan(const std::vector<Group>& groups,const NectarPhases& phases,const TravelTimes& travel,WallTime now) {
+void Controller::replan(const std::vector<Group>& groups,const NectarPhases& phases,const TravelTimes& travel,WallTime now,std::optional<double> growth_limit) {
     if (ledger_.pending) return;
     auto next=ledger_; bool changed=phases!=next.nectar_phases; next.nectar_phases=phases;
     const auto snapshot=planning_snapshot(next,groups,travel,now,0,capacity_);
-    const auto schedule=harvest_schedule(snapshot);
-    for (std::size_t i=0;i<schedule.size();++i) if (schedule[i].due_in!=snapshot.growing[i].due_in) {
+    const auto schedule=harvest_schedule(snapshot,growth_limit);
+    for (std::size_t i=0;i<schedule.size();++i) if (schedule[i].due_in!=snapshot.growing[i].due_in || schedule[i].growth_limit!=snapshot.growing[i].growth_limit) {
         auto& plant=*std::find_if(next.plants.begin(),next.plants.end(),[&](const Plant& p) { return p.stats.planter==schedule[i].stats.planter; });
-        const auto due=plant.placed+Time(static_cast<Time::rep>(std::ceil((schedule[i].age+schedule[i].due_in)*1000)));
-        if (due>plant.placed && due!=plant.due) { plant.due=due; changed=true; }
+        auto growth=schedule[i].age+schedule[i].due_in;
+        if (schedule[i].growth_limit>0) growth=std::min(growth,schedule[i].growth_limit);
+        const auto due=plant.placed+Time(static_cast<Time::rep>(std::ceil(growth*1000)));
+        if (due>plant.placed && (due!=plant.due || plant.growth_limit!=schedule[i].growth_limit)) { plant.due=due; plant.growth_limit=schedule[i].growth_limit; changed=true; }
     }
     if (changed) commit(std::move(next));
 }
@@ -193,7 +200,7 @@ std::uint64_t Controller::place(const Assignment& a,const ObservationContext& c,
     }
     auto next=ledger_; const auto ticket=next.next_ticket++;
     const auto duration=Time(static_cast<Time::rep>(std::ceil(a.growth*1000)));
-    next.pending=Intent{ticket,Operation::place,{ticket,a.stats,a.phase,wall,wall+duration,{},Time{},a.material}};
+    next.pending=Intent{ticket,Operation::place,{ticket,a.stats,a.phase,wall,wall+duration,{},Time{},a.material,false,a.growth_limit}};
     Transaction transaction(Operation::place,id,c,placements,attempt);
     commit(std::move(next)); transaction_=std::move(transaction); confirmed_at_.reset(); return ticket;
 }

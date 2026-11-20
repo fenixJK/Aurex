@@ -19,6 +19,7 @@ struct Plant {
     Time offline{};
     std::string material;
     bool missing{};
+    double growth_limit{}; // A harvest boundary chosen with the next placement.
 };
 double harvest_fraction(const Plant& plant);
 double harvest_minimum_fraction(const Plant& plant);
@@ -70,7 +71,7 @@ public:
     void record_occupied(const std::string& field);
     void reject_capacity(std::uint64_t ticket);
     void record_travel(const std::string& field,double seconds);
-    void replan(const std::vector<Group>& groups,const NectarPhases& phases,const TravelTimes& travel,WallTime now);
+    void replan(const std::vector<Group>& groups,const NectarPhases& phases,const TravelTimes& travel,WallTime now,std::optional<double> growth_limit={});
     void exclude_offline(WallTime begin,WallTime end);
     void abandon_unstarted_placement(std::uint64_t ticket,WallTime wall);
     void reserve_unconfirmed();

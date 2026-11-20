@@ -402,7 +402,7 @@ extensions::Manifest module_manifest(const ExecutionPlan& plan,std::string id,st
     const auto preferences=plan.preferences.value_or(default_preferences()); validate(preferences);
     result.settings.push_back({"max-growth-minutes","Max growth (minutes)",preferences.max_growth_minutes,0,1440,{}});
     result.settings.back().minimum_label="No limit";
-    result.settings.back().help="Optional nectar harvest limit; 120 means two hours of growth. No limit keeps full growth during nectar buildup and adaptive maintenance. Item planters always grow fully. Existing nectar timers can be shortened, never postponed. Travel and higher-priority work can delay collection.";
+    result.settings.back().help="Optional nectar harvest limit; 120 means two hours of growth. No limit lets the planner choose harvest timing for nectar buildup and maintenance. Item planters always grow fully. Chosen harvest times stay within this limit. Travel and higher-priority work can delay collection.";
     result.settings.push_back({"mode","Focus",std::string(preferences.mode==Mode::items?"Items":"Nectar"),0,0,{"Nectar","Items"}});
     result.settings.push_back({"secondary","Also farm items",preferences.secondary});
     result.settings.back().enabled_by="mode"; result.settings.back().enabled_values={"Nectar","Items"};

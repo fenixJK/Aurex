@@ -37,7 +37,7 @@ double number(const QJsonValue& value) {
 QJsonObject encode(const Plant& p) {
     QJsonValue growth=QJsonValue::Null;
     if (p.growth) growth=QJsonObject{{"observed",QString::number(p.growth->observed.time_since_epoch().count())},{"fraction",p.growth->fraction},{"offline",QString::number(p.growth->offline.count())}};
-    return {{"missing",p.missing},{"material",QString::fromStdString(p.material)},{"growth",growth},{"offline",QString::number(p.offline.count())},{"id",QString::number(p.id)},{"planter",QString::fromStdString(p.stats.planter)},{"field",QString::fromStdString(p.stats.field)},
+    return {{"growthLimit",p.growth_limit},{"missing",p.missing},{"material",QString::fromStdString(p.material)},{"growth",growth},{"offline",QString::number(p.offline.count())},{"id",QString::number(p.id)},{"planter",QString::fromStdString(p.stats.planter)},{"field",QString::fromStdString(p.stats.field)},
         {"nectar",static_cast<int>(p.stats.nectar)},{"nectarBonus",p.stats.nectar_bonus},{"speedBonus",p.stats.speed_bonus},{"fullSeconds",p.stats.full_seconds},
         {"phase",static_cast<int>(p.phase)},{"placed",QString::number(p.placed.time_since_epoch().count())},{"due",QString::number(p.due.time_since_epoch().count())}};
 }
@@ -46,6 +46,7 @@ int enumeration(const QJsonValue& value,int high) {
 }
 Plant decode(const QJsonValue& value,int version) {
     auto p=object(value);
+    const auto growth_limit=version>=12?number(p.take("growthLimit")):0;
     const auto missing=version>=9?p.take("missing"):QJsonValue(false);
     if (!missing.isBool()) throw std::invalid_argument("Invalid missing planter state");
     auto material=version>=6?text(p.take("material")).toStdString():std::string{};
@@ -64,7 +65,7 @@ Plant decode(const QJsonValue& value,int version) {
     keys(p,{"id","planter","field","nectar","nectarBonus","speedBonus","fullSeconds","phase","placed","due"});
     Plant result{integer<std::uint64_t>(p["id"]),{text(p["planter"]).toStdString(),text(p["field"]).toStdString(),static_cast<Nectar>(enumeration(p["nectar"],4)),
         number(p["nectarBonus"]),number(p["speedBonus"]),number(p["fullSeconds"])},static_cast<Phase>(enumeration(p["phase"],2)),
-        WallTime(Time(integer<Time::rep>(p["placed"]))),WallTime(Time(integer<Time::rep>(p["due"]))),growth,offline,material,missing.toBool()};
+        WallTime(Time(integer<Time::rep>(p["placed"]))),WallTime(Time(integer<Time::rep>(p["due"]))),growth,offline,material,missing.toBool(),growth_limit};
     if (version==3) {
         const auto entries=catalog();
         const auto base=std::find_if(entries.begin(),entries.end(),[&](const auto& entry) { return identity(entry)==identity(result.stats); });
@@ -103,7 +104,7 @@ public:
         QJsonParseError error; const auto document=QJsonDocument::fromJson(bytes,&error);
         if (error.error!=QJsonParseError::NoError || !document.isObject()) throw std::runtime_error("Invalid planter state document");
         const auto root=document.object();
-        if (root["version"].toInt()==11) keys(root,{"version","nextTicket","plants","pending","travel","fields","materials","placementLimits","nectarPhases"});
+        if (root["version"].toInt()>=11) keys(root,{"version","nextTicket","plants","pending","travel","fields","materials","placementLimits","nectarPhases"});
         else if (root["version"].toInt()==10) keys(root,{"version","nextTicket","plants","pending","travel","fields","materials","placementLimits"});
         else if (root["version"].toInt()==3) keys(root,{"version","nextTicket","plants","pending","calibration","travel"});
         else if (root["version"].toInt()>=6 && root["version"].toInt()<=9) keys(root,{"version","nextTicket","plants","pending","travel","fields","materials"});
@@ -111,7 +112,7 @@ public:
         else if (root["version"].toInt()==4) keys(root,{"version","nextTicket","plants","pending","travel"});
         else keys(root,{"version","nextTicket","plants","pending"});
         const auto version=number(root["version"]);
-        if (version<1 || version>11 || version!=std::floor(version) || !root["plants"].isArray() || root["plants"].toArray().size()>3)
+        if (version<1 || version>12 || version!=std::floor(version) || !root["plants"].isArray() || root["plants"].toArray().size()>3)
             throw std::runtime_error("Unsupported planter state version or count");
         Ledger result; result.next_ticket=integer<std::uint64_t>(root["nextTicket"]);
         if (version>=11) {
@@ -180,7 +181,7 @@ public:
         QJsonArray phases;
         for (const auto& saved:ledger.nectar_phases) phases.append(saved?QJsonValue(QJsonObject{{"phase",static_cast<int>(saved->phase)},
             {"minimum",saved->target.minimum},{"buffer",saved->target.buffer}}):QJsonValue(QJsonValue::Null));
-        const auto bytes=QJsonDocument(QJsonObject{{"version",11},{"nextTicket",QString::number(ledger.next_ticket)},
+        const auto bytes=QJsonDocument(QJsonObject{{"version",12},{"nextTicket",QString::number(ledger.next_ticket)},
             {"plants",plants},{"pending",pending},{"travel",travel},{"fields",fields},{"materials",materials},{"placementLimits",limits},{"nectarPhases",phases}}).toJson(QJsonDocument::Compact);
         if (bytes.size()>65536 || QFileInfo(path_).isSymLink() || !QDir().mkpath(QFileInfo(path_).absolutePath()))
             throw std::runtime_error("Cannot prepare planter state file");

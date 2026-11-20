@@ -149,7 +149,9 @@ void Account::set_saved(std::optional<std::uint64_t> id,const Stats& stats,doubl
             if (found->stats.planter==stats.planter && found->stats.field==stats.field) {
                 plant.phase=found->phase;
                 plant.material=found->material;
+                plant.growth_limit=found->growth_limit/found->stats.full_seconds*match->full_seconds;
                 plant.due=placed+Time(static_cast<Time::rep>(std::ceil(harvest_fraction(*found)*duration.count())));
+                limit_growth(plant,Time(static_cast<Time::rep>(std::ceil(plant.growth_limit*1000))));
             }
             *found=plant;
         } else {

@@ -23,6 +23,8 @@ std::vector<Group> planning_groups(const PlanningSnapshot& snapshot) {
         const auto& s=plant.stats;
         bounded(s.nectar_bonus,0.01,10); bounded(s.speed_bonus,0.01,10); bounded(s.full_seconds,1,86400);
         bounded(plant.age,0,30*86400); bounded(plant.due_in,-30*86400,86400); bounded(plant.travel.seconds,0,1800);
+        bounded(plant.growth_limit,0,86400);
+        if (plant.growth_limit>0 && (plant.growth_limit<1 || !plant.material.empty())) throw std::invalid_argument("Invalid forecast harvest limit");
         bounded(plant.age+plant.due_in,1-1e-7,86400+1e-7);
         if (s.nectar<Nectar::comforting || s.nectar>Nectar::invigorating || plant.phase<Phase::build || plant.phase>Phase::recover
             || (!plant.material.empty() && plant.age+plant.due_in+1e-7<std::round(s.full_seconds))) throw std::invalid_argument("Invalid growing planter intent");
@@ -54,7 +56,9 @@ SimulationResult simulate(SimulationConfig config) {
         for (auto& group:config.groups) for (auto& candidate:group.candidates)
             if (candidate.stats.field==field) candidate.last_used=history_origin+Time(static_cast<Time::rep>(now*1000));
     };
-    auto observed=[&](double level) { return config.readings==NectarReading::exact?level:std::round(std::floor(level*38/100+1e-9)*100/38); };
+    const auto observed=[&](double level) {
+        return config.readings==NectarReading::exact?level:std::round(std::floor(level*38/100+1e-9)*100/38);
+    };
     const auto snapshot=[&] {
         PlanningSnapshot state{config.groups,{},config.capacity,now};
         for (auto& group:state.groups) {
@@ -94,11 +98,11 @@ SimulationResult simulate(SimulationConfig config) {
     std::size_t iterations=0;
     while (now<=config.seconds) {
         if (config.cancelled && config.cancelled()) throw std::runtime_error("Planter simulation cancelled");
-        if (++iterations>config.max_steps) throw std::runtime_error("Planter simulation exceeded its work limit");
+        if (++iterations>config.max_steps) throw SimulationLimit("Planter simulation exceeded its work limit");
         const auto schedule=harvest_schedule(snapshot());
         for (std::size_t i=0;i<jobs.size();++i) jobs[i].due=now+schedule[i].due_in;
         std::stable_sort(jobs.begin(),jobs.end(),[](const Job& a,const Job& b) { return a.due<b.due; });
-        const auto departure=jobs.empty()?config.seconds+1:std::max(now,jobs.front().due-(jobs.front().plant.travel.learned?jobs.front().plant.travel.seconds:0));
+        auto departure=jobs.empty()?config.seconds+1:std::max(now,jobs.front().due-(jobs.front().plant.travel.learned?jobs.front().plant.travel.seconds:0));
         if (!jobs.empty() && departure<=now) {
             const auto job=jobs.front();
             const auto arrival=std::max(job.due,now+job.plant.travel.seconds);
@@ -120,8 +124,17 @@ SimulationResult simulate(SimulationConfig config) {
         }
         if (now>=config.seconds) break;
         if (jobs.size()<config.capacity) {
-            const auto state=snapshot();
-            const auto selection=config.choose && state.materials.needs_nectar()?config.choose(state):config.selection;
+            auto state=snapshot();
+            const auto selection=state.materials.needs_nectar()
+                ?(config.choose?config.choose(state):config.selection)
+                :config.selection;
+            state.growing=harvest_schedule(state,selection.max_growth_seconds);
+            for (std::size_t i=0;i<jobs.size();++i) {
+                jobs[i].due=now+state.growing[i].due_in;
+                jobs[i].plant.growth_limit=state.growing[i].growth_limit;
+            }
+            departure=config.seconds+1;
+            for (const auto& job:jobs) departure=std::min(departure,std::max(now,job.due-(job.plant.travel.learned?job.plant.travel.seconds:0)));
             const auto groups=planning_groups(state);
             auto choices=placement_choices(groups,occupied(state.growing),config.capacity,selection,state.materials);
             if (!choices.empty()) {
@@ -134,7 +147,7 @@ SimulationResult simulate(SimulationConfig config) {
                 if (now+travel.seconds>departure) { advance(departure,false); continue; }
                 const auto arrival=now+travel.seconds;
                 advance(arrival,true); if (arrival>=config.seconds) break;
-                jobs.push_back({{choice.stats,choice.phase,0,choice.growth,travel,choice.material},now,now+choice.growth});
+                jobs.push_back({{choice.stats,choice.phase,0,choice.growth,travel,choice.material,choice.growth_limit},now,now+choice.growth});
                 group->last_field=choice.stats.field; used(choice.stats.field); ++result.placements; continue;
             }
         }

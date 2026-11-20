@@ -39,9 +39,16 @@ struct Assignment {
     Phase phase{};
     double growth{}, ready_in{}, useful{};
     std::string material;
+    double growth_limit{};
 };
 struct Active { std::string planter, field, material; };
-struct Selection { bool concentrated{}; unsigned nectars{31}; };
+struct Selection {
+    bool concentrated{};
+    unsigned nectars{31};
+    // No value preserves existing timing; zero selects unrestricted timing.
+    // Positive values select a cadence, still bounded by the user's maximum.
+    std::optional<double> max_growth_seconds;
+};
 Bounds bounds(Target target);
 Phase phase(Phase previous,double current,Target target);
 void update_phases(std::span<Group> groups,NectarPhases& remembered);

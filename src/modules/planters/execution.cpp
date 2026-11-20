@@ -534,6 +534,11 @@ public:
                 return wait("Refreshing nectar after planning");
             }
             if (decision_.assignments.empty()) { phase_=Phase::done; publish(ExecutionStage::finished); return Done{"No planter action is due"}; }
+            controller_->replan(groups,account_->nectar_phases_,travel_,now,decision_.selection.max_growth_seconds);
+            account_->publish(controller_->ledger());
+            if (const auto* due=due_plant(now)) {
+                selected_=due->stats; harvest_=due->id; assignment_.reset(); return travel(view);
+            }
             const auto assignments=refresh(view,std::move(groups),now,false);
             if (assignments.empty()) { phase_=Phase::done; publish(ExecutionStage::finished); return Done{"Planned assignments are no longer needed or available"}; }
             assignment_=assignments.front(); selected_=assignment_->stats; harvest_.reset(); return travel(view);
