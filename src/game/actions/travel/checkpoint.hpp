@@ -49,8 +49,9 @@ private:
     ModuleScope scope_;
     std::string pending_,reason_;
     Time last_{},minimum_{},seen_{Time(-1)},executed_{};
+    std::optional<Time> observation_paused_;
     std::size_t index_{},attempts_{};
-    bool owned_{},nudging_{},awaiting_view_{},launched_{},observation_paused_{};
+    bool owned_{},nudging_{},awaiting_view_{},launched_{};
     void finish(CheckpointStage stage,std::string reason,TaskPort& tasks);
     void confirm(Time stopped);
     Time cancel_tasks(TaskPort& tasks,Time stopped={});

@@ -165,7 +165,10 @@ void Checkpoint::stop(TaskPort& tasks) {
         finish(CheckpointStage::stopped,"Checkpoint stopped",tasks);
 }
 void Checkpoint::confirm(Time stopped) {
-    minimum_=stopped+std::max(Time(1),plan_.minimum_duration-executed_);
+    // A new capture can still show the prompt from walking across the pad.
+    // Let movement settle before confirming transport range.
+    const auto settle=plan_.completion==CheckpointCompletion::launch && !launched_?Time(200):Time(1);
+    minimum_=stopped+std::max(settle,plan_.minimum_duration-executed_);
     awaiting_view_=false; distance_.reset(); stage_=CheckpointStage::confirming;
 }
 void Checkpoint::update(const ObservationContext& c,const Observation<bool>& detected,TaskPort& tasks,const Observation<double>& speed) {
@@ -211,7 +214,8 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
         const bool fresh=observed && detected.captured>seen_;
         if (!motion && !launched_ && !plan_.path.empty() && stage_==CheckpointStage::moving && !observed && c.now-seen_>plan_.observation_age) {
             if (!observation_paused_) {
-                minimum_=cancel_tasks(tasks,c.now)+Time(1); pending_.clear(); observation_paused_=true;
+                observation_paused_=cancel_tasks(tasks,c.now);
+                minimum_=*observation_paused_+Time(1); pending_.clear();
                 reason_="Waiting for fresh route observations; movement released";
             }
             return;
@@ -220,12 +224,17 @@ void Checkpoint::update(const ObservationContext& c,const Observation<bool>& det
         if (fresh) seen_=detected.captured;
         if (observation_paused_) {
             if (!fresh) return;
-            observation_paused_=false;
+            const auto stopped=*observation_paused_;
+            observation_paused_.reset();
             reason_.clear();
-            // This frame was taken after input was released. A positive result
-            // already confirms the stationary position; otherwise resume only
-            // the untravelled distance, without restarting or backtracking.
-            if (present) stage_=CheckpointStage::confirming;
+            // Resume only the untravelled distance. A positive result after a
+            // capture gap uses the original stop time, not another full wait.
+            if (present) {
+                if (launch) {
+                    confirm(stopped);
+                    if (detected.captured<minimum_) return;
+                } else stage_=CheckpointStage::confirming;
+            }
         }
         if (!motion && !launched_ && present
             && (stage_==CheckpointStage::moving || (launch && stage_==CheckpointStage::waiting))) {
