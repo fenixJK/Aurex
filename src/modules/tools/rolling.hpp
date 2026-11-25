@@ -15,9 +15,7 @@ public:
 };
 struct SsaPlan { AmuletFilter filter; unsigned honey_billions{500}; };
 struct JellyPlan {
-    BeeFilter filter;
     unsigned rolls{100};
-    bool require_mutation{};
     MutationFilter mutations;
     bool neon{};
     unsigned neon_limit{1};

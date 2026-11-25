@@ -161,7 +161,11 @@ class Jelly final : public Rolling {
     std::shared_ptr<const game::InventorySource> inventory_;
     std::shared_ptr<FeedReceipt> receipt_;
     enum class Stage { result,feed,restart,confirm } stage_{Stage::result};
-    std::optional<Bee> previous_;
+    struct Result {
+        std::optional<Mutation> mutation;
+        bool operator==(const Result&) const = default;
+    };
+    std::optional<Result> previous_;
     Time next_neon_{};
     Step feed_neon() {
         if (report_.neonberries>=plan_.neon_limit) return finish("Neonberry limit reached");
@@ -172,19 +176,18 @@ class Jelly final : public Rolling {
 public:
     game::ObservationNeeds observation_needs() const override { return stage_==Stage::confirm?Rolling::observation_needs():game::ObservationNeeds{}; }
     Jelly(JellyPlan plan,std::shared_ptr<RollProgress> progress):Rolling(std::move(progress)),plan_(std::move(plan)) {
-        validate(plan_.filter,plan_.require_mutation);
-        if (plan_.require_mutation) validate(plan_.mutations);
-        if (!plan_.rolls || plan_.rolls>1000000) throw std::invalid_argument("Set a finite Royal Jelly roll limit");
+        validate(plan_.mutations);
+        if (!plan_.rolls || plan_.rolls>1000000) throw std::invalid_argument("Set a finite Royal Jelly button press limit");
         if (plan_.neon) {
-            if (!plan_.require_mutation || !plan_.target || !plan_.target->valid() || !plan_.inventory || !plan_.neon_limit || plan_.neon_limit>1000)
-                throw std::invalid_argument("Automatic Neonberries need mutation rolling, a selected bee and a Neonberry limit");
+            if (!plan_.target || !plan_.target->valid() || !plan_.inventory || !plan_.neon_limit || plan_.neon_limit>1000)
+                throw std::invalid_argument("Automatic Neonberries need a selected bee and a Neonberry limit");
             inventory_=inventory_target(plan_.inventory,*plan_.target);
         }
         publish();
     }
-    std::vector<Rect> text_regions() const override { return stage_==Stage::result && plan_.require_mutation?std::vector<Rect>{{.2,.15,.6,.8}}:std::vector<Rect>{}; }
+    std::vector<Rect> text_regions() const override { return stage_==Stage::result?std::vector<Rect>{{.2,.15,.6,.8}}:std::vector<Rect>{}; }
     std::vector<game::FixedLabelQuery> fixed_labels() const override {
-        return stage_==Stage::result?bee_labels():std::vector<game::FixedLabelQuery>{};
+        return stage_==Stage::result?jelly_labels():std::vector<game::FixedLabelQuery>{};
     }
     Step next(const View& view) override {
         if (plan_.neon && !plan_.target->belongs_to(view.context.window)) return finish("Game window changed; select the bee again");
@@ -201,30 +204,24 @@ public:
             return click(view,dialog.value.yes,"Use Royal Jelly",true);
         }
         if (!fresh(view)) return waiting(view,"Reading bee result");
-        const auto result=read_jelly(view.context,*view.observations);
+        const auto result=read_jelly_button(view.context,*view.observations);
         if (result.knowledge==Knowledge::absent) previous_.reset();
         if (plan_.neon && !report_.neonberries && result.knowledge==Knowledge::absent) return feed_neon();
         if (!result.has_value(view.context,Time(2000),minimum_)) return waiting(view,"Waiting for the bee result");
-        const auto& bee=result.value.bee;
-        report_.result=(bee.gifted?"Gifted ":"")+bee.name+" Bee";
-        if ((bee.gifted && plan_.filter.stop_gifted) || (bee.mythic && plan_.filter.stop_mythic)) return finish("Match found; bee result left open",true);
-        if (plan_.filter.names.contains(bee.name) || (plan_.require_mutation && plan_.filter.names.empty())) {
-            if (!plan_.require_mutation) return finish("Match found; bee result left open",true);
-            const auto mutation=read_mutation(view.context,*view.observations);
-            if (!mutation.usable(view.context,Time(2000),minimum_)) return waiting(view,"Reading mutation");
-            if (mutation.knowledge==Knowledge::present && matches(mutation.value.mutation,plan_.mutations)) {
-                report_.result+=" · "+describe(mutation.value.mutation); return finish("Match found; bee result left open",true);
-            }
-        }
-        if (previous_ && previous_->name==bee.name && previous_->gifted==bee.gifted)
+        const auto mutation=read_mutation(view.context,*view.observations);
+        if (!mutation.usable(view.context,Time(2000),minimum_)) return waiting(view,"Reading mutation");
+        const Result current{mutation.knowledge==Knowledge::present?std::optional(mutation.value.mutation):std::nullopt};
+        report_.result=current.mutation?describe(*current.mutation):"No mutation";
+        if (current.mutation && matches(*current.mutation,plan_.mutations)) return finish("Mutation found; bee result left open",true);
+        if (previous_ && *previous_==current)
             return waiting(view,"Waiting for the next bee result");
         previous_.reset();
-        if (report_.attempts>=plan_.rolls) return finish("Royal Jelly roll limit reached");
+        if (report_.attempts>=plan_.rolls) return finish("Royal Jelly button press limit reached");
         if (plan_.neon && view.context.now>=next_neon_) return feed_neon();
-        if (!result.value.again) return waiting(view,"Waiting for the Royal Jelly button");
         ++report_.attempts;
-        previous_=bee;
-        return click(view,*result.value.again,"Roll Royal Jelly");
+        previous_=current;
+        const auto button=result.value;
+        return click(view,{button.x+button.width/2,button.y+button.height/2},"Roll Royal Jelly");
     }
     void step_completed(const View& view) override {
         if (stage_==Stage::feed) {

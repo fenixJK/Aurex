@@ -31,8 +31,8 @@ public:
     void stop() noexcept override {}
     bool executable() const noexcept override { return true; }
     std::vector<extensions::Command> commands() const override {
-        extensions::Command jelly{"jelly","Roll Royal Jelly",{},false,true,"Bee Genetics"};
-        if (!settings_.empty() && std::get<bool>(settings_.at("jelly-mutations")) && std::get<bool>(settings_.at("jelly-neon")))
+        extensions::Command jelly{"jelly","Start mutation rolling",{},false,true,"Royal Jelly"};
+        if (!settings_.empty() && std::get<bool>(settings_.at("jelly-neon")))
             jelly.target_prompt="Click the bee to reroll. It will receive Neonberries and Royal Jelly. Escape cancels.";
         return {std::move(jelly),
             {"bitter","Select bee and feed",{},false,true,"Bitterberries","Click the bee you want to mutate. Escape cancels without feeding."},
@@ -70,11 +70,9 @@ public:
         }
         if (command=="jelly") {
             JellyPlan plan;
-            const auto& selected=std::get<SettingSelection>(settings_.at("bees")); plan.filter.names={selected.begin(),selected.end()};
-            plan.filter.stop_gifted=std::get<bool>(settings_.at("gifted")); plan.filter.stop_mythic=std::get<bool>(settings_.at("mythic"));
             plan.rolls=std::get<int>(settings_.at("jelly-limit"));
-            plan.require_mutation=std::get<bool>(settings_.at("jelly-mutations")); plan.mutations=mutation_filter(settings_);
-            plan.neon=plan.require_mutation && std::get<bool>(settings_.at("jelly-neon"));
+            plan.mutations=mutation_filter(settings_);
+            plan.neon=std::get<bool>(settings_.at("jelly-neon"));
             plan.neon_limit=std::get<int>(settings_.at("jelly-neon-limit")); plan.target=input.target; plan.inventory=inventory_;
             return roll_jelly(std::move(plan),progress_);
         }
@@ -82,39 +80,33 @@ public:
     }
     std::vector<extensions::Metric> metrics() const override {
         const auto report=progress_->read();
-        std::vector<extensions::Metric> result{{"Status",report.status},{"Rolls",std::to_string(report.attempts)}};
+        std::vector<extensions::Metric> result{{"Status",report.status},{"Attempts",std::to_string(report.attempts)}};
         if (report.bitterberries || report.neonberries) { result.push_back({"Bitterberries",std::to_string(report.bitterberries)}); result.push_back({"Neonberries",std::to_string(report.neonberries)}); }
         if (!report.result.empty()) result.push_back({"Last result",report.result});
         return result;
     }
     std::map<std::string,std::string> setting_summaries() const override {
-        std::string bees; const auto& selected=std::get<SettingSelection>(settings_.at("bees"));
-        for (const auto& name:selected) { if(!bees.empty()) bees+=", "; bees+=name; }
-        if (bees.empty()) bees="No bee filter";
-        if(std::get<bool>(settings_.at("gifted"))) bees+=" · Stop on gifted";
-        if(std::get<bool>(settings_.at("mythic"))) bees+=" · Stop on mythic";
         const auto filters=mutation_filter(settings_); std::string mutations;
-        for(const auto& filter:filters) { if(!mutations.empty())mutations+=", ";mutations+=filter.name; }
+        for(const auto& filter:filters) {
+            if(!mutations.empty())mutations+=" or ";
+            mutations+=filter.minimum>0?describe({filter.name,filter.minimum,filter.percent}):filter.name;
+        }
         if(mutations.empty())mutations="Any mutation";
-        if(std::get<bool>(settings_.at("jelly-mutations"))) bees+=" · "+mutations;
-        return {{"stops",bees},{"bitter-run",mutations}};
+        return {{"stops","Stop on: "+mutations},{"bitter-run","Stop on: "+mutations}};
     }
     std::optional<std::vector<extensions::Metric>> report_metrics() const override { return std::vector<extensions::Metric>{}; }
 };
 }
 extensions::Manifest module_manifest() {
     extensions::Manifest m; m.id="hive.native-tools"; m.provider="native-tools"; m.name="Tools"; m.version="0.1.0";
-    m.settings_version=3;
+    m.settings_version=4;
     m.description="Start individual bee and amulet tools here. Tools are not part of the farming rotation.";
     m.permissions={automation::Permission::interact};
     m.settings={{"egg-limit","Egg limit",100,1,1000000},{"egg-start-jelly","Starting bee is Basic",false},{"egg-keep-gifted","Keep any gifted",true},{"egg-keep-mythic","Keep any mythic",true},
-        {"bees","Bees to keep",SettingSelection{},0,0,bees()},
-        {"gifted","Any gifted",true},{"mythic","Any mythic",true},
-        {"jelly-mutations","Mutation rolling",false},
         {"jelly-neon","Automatic Neonberries",false},{"jelly-neon-limit","Neonberry limit",1,1,1000},
         {"bitter-batch","Berries per feed",30,1,1000000},{"bitter-limit","Total berry limit",1000,1,1000000},
-        {"bitter-neon","Use Neonberries",false},{"neon-limit","Neonberry limit",1,1,1000},
-        {"jelly-limit","Roll limit",100,1,1000000},
+        {"bitter-neon","Automatic Neonberries",false},{"neon-limit","Neonberry limit",1,1,1000},
+        {"jelly-limit","Button press limit",100,1,1000000},
         {"ssa-main","Main passive",std::string("Pop Star"),0,0,passives()},
         {"ssa-sides","Side passives",SettingSelection{},0,0,passives()},
         {"ssa-double","Double passive · 500B / roll",false},{"ssa-limit","Honey budget",500,10,1000000}};
@@ -123,17 +115,12 @@ extensions::Manifest module_manifest() {
             setting.suffix=" B"; setting.help="Maximum honey spent this run. Single rolls cost 10B; double rolls cost 500B.";
             setting.step=10; setting.step_toggle="ssa-double"; setting.checked_step=500;
         }
-        if (setting.id=="bees" || setting.id=="ssa-sides") setting.inline_choices=true;
-        if (setting.id=="bees") for (const auto& bee:setting.choices) {
-            auto name=bee; std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c) { return char(std::tolower(c)); });
-            setting.icons.emplace(bee,":/bees/"+name+".png");
-        }
+        if (setting.id=="ssa-sides") setting.inline_choices=true;
         if (setting.id=="ssa-sides") { setting.enabled_by="ssa-double"; setting.excluded_by="ssa-main"; setting.help="Choose acceptable second passives. The main passive is unavailable here. Leave empty to accept any second passive. Either order matches."; }
         if (setting.id=="neon-limit") setting.enabled_by="bitter-neon";
         if (setting.id=="jelly-neon-limit") setting.enabled_by="jelly-neon";
-        if (setting.id=="jelly-neon") setting.help="When mutation rolling, feed one Neonberry before rolling and refresh after 11 minutes. Stops at your Neonberry limit.";
-        if (setting.id=="jelly-mutations") setting.help="Use Royal Jelly until both the bee and mutation match. No bees selected accepts any species. Any gifted and Any mythic still stop independently.";
-        if (setting.id=="jelly-limit") setting.help="Limits button presses. Turn off in-game Auto-Jelly if you want one jelly per press.";
+        if (setting.id=="jelly-neon") setting.help="Select a bee, feed one Neonberry, then start rolling. Refreshes after 11 minutes, up to your Neonberry limit.";
+        if (setting.id=="jelly-limit") setting.help="Maximum Royal Jelly button presses by Aurex. Each press can spend many jellies with in-game Auto-Jelly.";
     }
     std::vector<std::string> stat_names; for (const auto& stat:amulet_stats()) stat_names.push_back(stat.name);
     m.settings.push_back({"ssa-required-stats","Stats to keep",SettingSelection{},0,0,stat_names});
@@ -143,23 +130,23 @@ extensions::Manifest module_manifest() {
     auto section=[&](std::string id,std::string title,std::vector<std::string> settings,std::string tab,unsigned columns=2,std::string description={}) {
         sections.push_back({std::move(id),std::move(title),std::move(description),std::move(settings),false,columns}); sections.back().tab=std::move(tab);
     };
-    section("jelly-help","Bee Genetics",{},"Bee Genetics",1,"Run these tools here; Start macro runs your farming modules. Esc stops a tool.");
-    section("bees","Bees to keep",{"bees"},"Bee Genetics",1);
-    section("stops","Rolling",{"gifted","mythic","jelly-mutations","jelly-limit","jelly-neon","jelly-neon-limit"},"Bee Genetics");
-    section("mutation-help","Mutation filters",{},"Bee Genetics",1,"Shared by mutation rolling and Bitterberries. No selection accepts any mutation; minimum 0 accepts any value and unit.");
+    section("jelly-help","Royal Jelly",{},"Royal Jelly",1,"Choose your bee and gifted filters and enable Require Mutation in Roblox. Open a Royal Jelly result to begin, or enable Neonberries to select a bee. Esc stops the tool.");
+    section("stops","Rolling",{"jelly-limit"},"Royal Jelly",1,"One button press can spend many jellies with in-game Auto-Jelly.");
+    section("jelly-neon","Neonberries",{"jelly-neon","jelly-neon-limit"},"Royal Jelly",2,"Feed one before rolling and refresh after 11 minutes, up to your limit.");
+    section("mutation-help","Mutation filters",{},"Royal Jelly",1,"Shared by Royal Jelly and Bitterberries. Stops on any selected mutation at or above its minimum. No selection accepts any mutation; minimum 0 accepts any value and unit.");
     sections.back().tool="Mutation filters";
     for (const auto& type:mutation_types()) {
         const auto key=key_for(type.name,"mutation-");
-        m.settings.push_back({key,"Use",false});
+        m.settings.push_back({key,"Accept",false});
         m.settings.push_back({key+"-minimum","Minimum",0,0,1000000});
         m.settings.back().enabled_by=key;
         std::vector<std::string> units;if (type.flat) units.push_back("+");if (type.percent) units.push_back("%");
         m.settings.push_back({key+"-unit","Unit",units.front(),0,0,units});
         m.settings.back().enabled_by=key;
-        section(key,type.name,{key,key+"-minimum",key+"-unit"},"Bee Genetics",3);sections.back().row=true; sections.back().tool="Mutation filters";
+        section(key,type.name,{key,key+"-minimum",key+"-unit"},"Royal Jelly",3);sections.back().row=true; sections.back().tool="Mutation filters";
     }
     section("bitter-run","Bitterberries",{"bitter-batch","bitter-limit"},"Bitterberries",2,"Face your hive, choose a mutation filter, then select a bee.");
-    section("neon","Radioactive",{"bitter-neon","neon-limit"},"Bitterberries",2,"Uses one Neonberry before feeding and refreshes it after 11 minutes, up to your limit.");
+    section("neon","Neonberries",{"bitter-neon","neon-limit"},"Bitterberries",2,"Feed one before rolling and refresh after 11 minutes, up to your limit.");
     section("bitter-filter-link","Mutation filters",{},"Bitterberries",1); sections.back().tool="Mutation filters";
     section("ssa-passives","SSA Roller",{"ssa-main","ssa-limit","ssa-double"},"SSA Roller",2,"Start at the SSA generator or an open result. Matches stay open. Escape stops.");
     section("ssa-sides","Second passive",{"ssa-sides"},"SSA Roller",1);
@@ -181,5 +168,12 @@ extensions::Manifest module_manifest() {
 }
 extensions::Factory module_factory(std::shared_ptr<const game::InventorySource> inventory) {
     return [inventory=std::move(inventory)](const extensions::Manifest& manifest) { return std::make_unique<Tools>(manifest,inventory); };
+}
+Settings migrate_settings(int version,Settings settings) {
+    if (version<1 || version>4) throw std::invalid_argument("Unsupported tools settings version");
+    for (const auto* key:{"ssa-delay","jelly-delay","bitter-delay","bees","gifted","mythic","jelly-mutations"}) settings.erase(key);
+    if (version<3) if (const auto limit=settings.find("ssa-limit");limit!=settings.end())
+        if (auto* value=std::get_if<int>(&limit->second)) *value=std::max(10,*value);
+    return settings;
 }
 }

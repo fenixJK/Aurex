@@ -4,7 +4,7 @@
 namespace hive::features::tools {
 struct MutationType { std::string name; bool flat{},percent{}; };
 const std::vector<MutationType>& mutation_types();
-struct Mutation { std::string name; double value{}; bool percent{}; };
+struct Mutation { std::string name; double value{}; bool percent{}; bool operator==(const Mutation&) const = default; };
 struct MutationRule { std::string name; double minimum{}; bool percent{}; };
 using MutationFilter=std::vector<MutationRule>;
 void validate(const MutationFilter& filter);

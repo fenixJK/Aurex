@@ -70,19 +70,11 @@ void validate(const AmuletFilter& f) {
             throw std::invalid_argument("SSA stat minimum is outside its range");
     }
 }
-void validate(const BeeFilter& f,bool allow_any) {
-    if (!allow_any && f.names.empty() && !f.stop_gifted && !f.stop_mythic) throw std::invalid_argument("Choose a bee or stop condition");
-    for (const auto& name:f.names) if (std::find(bees().begin(),bees().end(),name)==bees().end()) throw std::invalid_argument("Unknown bee filter");
-}
 bool matches(const Amulet& r,const AmuletFilter& f) {
     if (!r.passives.contains(f.main)) return false;
     if (f.double_passive && (r.passives.size()!=2 || (!f.sides.empty() && std::none_of(f.sides.begin(),f.sides.end(),[&](const auto& side) { return side!=f.main && r.passives.contains(side); })))) return false;
     for (const auto& [name,value]:f.minimums) { const auto found=r.stats.find(name); if (found==r.stats.end() || found->second<value) return false; }
     return true;
-}
-bool matches(const Bee& r,const BeeFilter& f) {
-    if ((f.stop_gifted && r.gifted) || (f.stop_mythic && r.mythic)) return true;
-    return f.names.contains(r.name);
 }
 Observation<Amulet> read_amulet(const ObservationContext& c,const game::State& state) {
     const auto& observed=state.fixed_labels;
@@ -153,17 +145,31 @@ Observation<Amulet> read_amulet(const ObservationContext& c,const game::State& s
     }
     return result;
 }
-Observation<JellyResult> read_jelly(const ObservationContext& c,const game::State& state) {
+Observation<Rect> read_jelly_button(const ObservationContext& c,const game::State& state) {
     const auto& observed=state.fixed_labels;
-    Observation<JellyResult> result{Knowledge::unknown,{},observed.captured,observed.window,observed.generation};
+    Observation<Rect> result{Knowledge::unknown,{},observed.captured,observed.window,observed.generation};
     if (!observed.has_value(c,Time(2000)) || observed.value.width<=0 || observed.value.height<=0
         || observed.value.lines.size()>4096) return result;
     const auto& text=observed.value; const Rect area{text.width*.2,text.height*.15,text.width*.6,text.height*.8};
-    const auto* button=unique(text.lines,"use another",area);
+    const TextLine* button=nullptr;
+    for (const auto& line:text.lines) if (usable(line,.25f) && in(line.pixels,area) && words(line.text)=="use another") {
+        if (button) return result;
+        button=&line;
+    }
     if (!button) { result.knowledge=Knowledge::absent; return result; }
-    const auto x=button->pixels.x+button->pixels.width/2;
-    const auto bottom=button->pixels.y;
-    const auto top=std::max(area.y,bottom-button->pixels.width*3);
+    const auto b=button->pixels;
+    result.value={b.x/text.width,b.y/text.height,b.width/text.width,b.height/text.height};
+    result.knowledge=Knowledge::present; return result;
+}
+Observation<JellyResult> read_jelly(const ObservationContext& c,const game::State& state) {
+    const auto button=read_jelly_button(c,state);
+    Observation<JellyResult> result{button.knowledge==Knowledge::absent?Knowledge::absent:Knowledge::unknown,{},button.captured,button.window,button.generation};
+    if (!button.has_value(c,Time(2000))) return result;
+    const auto& text=state.fixed_labels.value; const Rect area{text.width*.2,text.height*.15,text.width*.6,text.height*.8};
+    const auto b=button.value;
+    const auto x=(b.x+b.width/2)*text.width;
+    const auto bottom=b.y*text.height;
+    const auto top=std::max(area.y,bottom-b.width*text.width*3);
     const Rect card{std::max(area.x,x-text.width*.23),top,text.width*.46,bottom-top};
     for (const auto& line:text.lines) if (usable(line) && in(line.pixels,card)) {
         auto label=words(line.text);
@@ -177,7 +183,7 @@ Observation<JellyResult> read_jelly(const ObservationContext& c,const game::Stat
         }
     }
     if (result.value.bee.name.empty()) return result;
-    result.value.again=Point{x/text.width,(button->pixels.y+button->pixels.height/2)/text.height};
+    result.value.again=Point{x/text.width,b.y+b.height/2};
     result.knowledge=Knowledge::present; return result;
 }
 std::vector<Rect> amulet_number_regions(const ObservationContext& c,const game::State& state) {
@@ -206,11 +212,14 @@ std::vector<game::FixedLabelQuery> amulet_labels() {
     return {{{.1,.1,.8,.85},{"Keep Old","Replace"},game::LabelInk::light},
         {{.1,.1,.8,.85},{"Supreme Star Amulet"},game::LabelInk::dark},std::move(query)};
 }
+std::vector<game::FixedLabelQuery> jelly_labels() {
+    return {{{.2,.15,.6,.8},{"Use Another"},game::LabelInk::dark}};
+}
 std::vector<game::FixedLabelQuery> bee_labels() {
     game::FixedLabelQuery query{{-.75,-2.59,2.1,.32},{"Basic Bee!","Gifted Basic Bee!"},game::LabelInk::light,"Use Another",true};
     for (const auto& bee:bees()) {
         query.labels.push_back(bee+" Bee!");query.labels.push_back("Gifted "+bee+" Bee!");
     }
-    return {{{.2,.15,.6,.8},{"Use Another"},game::LabelInk::dark},std::move(query)};
+    auto labels=jelly_labels(); labels.push_back(std::move(query)); return labels;
 }
 }

@@ -4,4 +4,5 @@
 namespace hive::features::tools {
 extensions::Manifest module_manifest();
 extensions::Factory module_factory(std::shared_ptr<const game::InventorySource> inventory={});
+Settings migrate_settings(int version,Settings settings);
 }

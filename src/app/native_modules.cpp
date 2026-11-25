@@ -161,15 +161,7 @@ void register_native_modules(extensions::Host& host,const NativeModules& modules
     const auto navigation=modules.navigation;
     if (modules.boosting) modules.boosting->main_boost(modules.accounts?modules.accounts->main_boost():nullptr);
     if(modules.accounts) add(host,features::accounts::module_manifest(),features::accounts::module_factory(modules.accounts,modules.field_boosts,modules.guiding,game::public_servers()),Requirements{},features::accounts::migrate_settings);
-    add(host,features::tools::module_manifest(),features::tools::module_factory(modules.collection.inventory),Requirements{},
-        [](int,Settings settings) {
-            settings.erase("ssa-delay");
-            settings.erase("jelly-delay");
-            settings.erase("bitter-delay");
-            if (const auto limit=settings.find("ssa-limit"); limit!=settings.end())
-                if (auto* value=std::get_if<int>(&limit->second)) *value=std::max(10,*value);
-            return settings;
-        });
+    add(host,features::tools::module_manifest(),features::tools::module_factory(modules.collection.inventory),Requirements{},features::tools::migrate_settings);
     if (modules.field_boosts) {
         std::vector<features::boosting::Booster> boosters;
         for (const auto& station:modules.collection.plan.stations) {
