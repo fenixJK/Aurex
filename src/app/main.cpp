@@ -781,6 +781,11 @@ public:
                     last_outcome_=outcome;
                 }
             }
+            // Publish the activity before starting its live counter message.
+            if (status.state==hive::RunState::running && view.feature && view.feature->state==hive::automation::State::running) {
+                last_outcome_.clear();
+                status_page_->activity(view.feature->status);
+            }
             discord_->set_history_requested(remote_ && remote_->settings().enabled);
             discord_->update(status.state,view.session_id,failure,activity,view.feature?q(view.feature->field):QString{});
             if (routine_failed || (status.state!=hive::RunState::running && view.feature && view.feature->state==hive::automation::State::failed && !hive::automation::can_handoff(*view.feature))) {
@@ -794,10 +799,6 @@ public:
                 }
                 last_status_=state_key;
                 if (status.state!=hive::RunState::running) { status_page_->clear_activity(); seen_observation_errors_.clear(); }
-            }
-            if (status.state==hive::RunState::running && view.feature && view.feature->state==hive::automation::State::running) {
-                last_outcome_.clear();
-                status_page_->activity(view.feature->status);
             }
             if (status.state==hive::RunState::running) {
                 const auto reading=session_.observations();
