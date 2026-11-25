@@ -255,8 +255,14 @@ public:
         }
         const auto scan=MapVirtualKeyW(code(key),MAPVK_VK_TO_VSC_EX);
         if (!scan || ((scan>>8)!=0 && (scan>>8)!=0xe0)) throw std::runtime_error("Unsupported keyboard scan code");
+        const DWORD flags=(down?0:KEYEVENTF_KEYUP) | ((scan>>8)==0xe0?KEYEVENTF_EXTENDEDKEY:0);
+        if (key==Key::pitch_up || key==Key::pitch_down) {
+            // SendEvent-style pitch input; press/release timing stays in the shared camera sequence.
+            keybd_event(static_cast<BYTE>(code(key)),static_cast<BYTE>(scan&0xff),flags,0);
+            return;
+        }
         INPUT input{}; input.type=INPUT_KEYBOARD; input.ki.wScan=static_cast<WORD>(scan&0xff);
-        input.ki.dwFlags=KEYEVENTF_SCANCODE | (down?0:KEYEVENTF_KEYUP) | ((scan>>8)==0xe0?KEYEVENTF_EXTENDEDKEY:0);
+        input.ki.dwFlags=KEYEVENTF_SCANCODE | flags;
         if (SendInput(1,&input,sizeof(input))!=1) throw std::runtime_error("Input was blocked by Windows");
     }
     void pointer(Point point) override {
