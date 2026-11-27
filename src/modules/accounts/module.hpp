@@ -3,10 +3,12 @@
 #include "core/module_host/module.hpp"
 #include "game/detection/field_boosts.hpp"
 #include "game/network/servers.hpp"
+#include "coordination/attack.hpp"
 
 namespace hive::features::accounts {
 extensions::Manifest module_manifest();
 Settings migrate_settings(int version,Settings settings);
 extensions::Factory module_factory(std::shared_ptr<Controller> controller,std::shared_ptr<const game::DetectionSource> boosts={},
-    std::shared_ptr<const game::DetectionSource> guiding={},std::shared_ptr<game::ServerDirectory> servers={});
+    std::shared_ptr<const game::DetectionSource> guiding={},std::shared_ptr<game::ServerDirectory> servers={},
+    coordination::AttackAssist assistance={},std::function<Time()> clock=[] { return std::chrono::duration_cast<Time>(std::chrono::system_clock::now().time_since_epoch()); });
 }

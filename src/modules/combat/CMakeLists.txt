@@ -6,7 +6,7 @@ add_library(hive_combat
   progress.cpp
   preparation.cpp)
 target_link_libraries(hive_combat PUBLIC hive_automation)
-add_library(hive_combat_module module.cpp server_visit.cpp defeats.cpp)
+add_library(hive_combat_module module.cpp server_visit.cpp defeats.cpp attack_assist.cpp)
 target_link_libraries(hive_combat_module PUBLIC hive_combat hive_visit_module hive_vichop)
 
 add_subdirectory(vichop)

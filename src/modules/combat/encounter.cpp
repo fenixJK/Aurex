@@ -55,8 +55,8 @@ public:
         return {engaged_?"Fighting":"Searching",field?enemy_.species+" · "+field->name:enemy_.id};
     }
     std::optional<automation::SharedActivity> shared_activity() const override {
-        if (!enemy_.shared || !visible_ || complete_ || session_finished_) return {};
-        return automation::SharedActivity{"enemies",{{"enemy",enemy_.species},{"field",enemy_.field}}};
+        if (!enemy_.shared || !engaged_ || complete_ || session_finished_) return {};
+        return automation::SharedActivity{"enemies",{{"enemy",enemy_.species},{"field",enemy_.field},{"encounter",std::to_string(entered_.count())}}};
     }
     void observe(const automation::View& view) override {
         observed_now_=view.context.now;
@@ -210,6 +210,11 @@ public:
         if (!engaged_ && defeats_.empty() && view.context.now-started_>=Time(10000))
             throw ObservationUnavailable("No enemy found: "+enemy_.id);
         if (!engaged_ && defeats_.empty()) return Wait{Time(100),"Looking for "+enemy_.species};
+        if (enemy_.fight.hotbar) {
+            const auto slot=enemy_.fight.hotbar(view);
+            if(slot>7) throw std::invalid_argument("Invalid combat hotbar slot");
+            if(slot) return Hold{{Key(int(Key::hotbar_1)+slot-1)},Time(50)};
+        }
         if (enemy_.stationary) return Hold{{Key::primary},Time(250),Point{.85,.15}};
         if ((enemy_.movement_radius>0 && std::hypot(x_,y_)>=enemy_.movement_radius)
             || view.context.now-moved_<enemy_.movement_interval) return Hold{{Key::primary},Time(250),Point{.85,.15}};

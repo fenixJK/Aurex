@@ -1,5 +1,6 @@
 #include "page.hpp"
 #include "coordination/local_network.hpp"
+#include "core/module_host/ui/choice_control.hpp"
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
@@ -75,28 +76,41 @@ Page::Page(std::shared_ptr<Controller> controller,QWidget* parent,const std::map
     auto settings=new QWidget;auto settings_layout=new QVBoxLayout(settings);settings_layout->setContentsMargins(0,8,0,0);settings_layout->setSpacing(12);
     settings_layout->setAlignment(Qt::AlignTop);
     for(const auto* id:{"purpose","following","tasks","allowed","shared"}) if(const auto section=sections.find(id);section!=sections.end()) settings_layout->addWidget(section->second);
-    if (sections.contains("following") && sections.contains("tasks") && sections.contains("allowed")) {
-        if (auto mode=sections.at("following")->findChild<QComboBox*>()) {
-            const auto update=[this,mode,tasks=sections.at("tasks"),allowed=sections.at("allowed")] {
-                const bool following=mode->currentText()!="Own field rotation";
-                tasks->setEnabled(following);allowed->setEnabled(following);
-                bool selected=false;
-                for(const auto* button:tasks->findChildren<QPushButton*>())
-                    if(button->text()=="Only selected tasks") selected=button->isChecked();
-                allowed->setVisible(following && selected);
-                QTimer::singleShot(0,this,[this] { fit_tabs(); });
-            };
-            for(auto* button:sections.at("tasks")->findChildren<QPushButton*>()) connect(button,&QPushButton::toggled,this,update);
-            connect(mode,&QComboBox::currentTextChanged,this,update);update();
+    auto behavior_help=label({});settings_layout->addWidget(behavior_help);
+    if(sections.contains("purpose")) {
+        const auto control=[&](const char* section,const char* id) {
+            return sections.contains(section)?dynamic_cast<ChoiceControl*>(sections.at(section)->findChild<QWidget*>(id)):nullptr;
+        };
+        auto* purpose=control("purpose","alt-behavior");
+        auto* following=control("following","follow-mode");
+        auto* tasks=control("tasks","other-tasks");
+        auto* saw=sections.at("purpose")->findChild<QWidget*>("attack-saw-slot");
+        const auto update=[this,purpose,following,tasks,saw,sections,behavior_help] {
+            const auto selected=purpose->value();
+            const bool attack=selected=="Attack",follows=following && following->value()!="Own field rotation";
+            for(const auto* id:{"following","tasks","shared"}) if(sections.contains(id)) sections.at(id)->setVisible(!attack);
+            if(sections.contains("tasks")) sections.at("tasks")->setEnabled(follows);
+            if(sections.contains("allowed")) sections.at("allowed")->setVisible(!attack && follows && tasks && tasks->value()=="Only selected tasks");
+            saw->setVisible(attack);
+            for(auto* text:sections.at("purpose")->findChildren<QLabel*>()) if(text->buddy()==saw) text->setVisible(attack);
+            behavior_help->setText(attack?
+                "Helps with the main’s Commando fights. For Mondo, joins around :57; the main travels around :59. Leaves when support ends, then runs normal priorities in a public server. Enable Manage alt slots on the main. Star Saw requires the passive and Stingers.":
+                selected=="Rotational"?"Keeps its slot until its own Guiding Star ends. Waiting alts run normal priorities in public servers. Enable Manage alt slots on the main.":
+                "Uses this alt's Gathering patterns. For items during the main's boost, choose a Main's boost rule in Boosting → Hotbar.");
+            QTimer::singleShot(0,this,[this] { fit_tabs(); });
+        };
+        for(auto* choice:{purpose,following,tasks}) if(choice) {
+            const auto previous=choice->changed;
+            choice->changed=[previous,update] { if(previous) previous();update(); };
         }
+        update();
     }
-    settings_layout->addWidget(label("Uses this alt's Gathering patterns. For items during the main's boost, choose a Main's boost rule in Boosting → Hotbar."));
     tabs_->addTab(settings,"Behavior");
     auto group=new QWidget;auto group_layout=new QVBoxLayout(group);group_layout->setContentsMargins(0,8,0,0);group_layout->setSpacing(8);
     group_layout->setAlignment(Qt::AlignTop);
     if(const auto rotation=sections.find("rotation");rotation!=sections.end()) {
         group_layout->addWidget(rotation->second);
-        rotation->second->layout()->addWidget(label("Rotational alts hold their slot until their own Guiding Star ends. Waiting alts work in public servers; the next joins after the previous alt leaves. Spare slots keep alts together."));
+        rotation->second->layout()->addWidget(label("Guiding alts stay until their star ends. An attack alt can borrow an ordinary alt's slot for Mondo or Commando; that alt returns after the fight. Departures are confirmed before another alt joins. Waiting alts work in public servers."));
     }
     boost_=label({},"accounts-main-boost");group_layout->addWidget(boost_);
     members_=new QTableWidget(0,5);members_->setObjectName("accounts-members");
@@ -137,7 +151,7 @@ void Page::refresh() {
     for (int row=0;row<int(group.peers.size());++row) {
         const auto& peer=group.peers[row];const auto field=value(peer,"activity","field");
         const auto following=peer.host?QString{}:value(peer,"support","field");
-        const QStringList cells{QString::fromStdString(peer.name),peer.host?"Main":value(peer,"alt","type")=="Guiding"?"Rotational alt":"Alt",field.isEmpty()?"—":field,
+        const QStringList cells{QString::fromStdString(peer.name),peer.host?"Main":value(peer,"alt","type")=="Attack"?"Attack":value(peer,"alt","type")=="Guiding"?"Rotational alt":"Alt",field.isEmpty()?"—":field,
             following.isEmpty()?"—":following,value(peer,"alt","status").isEmpty()?value(peer,"activity","label"):value(peer,"alt","status")};
         for(int col=0;col<cells.size();++col) {
             auto* item=members_->item(row,col);if(!item) { item=new QTableWidgetItem;members_->setItem(row,col,item); }

@@ -1,6 +1,7 @@
 #include "native_modules.hpp"
 #include "modules/tools/module.hpp"
 #include "modules/combat/vichop/hop.hpp"
+#include "modules/combat/attack_assist.hpp"
 #include "game/actions/recovery/reconnect.hpp"
 #include "modules/quests/actions.hpp"
 #include "core/module_host/host.hpp"
@@ -160,7 +161,11 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
 void register_native_modules(extensions::Host& host,const NativeModules& modules) {
     const auto navigation=modules.navigation;
     if (modules.boosting) modules.boosting->main_boost(modules.accounts?modules.accounts->main_boost():nullptr);
-    if(modules.accounts) add(host,features::accounts::module_manifest(),features::accounts::module_factory(modules.accounts,modules.field_boosts,modules.guiding,game::public_servers()),Requirements{},features::accounts::migrate_settings);
+    if(modules.accounts) {
+        auto attack=features::combat::attack_assist(modules.combat.plan,navigation.routes?std::make_shared<game::RouteNetwork>(navigation.routes->network()):nullptr,
+            modules.combat.availability,modules.combat.cooldowns,modules.stock,modules.collection.inventory);
+        add(host,features::accounts::module_manifest(),features::accounts::module_factory(modules.accounts,modules.field_boosts,modules.guiding,game::public_servers(),std::move(attack)),Requirements{},features::accounts::migrate_settings);
+    }
     add(host,features::tools::module_manifest(),features::tools::module_factory(modules.collection.inventory),Requirements{},features::tools::migrate_settings);
     if (modules.field_boosts) {
         std::vector<features::boosting::Booster> boosters;

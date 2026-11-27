@@ -57,7 +57,7 @@ Plan catalog_plan() {
         if (enemy.species=="King Beetle") { enemy.maximum_health=2500; enemy.amulet="King Beetle Amulet"; enemy.amulet_optional=true; plan.options.enemies[enemy.id].boss=BeetleOptions{}; }
         if (enemy.species=="Tunnel Bear") { enemy.maximum_health=10000; enemy.movement_radius=30; enemy.movement_interval=Time(700); }
         if (enemy.species=="Coconut Crab") enemy.maximum_health=250000;
-        if (enemy.species=="Commando Chick") { enemy.maximum_health=commando_health(3); enemy.stationary=true; plan.options.enemies[enemy.id].boss=CommandoOptions{}; }
+        if (enemy.species=="Commando Chick") { enemy.maximum_health=commando_health(3); enemy.stationary=true; enemy.shared=true; plan.options.enemies[enemy.id].boss=CommandoOptions{}; }
         if (recipe.group) enemy.group=recipe.group;
         enemy.fight.duration=recipe.fight_time;
         if (enemy.species=="Stump Snail") {

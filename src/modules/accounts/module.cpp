@@ -1,5 +1,5 @@
 #include "module.hpp"
-#include "guiding.hpp"
+#include "rotation.hpp"
 #include "game/data/fields.hpp"
 #include <algorithm>
 
@@ -15,7 +15,7 @@ class Accounts final : public extensions::Module {
     extensions::Manifest manifest_;
     std::shared_ptr<Controller> controller_;
     std::shared_ptr<const game::DetectionSource> boosts_;
-    GuidingSync guiding_;
+    RotationSync rotation_;
     std::string follow_mode_,fallback_,last_followed_,boost_field_,main_peer_;
     QString connection_epoch_;
     Time boost_until_{},reading_at_{};
@@ -32,14 +32,18 @@ class Accounts final : public extensions::Module {
     }
 public:
     Accounts(extensions::Manifest manifest,std::shared_ptr<Controller> controller,std::shared_ptr<const game::DetectionSource> boosts,
-        std::shared_ptr<const game::DetectionSource> guiding,std::shared_ptr<game::ServerDirectory> servers)
-        :manifest_(std::move(manifest)),controller_(std::move(controller)),boosts_(std::move(boosts)),guiding_(std::move(guiding),std::move(servers)) {}
+        std::shared_ptr<const game::DetectionSource> guiding,std::shared_ptr<game::ServerDirectory> servers,coordination::AttackAssist assistance,std::function<Time()> clock)
+        :manifest_(std::move(manifest)),controller_(std::move(controller)),boosts_(std::move(boosts)),rotation_(std::move(guiding),std::move(servers),std::move(assistance),std::move(clock)) {}
     void start(const Settings& settings) override {
         extensions::validate_settings(manifest_,settings);
-        guiding_.guiding=std::get<bool>(settings.at("rotational"));
-        guiding_.enabled=std::get<bool>(settings.at("guiding-rotation"));
-        guiding_.slot_limit=unsigned(std::get<int>(settings.at("guiding-slots")));
-        guiding_.reserved=unsigned(std::get<int>(settings.at("reserved-slots")));
+        const auto& purpose=std::get<std::string>(settings.at("alt-behavior"));
+        rotation_.attack=purpose=="Attack";
+        rotation_.guiding=purpose=="Rotational";
+        rotation_.enabled=std::get<bool>(settings.at("guiding-rotation"));
+        rotation_.slot_limit=unsigned(std::get<int>(settings.at("guiding-slots")));
+        rotation_.reserved=unsigned(std::get<int>(settings.at("reserved-slots")));
+        const auto& saw=std::get<std::string>(settings.at("attack-saw-slot"));
+        rotation_.saw_slot=saw=="Off"?0:unsigned(std::stoi(saw));
         follow_mode_=std::get<std::string>(settings.at("follow-mode"));
         fallback_=std::get<std::string>(settings.at("main-unavailable"));
         protect_=std::get<std::string>(settings.at("other-tasks"))=="Only selected tasks";
@@ -49,6 +53,7 @@ public:
         for (const auto& name:std::get<SettingSelection>(settings.at("allowed-work"))) allowed_.insert(modules.at(name));
         interrupt_=std::get<bool>(settings.at("interrupt-gather"));
         join_=std::get<bool>(settings.at("join-host"));assist_=std::get<bool>(settings.at("help-fights"));
+        rotation_.swappable=join_ && !rotation_.guiding && !rotation_.attack;
     }
     void update(const extensions::SessionView& view) override {
         if(!connected_) { controller_->enable();connected_=true; }
@@ -75,8 +80,8 @@ public:
         if(!running || group.role!=coordination::Role::host) {
             for(const auto* topic:{"gathering.field","gathering.boost","game.server","shared.activity"}) state->withdraw(topic);
         }
-        guiding_.update(*controller_,group,view,requests_);
-        if(guiding_.away()) { state->withdraw("support");controller_->main_boost()->update({});return; }
+        rotation_.update(*controller_,group,view,requests_);
+        if(rotation_.away() || rotation_.attack || rotation_.protecting()) { state->withdraw("support");controller_->main_boost()->update({});if(group.role!=coordination::Role::host)return; }
         if(!running) { state->withdraw("support");controller_->main_boost()->update({});return; }
         std::optional<coordination::MainBoost> main_boost;
         if(group.role==coordination::Role::host) {
@@ -111,7 +116,7 @@ public:
         } else if(group.role==coordination::Role::guest) {
             for(const auto& peer:group.peers) if(peer.host) {
                 if (main_peer_!=peer.id) { main_peer_=peer.id;remote_boost_.clear();boost_until_={}; }
-                if(join_ && !guiding_.managed()) if(const auto topic=peer.topics.find("game.server");topic!=peer.topics.end()) {
+                if(join_ && !rotation_.managed()) if(const auto topic=peer.topics.find("game.server");topic!=peer.topics.end()) {
                     const auto target=text(topic->second,"target"),epoch=text(topic->second,"epoch");
                     if(target && epoch && game::request_identifier(peer.id+"/"+*epoch)) {
                         try {
@@ -138,7 +143,7 @@ public:
                 if (!following_.empty()) last_followed_=following_;
                 if(assist_) if(const auto topic=peer.topics.find("shared.activity");topic!=peer.topics.end()) {
                     const auto enemy=text(topic->second,"enemy"),field=text(topic->second,"field");
-                    if(enemy && game::request_identifier(*enemy) && field && game::field_at(*field+".entry"))
+                    if(enemy && game::request_identifier(*enemy) && field && (field->empty() || game::field_at(*field+".entry")))
                         requests_.enemies.push_back({"host-fight",*enemy,85,view.now+Time(3000),*field});
                 }
                 break;
@@ -157,28 +162,43 @@ public:
         controller_->main_boost()->update(std::move(main_boost));
     }
     std::optional<extensions::WorkWindow> protected_work(const extensions::SessionView& view) const override {
+        if(rotation_.protecting()) return extensions::WorkWindow{rotation_.activity(),view.now+Time(3000),{},false,false};
         if (!protect_ || following_.empty() || view.status.state!=RunState::running) return {};
         return extensions::WorkWindow{"Supporting main in "+following_,view.now+Time(3000),allowed_,assist_,false};
     }
     std::vector<extensions::Metric> metrics() const override {
         std::vector<extensions::Metric> result{{"Connection",controller_->status().toStdString()}};
         if(!following_.empty()) result.push_back({"Following",following_});
-        if(!guiding_.status().empty()) result.push_back({"Rotation",guiding_.status()});
+        if(!rotation_.status().empty()) result.push_back({"Rotation",rotation_.status()});
         if(role_==coordination::Role::host) result.push_back({"Server",controller_->server().isEmpty()?"Not shared":"Shared with group"});
         else if(role_==coordination::Role::guest && join_) result.push_back({"Server",requests_.channels.contains(extensions::RequestService::servers)?"Following host server":"Host has not shared a server"});
         return result;
     }
     game::Requests requests() const override { return requests_; }
+    bool executable() const noexcept override { return true; }
+    std::optional<extensions::RoutineParticipation> routine() const override { return extensions::RoutineParticipation{96,Time{},false,true,true,true}; }
+    bool pending_work(const extensions::SessionView&) const override { return rotation_.pending(); }
+    std::optional<extensions::WorkEstimate> next_work(const extensions::SessionView& view) const override {
+        if(!rotation_.pending()) return {};
+        return extensions::WorkEstimate{rotation_.activity(),rotation_.destination(),Time{},view.now,view.now, {},false,true};
+    }
+    std::unique_ptr<automation::Program> program() const override { return rotation_.program(); }
+    std::vector<extensions::HotbarUse> hotbar_uses() const override {
+        if(rotation_.attack && rotation_.saw_slot && controller_->role()!=coordination::Role::host)
+            return {{rotation_.saw_slot,"Stinger","Attack Star Saw"}};
+        return {};
+    }
     void stop() noexcept override {
-        guiding_.stop();controller_->main_boost()->update({});main_peer_.clear();
+        rotation_.stop();controller_->main_boost()->update({});main_peer_.clear();
         if(connected_) controller_->disable();connected_=false;requests_={};field_.clear();following_.clear();last_followed_.clear();local_boosts_.clear();remote_boost_.clear();boost_until_={};role_=coordination::Role::offline;
     }
 };
 }
 extensions::Manifest module_manifest() {
-    extensions::Manifest result;result.id="hive.native-accounts";result.provider="native-accounts";result.presets=false;result.name="Alt Sync";result.settings_version=5;result.version="1.0.0";
+    extensions::Manifest result;result.id="hive.native-accounts";result.provider="native-accounts";result.presets=false;result.name="Alt Sync";result.settings_version=6;result.version="1.0.0";
     result.description="Choose a main account to lead, then connect alts that follow its field and boosts.";
     result.requests={extensions::RequestService::fields,extensions::RequestService::enemies,extensions::RequestService::servers};
+    result.permissions={automation::Permission::movement,automation::Permission::interact,automation::Permission::tool};
     result.settings={{"follow-mode","Gather in",std::string("Main's field"),0,0,{"Main's field","Main's boosted field","Own field rotation"}},
         {"interrupt-gather","Switch fields immediately",true},{"join-host","Join main's server",false},{"help-fights","Help with main's fights",false}};
     result.settings[0].help="Use your own Gathering pattern in the main's current field, follow only during its confirmed boost, or keep your own field rotation.";
@@ -192,17 +212,20 @@ extensions::Manifest module_manifest() {
     result.settings.back().help="While following, either keep your normal task schedule or allow only the tasks selected below. Conversion still runs.";
     result.settings.push_back({"allowed-work","Tasks allowed while following",SettingSelection{"Combat"},0,0,{"Collection","Planters","Quests","Combat","Boosting"}});
     result.settings.back().enabled_by="other-tasks";result.settings.back().enabled_values={"Only selected tasks"};result.settings.back().inline_choices=true;
-    result.settings.push_back({"rotational","Rotational",false});
-    result.settings.back().help="Take turns in the main's server when rotation is enabled there. Stay until this alt's Guiding Star ends, then run normal priorities in a public server while waiting. Leave off to keep this alt with the main.";
-    result.settings.push_back({"guiding-rotation","Rotate alts",false});
-    result.settings.back().help="Main account only. Keep each rotational alt until its own Guiding Star ends, then give a waiting alt the slot. Waiting alts work in public servers. A missing connection never counts as a freed slot.";
+    result.settings.push_back({"alt-behavior","Purpose",std::string("Support"),0,0,{"Support","Rotational","Attack"}});
+    result.settings.back().help="Support follows the settings below. Rotational takes turns after its own Guiding Star ends. Attack helps with the main’s Commando fights and prepares for Mondo around :57 each hour. Between fights it runs normal priorities in a public server.";
+    result.settings.push_back({"attack-saw-slot","Star Saw · Stinger slot",std::string("Off"),0,0,{"Off","1","2","3","4","5","6","7"}});
+    result.settings.back().enabled_by="alt-behavior";result.settings.back().enabled_values={"Attack"};
+    result.settings.back().help="Optional. Requires Star Saw on this alt's SSA and Stingers in this hotbar slot. Tries one activation, up to three presses per attack visit, only while the main is ready and the requested enemy is visible. Item reserves still apply.";
+    result.settings.push_back({"guiding-rotation","Manage alt slots",false});
+    result.settings.back().help="Main account only. Rotate Guiding alts and lend one slot to an attack alt for Mondo or the main’s Commando fights. The main goes to Mountain Top around :59. An ordinary alt can yield its slot and return after the attack alt confirms departure. Active Guiding Stars and reserved slots are protected.";
     result.settings.push_back({"guiding-slots","Maximum rotation slots",5,1,5});
     result.settings.back().enabled_by="guiding-rotation";
     result.settings.back().help="Maximum rotational alts with the main. Aurex also reserves space for the main and connected non-rotational alts; the server limit is six.";
     result.settings.push_back({"reserved-slots","Other reserved slots",0,0,5});
     result.settings.back().enabled_by="guiding-rotation";
     result.settings.back().help="Reserve room for friends or accounts outside this group. Do not count the main or connected non-rotational alts again.";
-    result.page=extensions::PageLayout{{{"purpose","This alt",{},{"rotational"},false,1},
+    result.page=extensions::PageLayout{{{"purpose","This alt",{},{"alt-behavior","attack-saw-slot"},false,1},
         {"rotation","Alt rotation",{},{"guiding-rotation","guiding-slots","reserved-slots"},false,2},
         {"following","Gathering",{},{"follow-mode","interrupt-gather","main-unavailable"},false,2},
         {"tasks","Other tasks",{},{"other-tasks"},false,1},
@@ -212,9 +235,12 @@ extensions::Manifest module_manifest() {
     return result;
 }
 Settings migrate_settings(int version,Settings settings) {
-    if (version<1 || version>4) throw std::invalid_argument("Unknown previous Alt Sync settings version");
+    if (version<1 || version>5) throw std::invalid_argument("Unknown previous Alt Sync settings version");
     if (const auto old=settings.find("alt-type");old!=settings.end()) {
         settings["rotational"]=std::get<std::string>(old->second)=="Guiding";settings.erase(old);
+    }
+    if (const auto old=settings.find("rotational");old!=settings.end()) {
+        settings["alt-behavior"]=std::string(std::get<bool>(old->second)?"Rotational":"Support");settings.erase(old);
     }
     if (const auto old=settings.find("follow-host");old!=settings.end()) {
         settings["follow-mode"]=std::string(std::get<bool>(old->second)?"Follow main":"Independent");settings.erase(old);
@@ -231,10 +257,10 @@ Settings migrate_settings(int version,Settings settings) {
     return settings;
 }
 extensions::Factory module_factory(std::shared_ptr<Controller> controller,std::shared_ptr<const game::DetectionSource> boosts,
-    std::shared_ptr<const game::DetectionSource> guiding,std::shared_ptr<game::ServerDirectory> servers) {
-    return [controller=std::move(controller),boosts=std::move(boosts),guiding=std::move(guiding),servers=std::move(servers)](const extensions::Manifest& manifest) {
+    std::shared_ptr<const game::DetectionSource> guiding,std::shared_ptr<game::ServerDirectory> servers,coordination::AttackAssist assistance,std::function<Time()> clock) {
+    return [controller=std::move(controller),boosts=std::move(boosts),guiding=std::move(guiding),servers=std::move(servers),mondo=std::move(assistance),clock=std::move(clock)](const extensions::Manifest& manifest) {
         if(!controller) throw std::invalid_argument("Alt Sync needs its connection service.");
-        return std::make_unique<Accounts>(manifest,controller,boosts,guiding,servers);
+        return std::make_unique<Accounts>(manifest,controller,boosts,guiding,servers,mondo,clock);
     };
 }
 }
