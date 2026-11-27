@@ -35,14 +35,20 @@ public:
 std::string unreadable_respawn(const Observation<game::RespawnView>& reading,const View& view,Time minimum) {
     const Observation<bool> captured{Knowledge::present,true,reading.captured,reading.window,reading.generation};
     if (captured.has_value(view.context,game::respawn_menu_response_time,minimum+Time(1))) {
-        if (!reading.value.error.empty()) return "Respawn observation failed: "+reading.value.error;
-        if (reading.knowledge==Knowledge::present)
-            return "Respawn view stopped updating after the shortcut";
-        return "Respawn controls were not recognized in the latest capture";
+        if (!reading.value.error.empty()) return "Couldn't read Roblox while resetting: "+reading.value.error;
+        return "Couldn't confirm the character reset";
     }
     if (view.observations && !view.observations->observation_error.empty())
-        return "Respawn observation failed: "+view.observations->observation_error;
-    return "No fresh respawn view arrived after the shortcut";
+        return "Couldn't read Roblox while resetting: "+view.observations->observation_error;
+    return "Couldn't read Roblox after requesting a reset";
+}
+Observation<bool> hive_proximity(const View& view) {
+    if (!view.observations) return {};
+    auto result=view.observations->at_hive;
+    const auto prompt=game::read_prompt_landmark(view.context,*view.observations,game::hive_proximity_prompt());
+    if (prompt.usable(view.context,Time(2000))
+        && (!result.usable(view.context,Time(2000)) || prompt.captured>=result.captured)) result=prompt;
+    return result;
 }
 class RespawnCompletion {
     bool transitioned_{},away_from_hive_{},origin_known_{};
@@ -56,21 +62,16 @@ public:
     void begin(Time now) { origin_before_=now; }
     bool transitioned() const { return transitioned_; }
     Observation<bool> hive_arrival(const View& view,Time minimum) const {
-        if (!view.observations) return {};
-        auto arrival=view.observations->at_hive;
-        const auto prompt=game::read_prompt_landmark(view.context,*view.observations,game::hive_proximity_prompt());
-        if (prompt.usable(view.context,Time(2000))
-            && (!arrival.usable(view.context,Time(2000)) || prompt.captured>=arrival.captured)) arrival=prompt;
+        const auto arrival=hive_proximity(view);
         return arrival.has_value(view.context,Time(2000),std::max(minimum,last_dead_+Time(1))) && arrival.value
             ?arrival:Observation<bool>{};
     }
     void observe_origin(const View& view) {
-        const auto* state=view.observations;
+        const auto location=hive_proximity(view);
         // A pre-reset capture may finish processing after Escape. A missing
         // prompt in the reset menu is not evidence of having been in a field.
-        if (!origin_known_ && state && state->at_hive.usable(view.context,Time(2000))
-            && state->at_hive.captured<=origin_before_) {
-            away_from_hive_=!state->at_hive.value; origin_known_=true;
+        if (!origin_known_ && location.usable(view.context,Time(2000)) && location.captured<=origin_before_) {
+            away_from_hive_=!location.value; origin_known_=true;
         }
     }
     bool ready(const View& view,const Observation<game::RespawnView>& reading,Time minimum,Time transition) {
@@ -98,13 +99,14 @@ public:
         // The shared hive prompt may disappear and return during respawn even
         // when capture misses the empty health bar. Menu-covered frames cannot
         // establish departure, and the menu observation must be at least as new.
-        if (game && hud && living && state->at_hive.usable(c,Time(2000),minimum)
-            && state->at_hive.captured<=reading.captured && !state->at_hive.value)
+        const auto location=hive_proximity(view);
+        if (game && hud && living && location.usable(c,Time(2000),minimum)
+            && location.captured<=reading.captured && !location.value)
             away_from_hive_=true;
         // Closing the confirmation can also mean cancellation or a missed key.
         // Require death/revival or a new hive arrival, never elapsed time alone.
-        return ((hud && living) || game) && (transitioned_
-            || (away_from_hive_ && state && state->at_hive.has_value(c,Time(2000),after_death) && state->at_hive.value));
+        return (transitioned_ && ((hud && living) || game))
+            || (game && away_from_hive_ && hive_arrival(view,after_death).value);
     }
 };
 class AwaitRespawn final : public Program {
@@ -232,37 +234,33 @@ public:
             if (completion_.ready(view,reading,minimum_,transition_)) {
                 return complete(view,true);
             }
-            // A post-key game frame can arrive late on a busy capture worker,
-            // just like a menu frame. Hand it to the location verifier instead
-            // of treating processing latency as a failed reset. This does not
-            // prove death or authorize movement from the old capture.
-            const bool observed_game=reading.has_value(c,game::respawn_menu_response_time,minimum_+Time(1))
-                && reading.value.screen==game::RespawnScreen::game
-                && !(state && state->connection.has_value(c,Time(2000)) && state->connection.value==game::Connection::disconnected)
-                && !(state && state->game_hud.has_value(c,Time(2000),reading.captured)
-                    && !state->game_hud.value);
-            if (!completion_.transitioned() && ((live && game) || observed_game)
-                && c.now-transition_>=game::respawn_menu_response_time) {
-                // Death may fall between captures. Verify the hive or spawn
-                // through the shared location workflow before resetting or
-                // rejoining again; this does not claim death was observed.
-                if (result_) return complete(view,false);
-                return retry(c.now,"Game returned without a confirmed respawn");
-            }
+        }
+        // A menu can disappear between captures at any shortcut stage. Use the
+        // same post-key game evidence to hand off to location verification;
+        // neither an unseen reset nor a delayed reading authorizes departure.
+        const bool observed_game=reading.has_value(c,game::respawn_menu_response_time,minimum_+Time(1))
+            && reading.value.screen==game::RespawnScreen::game
+            && !(state && state->connection.has_value(c,Time(2000)) && state->connection.value==game::Connection::disconnected)
+            && !(state && state->alive.has_value(c,Time(2000),reading.captured) && !state->alive.value)
+            && !(state && state->game_hud.has_value(c,Time(2000),reading.captured) && !state->game_hud.value);
+        if (!menu && !completion_.transitioned() && ((live && game) || observed_game)
+            && c.now-(stage_==Stage::transition?transition_:started_)>=game::respawn_menu_response_time) {
+            if (result_) return complete(view,false);
+            return retry(c.now,"Couldn't confirm the character reset; trying again");
+        }
+        if (stage_==Stage::transition && !menu) {
             if (!completion_.transitioned() && !fresh && !closed && c.now-started_>=game::respawn_menu_response_time)
                 throw ClientRejoinRequired(unreadable_respawn(reading,view,minimum_));
-            if (c.now-transition_>=Time(25000)) throw ClientRejoinRequired("Respawn did not return a readable live game view");
+            if (c.now-transition_>=Time(25000)) throw ClientRejoinRequired("Couldn't confirm the character reset");
             return Wait{Time(100),"Waiting for player respawn"};
         }
         if (c.now-started_>=game::respawn_menu_response_time) {
-            if ((stage_==Stage::select || stage_==Stage::confirm) && live && fresh && reading.value.screen==game::RespawnScreen::game)
-                return retry(c.now,"Respawn controls did not appear after the shortcut");
             if (!fresh) throw ClientRejoinRequired(unreadable_respawn(reading,view,minimum_));
             if (reading.value.screen==game::RespawnScreen::menu)
-                throw ClientRejoinRequired("Respawn shortcut did not open the confirmation");
+                throw ClientRejoinRequired("Couldn't open the reset confirmation");
             if (reading.value.screen==game::RespawnScreen::confirmation)
-                throw ClientRejoinRequired("Respawn confirmation did not respond");
-            throw ClientRejoinRequired("Respawn menu could not be confirmed");
+                throw ClientRejoinRequired("Roblox didn't respond to the reset confirmation");
+            throw ClientRejoinRequired("Couldn't read the reset menu");
         }
         if (!fresh && !menu) return Wait{Time(50),"Waiting for respawn menu"};
         const auto screen=reading.value.screen;

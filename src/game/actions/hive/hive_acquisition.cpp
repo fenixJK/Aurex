@@ -79,7 +79,7 @@ class AcquireHive final : public Program {
     bool verify_spawn_{},reset_at_spawn_{};
     unsigned resets_{};
     Observation<bool> spawn_camera_;
-    void reserve_reset(const std::string& reason="Hive position could not be confirmed after retrying resets") {
+    void reserve_reset(const std::string& reason="Couldn't find your hive after resetting") {
         if (resets_>=2) throw ClientRejoinRequired(reason+"; rejoining Bee Swarm");
         ++resets_;
     }
@@ -201,7 +201,7 @@ public:
             return reason==Interruption::death?wait_for_respawn(source,result):request_respawn(source,result);
         };
     }
-    Step recover(const View& view,const std::string& reason="Hive position was not confirmed after respawn",std::shared_ptr<ActivityImage> image={}) {
+    Step recover(const View& view,const std::string& reason="Couldn't find your hive after resetting",std::shared_ptr<ActivityImage> image={}) {
         if (!options_.recovery) throw ObservationUnavailable("Hive position could not be found");
         if (reason.empty()) reserve_reset();
         else reserve_reset(reason);

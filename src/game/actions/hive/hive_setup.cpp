@@ -162,12 +162,12 @@ public:
             // the original direction already checked: 0,4,5,6,7,1,2,3.
             if (!lowered_) stage_=Stage::lower;
             else if (turns_<7) stage_=Stage::raise;
-            else throw HiveAlignmentError("Hive reference was not found at either camera pitch",first_view_);
+            else throw HiveAlignmentError("Couldn't find your hive",first_view_);
             if (!turns_ && !lowered_) stage_=Stage::capture;
             return next(view);
         }
         if (c.now-minimum_>=Time(2000))
-            throw HiveAlignmentError("No fresh hive camera frame; alignment was not confirmed",first_view_);
+            throw HiveAlignmentError("Couldn't get a clear view of your hive",first_view_);
         return Wait{Time(50),"Checking the settled hive view"};
     }
     void step_completed(const View& view) override {

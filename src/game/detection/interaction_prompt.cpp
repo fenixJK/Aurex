@@ -256,6 +256,11 @@ std::optional<Rect> colored_caption(const Frame& frame,CaptionSearch captions) {
     for (int y=0;y<colored.rows;++y) for (int x=frame.width/4;x<frame.width*3/4;++x) {
         if (banner_color(frame,x,y)) colored.at<unsigned char>(y,x)=255;
     }
+    // Fill letter-sized gaps, then separate a wide banner from narrow contacts
+    // with similarly colored scenery. Preserve the original pixels for reading.
+    const int line=std::max(3,int(std::ceil(viewport_height*.018)))|1;
+    cv::morphologyEx(colored,colored,cv::MORPH_CLOSE,cv::getStructuringElement(cv::MORPH_RECT,{line,1}));
+    cv::morphologyEx(colored,colored,cv::MORPH_OPEN,cv::getStructuringElement(cv::MORPH_RECT,{line*3,std::max(1,line/4)|1}));
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(colored,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_SIMPLE);
     std::vector<Rect> found;
@@ -269,7 +274,11 @@ std::optional<Rect> colored_caption(const Frame& frame,CaptionSearch captions) {
         while (top<bottom && cv::countNonZero(colored.row(top).colRange(box.x,box.x+box.width))<box.width*.65) ++top;
         while (bottom>top && cv::countNonZero(colored.row(bottom-1).colRange(box.x,box.x+box.width))<box.width*.65) --bottom;
         box.y=top; box.height=bottom-top;
-        if (box.height<viewport_height*.018 || cv::contourArea(contour)<box.area()*.8) continue;
+        int left=box.x,right=box.x+box.width;
+        while (left<right && cv::countNonZero(colored.col(left).rowRange(top,bottom))<box.height*.8) ++left;
+        while (right>left && cv::countNonZero(colored.col(right-1).rowRange(top,bottom))<box.height*.8) --right;
+        box.x=left;box.width=right-left;
+        if (box.height<viewport_height*.018 || box.width<box.height*3 || cv::contourArea(contour)<box.area()*.8) continue;
         // A solid panel or world geometry is not a text-bearing action banner.
         const Rect region{double(box.x)/frame.width,double(box.y)/frame.height,double(box.width)/frame.width,double(box.height)/frame.height};
         if (cooldown_caption(frame,region)) found.push_back(region);
