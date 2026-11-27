@@ -153,6 +153,7 @@ void configure_travel_modules(NativeModules& modules,std::optional<double> speed
         modules.combat.plan.setup=service.plan.hive_setup;
         modules.combat.plan.recovery=return_to_hive;
         modules.combat.plan.buffs=modules.buffs;
+        modules.combat.plan.passives=modules.passives;
         if (!modules.combat.plan.enemies.empty()) modules.combat.availability=features::combat::availability_for(modules.combat.plan,game::enemy_source(enemies));
     }
     modules.navigation.routes=std::move(routes); modules.gathering=std::move(service);

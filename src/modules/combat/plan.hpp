@@ -88,6 +88,7 @@ struct Plan {
     movement::Source movement;
     automation::ProgramFactory recovery;
     std::shared_ptr<const game::DetectionSource> buffs;
+    std::shared_ptr<const game::DetectionSource> passives;
     std::function<Time()> wall_clock=[] { return std::chrono::duration_cast<Time>(std::chrono::system_clock::now().time_since_epoch()); };
 };
 Plan catalog_plan();

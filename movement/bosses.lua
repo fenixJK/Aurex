@@ -2,6 +2,11 @@ local h=require("helpers")
 local fields=require("fields")
 local walk,turn=h.walk,h.turn
 return function(p)
+    if p.enemy=="Mondo Chick" then
+        -- Natro's fight position, measured from its Mountain Top planter landing.
+        -- The gathering landing is a different point; do not use it here.
+        return {walk({{14,"right"}}),turn("rotate_left",1)}
+    end
     if p.enemy=="King Beetle" then
         local path=fields({slot=p.slot,field="blueflower"})
         path[#path+1]=walk({{35,"right","forward"},{28,"forward"}})

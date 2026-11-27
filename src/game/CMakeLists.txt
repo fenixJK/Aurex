@@ -38,6 +38,7 @@ add_library(hive_game
   detection/movement_buffs.cpp
   detection/buffs.cpp
   detection/guiding.cpp
+  detection/passive_counters.cpp
   detection/field_boosts.cpp
   detection/buff_stack.cpp
   detection/buff_catalog.cpp

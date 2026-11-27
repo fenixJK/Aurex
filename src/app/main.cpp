@@ -508,6 +508,7 @@ public:
         native_modules_.buffs=channels.at("buff-upkeep");
         native_modules_.field_boosts=channels.at("field-boosts");
         native_modules_.guiding=channels.at("guiding-activation");
+        native_modules_.passives=channels.at("passive-counters");
         session_.configure_hotbar(native_modules_.boosting);
         native_modules_.planters.inventory=hive::game::inventory_source(channels.at("inventory"),inventory_requests,native_modules_.stock);
         native_modules_.planters.harvest_prompt=hive::game::landmark_source(channels.at("planter-harvest"),"interaction.prompt");

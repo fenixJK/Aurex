@@ -215,7 +215,7 @@ extensions::Manifest module_manifest() {
     result.settings.back().help="Off uses normal support settings and can temporarily lend its slot when the main manages alts. Guiding Star and Boss fights request turns for their task and share the same rotation slots. Waiting alts run normal priorities in public servers.";
     result.settings.push_back({"attack-saw-slot","Star Saw · Stinger slot",std::string("Off"),0,0,{"Off","1","2","3","4","5","6","7"}});
     result.settings.back().enabled_by="rotation-purpose";result.settings.back().enabled_values={"Boss fights"};
-    result.settings.back().help="Optional. Requires Star Saw on this alt's SSA and Stingers in this hotbar slot. Tries one activation, up to three presses per attack visit, only while the main is ready and the requested enemy is visible. Item reserves still apply.";
+    result.settings.back().help="Optional. Requires Star Saw on this alt's SSA and Stingers in this hotbar slot. Tries one activation, up to three presses per attack visit, while the main is ready and the requested enemy is visible. Each press must change the detected Saw counter before another is sent. Unreadable or unconfirmed progress stops spending; item reserves still apply.";
     result.settings.push_back({"manage-slots","Manage alt slots",false});
     result.settings.back().help="Main account only. Guiding Star and Boss fights share the same rotation slots. Active stars and fights keep their slot until they end, and departures are confirmed before another alt joins. Regular support alts can temporarily make room for a boss fight. Waiting alts work in public servers.";
     result.settings.push_back({"rotation-slots","Rotating alts at once",5,1,5});
