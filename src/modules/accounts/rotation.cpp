@@ -96,11 +96,11 @@ void RotationSync::update(Controller& controller,const coordination::Snapshot& g
             const auto targets=value<SettingSelection>(alt,"attack-targets");
             const bool ready=value<bool>(alt,"running") && (!attacker || std::find(targets.begin(),targets.end(),job_.enemy)!=targets.end());
             has_attack|=attacker && ready;attack_complete_|=done;
-            members.push_back({id,kind=="Guiding",ready,
+            members.push_back({id,kind=="Guiding" || attacker,value<bool>(alt,"running"),
                 value<bool>(alt,"active"),attacker?done:value<bool>(alt,"complete"),
-                value<std::string>(alt,"epoch")==connection_?value<std::string>(alt,"ack"):std::string{},attacker,value<bool>(alt,"swappable")});
+                value<std::string>(alt,"epoch")==connection_?value<std::string>(alt,"ack"):std::string{},attacker,value<bool>(alt,"swappable"),ready});
         }
-        const auto assignments=rotation_.update(members,slot_limit,reserved+unidentified,!job_.id.empty() && !attack_complete_ && bool(assistance_),job_.id);
+        const auto assignments=rotation_.update(members,slot_limit,unidentified,!job_.id.empty() && !attack_complete_ && bool(assistance_),job_.id);
         SettingSelection commands;unsigned admitted=0;
         for(const auto& item:assignments) { commands.push_back(item.id+"/"+item.command);admitted+=item.main; }
         if(job_.scheduled && attack_complete_) scheduled_finished_=job_.starts;
@@ -204,7 +204,7 @@ void RotationSync::update(Controller& controller,const coordination::Snapshot& g
     if(attack && !assistance_) status_="Attack unavailable · Check movement speed and access to combat areas";
     SettingSelection targets;for(const auto& [enemy,_]:assistance_.destinations) targets.push_back(enemy);
     state->publish("alt",{{"id",account},{"type",std::string(attack?"Attack":guiding?"Guiding":"Support")},{"running",running && (!attack || bool(assistance_))},
-        {"active",location_=="main" && active_until_>view.now},{"complete",completed_},
+        {"active",location_=="main" && (active_until_>view.now || (attack && launched_ && visit_->allowed && !visit_->finished))},{"complete",completed_},
         {"ack",acknowledged_},{"epoch",command_.substr(0,command_.find('/'))},{"where",location_},{"status",status_},
         {"swappable",swappable},{"attack-targets",targets},{"attack-job",job_.id},{"attack-done",bool(visit_->finished)}});
 }

@@ -36,12 +36,11 @@ public:
         :manifest_(std::move(manifest)),controller_(std::move(controller)),boosts_(std::move(boosts)),rotation_(std::move(guiding),std::move(servers),std::move(assistance),std::move(clock)) {}
     void start(const Settings& settings) override {
         extensions::validate_settings(manifest_,settings);
-        const auto& purpose=std::get<std::string>(settings.at("alt-behavior"));
-        rotation_.attack=purpose=="Attack";
-        rotation_.guiding=purpose=="Rotational";
-        rotation_.enabled=std::get<bool>(settings.at("guiding-rotation"));
-        rotation_.slot_limit=unsigned(std::get<int>(settings.at("guiding-slots")));
-        rotation_.reserved=unsigned(std::get<int>(settings.at("reserved-slots")));
+        const auto& purpose=std::get<std::string>(settings.at("rotation-purpose"));
+        rotation_.attack=purpose=="Boss fights";
+        rotation_.guiding=purpose=="Guiding Star";
+        rotation_.enabled=std::get<bool>(settings.at("manage-slots"));
+        rotation_.slot_limit=unsigned(std::get<int>(settings.at("rotation-slots")));
         const auto& saw=std::get<std::string>(settings.at("attack-saw-slot"));
         rotation_.saw_slot=saw=="Off"?0:unsigned(std::stoi(saw));
         follow_mode_=std::get<std::string>(settings.at("follow-mode"));
@@ -195,7 +194,7 @@ public:
 };
 }
 extensions::Manifest module_manifest() {
-    extensions::Manifest result;result.id="hive.native-accounts";result.provider="native-accounts";result.presets=false;result.name="Alt Sync";result.settings_version=6;result.version="1.0.0";
+    extensions::Manifest result;result.id="hive.native-accounts";result.provider="native-accounts";result.presets=false;result.name="Alt Sync";result.settings_version=7;result.version="1.0.0";
     result.description="Choose a main account to lead, then connect alts that follow its field and boosts.";
     result.requests={extensions::RequestService::fields,extensions::RequestService::enemies,extensions::RequestService::servers};
     result.permissions={automation::Permission::movement,automation::Permission::interact,automation::Permission::tool};
@@ -212,21 +211,18 @@ extensions::Manifest module_manifest() {
     result.settings.back().help="While following, either keep your normal task schedule or allow only the tasks selected below. Conversion still runs.";
     result.settings.push_back({"allowed-work","Tasks allowed while following",SettingSelection{"Combat"},0,0,{"Collection","Planters","Quests","Combat","Boosting"}});
     result.settings.back().enabled_by="other-tasks";result.settings.back().enabled_values={"Only selected tasks"};result.settings.back().inline_choices=true;
-    result.settings.push_back({"alt-behavior","Purpose",std::string("Support"),0,0,{"Support","Rotational","Attack"}});
-    result.settings.back().help="Support follows the settings below. Rotational takes turns after its own Guiding Star ends. Attack helps with the main’s Commando fights and prepares for Mondo around :57 each hour. Between fights it runs normal priorities in a public server.";
+    result.settings.push_back({"rotation-purpose","Rotation",std::string("Off"),0,0,{"Off","Guiding Star","Boss fights"}});
+    result.settings.back().help="Off uses normal support settings and can temporarily lend its slot when the main manages alts. Guiding Star and Boss fights request turns for their task and share the same rotation slots. Waiting alts run normal priorities in public servers.";
     result.settings.push_back({"attack-saw-slot","Star Saw · Stinger slot",std::string("Off"),0,0,{"Off","1","2","3","4","5","6","7"}});
-    result.settings.back().enabled_by="alt-behavior";result.settings.back().enabled_values={"Attack"};
+    result.settings.back().enabled_by="rotation-purpose";result.settings.back().enabled_values={"Boss fights"};
     result.settings.back().help="Optional. Requires Star Saw on this alt's SSA and Stingers in this hotbar slot. Tries one activation, up to three presses per attack visit, only while the main is ready and the requested enemy is visible. Item reserves still apply.";
-    result.settings.push_back({"guiding-rotation","Manage alt slots",false});
-    result.settings.back().help="Main account only. Rotate Guiding alts and lend one slot to an attack alt for Mondo or the main’s Commando fights. The main goes to Mountain Top around :59. An ordinary alt can yield its slot and return after the attack alt confirms departure. Active Guiding Stars and reserved slots are protected.";
-    result.settings.push_back({"guiding-slots","Maximum rotation slots",5,1,5});
-    result.settings.back().enabled_by="guiding-rotation";
-    result.settings.back().help="Maximum rotational alts with the main. Aurex also reserves space for the main and connected non-rotational alts; the server limit is six.";
-    result.settings.push_back({"reserved-slots","Other reserved slots",0,0,5});
-    result.settings.back().enabled_by="guiding-rotation";
-    result.settings.back().help="Reserve room for friends or accounts outside this group. Do not count the main or connected non-rotational alts again.";
-    result.page=extensions::PageLayout{{{"purpose","This alt",{},{"alt-behavior","attack-saw-slot"},false,1},
-        {"rotation","Alt rotation",{},{"guiding-rotation","guiding-slots","reserved-slots"},false,2},
+    result.settings.push_back({"manage-slots","Manage alt slots",false});
+    result.settings.back().help="Main account only. Guiding Star and Boss fights share the same rotation slots. Active stars and fights keep their slot until they end, and departures are confirmed before another alt joins. Regular support alts can temporarily make room for a boss fight. Waiting alts work in public servers.";
+    result.settings.push_back({"rotation-slots","Rotating alts at once",5,1,5});
+    result.settings.back().enabled_by="manage-slots";
+    result.settings.back().help="Maximum Guiding Star and Boss fights alts with the main at once. Regular alts count separately toward the six-player server limit. Leave at 5 to use available space, or lower it to leave room for friends. Main + 2 regular alts + 2 rotating alts leaves 1 space.";
+    result.page=extensions::PageLayout{{{"purpose","This alt",{},{"rotation-purpose","attack-saw-slot"},false,1},
+        {"rotation","Alt rotation",{},{"manage-slots","rotation-slots"},false,1},
         {"following","Gathering",{},{"follow-mode","interrupt-gather","main-unavailable"},false,2},
         {"tasks","Other tasks",{},{"other-tasks"},false,1},
         {"allowed","Tasks allowed while following",{},{"allowed-work"},false,3},
@@ -235,12 +231,25 @@ extensions::Manifest module_manifest() {
     return result;
 }
 Settings migrate_settings(int version,Settings settings) {
-    if (version<1 || version>5) throw std::invalid_argument("Unknown previous Alt Sync settings version");
+    if (version<1 || version>6) throw std::invalid_argument("Unknown previous Alt Sync settings version");
+    settings.erase("reserved-slots");
     if (const auto old=settings.find("alt-type");old!=settings.end()) {
         settings["rotational"]=std::get<std::string>(old->second)=="Guiding";settings.erase(old);
     }
     if (const auto old=settings.find("rotational");old!=settings.end()) {
-        settings["alt-behavior"]=std::string(std::get<bool>(old->second)?"Rotational":"Support");settings.erase(old);
+        settings["rotation-purpose"]=std::string(std::get<bool>(old->second)?"Guiding Star":"Off");settings.erase(old);
+    }
+    for(const auto& [old_key,new_key]:std::initializer_list<std::pair<const char*,const char*>>{
+        {"alt-behavior","rotation-purpose"},{"guiding-rotation","manage-slots"},{"guiding-slots","rotation-slots"}}) {
+        if(const auto old=settings.find(old_key);old!=settings.end()) {
+            settings[new_key]=std::move(old->second);settings.erase(old);
+        }
+    }
+    if(auto purpose=settings.find("rotation-purpose");purpose!=settings.end()) {
+        auto& value=std::get<std::string>(purpose->second);
+        if(value=="Support") value="Off";
+        else if(value=="Rotational") value="Guiding Star";
+        else if(value=="Attack") value="Boss fights";
     }
     if (const auto old=settings.find("follow-host");old!=settings.end()) {
         settings["follow-mode"]=std::string(std::get<bool>(old->second)?"Follow main":"Independent");settings.erase(old);
@@ -258,9 +267,9 @@ Settings migrate_settings(int version,Settings settings) {
 }
 extensions::Factory module_factory(std::shared_ptr<Controller> controller,std::shared_ptr<const game::DetectionSource> boosts,
     std::shared_ptr<const game::DetectionSource> guiding,std::shared_ptr<game::ServerDirectory> servers,coordination::AttackAssist assistance,std::function<Time()> clock) {
-    return [controller=std::move(controller),boosts=std::move(boosts),guiding=std::move(guiding),servers=std::move(servers),mondo=std::move(assistance),clock=std::move(clock)](const extensions::Manifest& manifest) {
+    return [controller=std::move(controller),boosts=std::move(boosts),guiding=std::move(guiding),servers=std::move(servers),assistance=std::move(assistance),clock=std::move(clock)](const extensions::Manifest& manifest) {
         if(!controller) throw std::invalid_argument("Alt Sync needs its connection service.");
-        return std::make_unique<Accounts>(manifest,controller,boosts,guiding,servers,mondo,clock);
+        return std::make_unique<Accounts>(manifest,controller,boosts,guiding,servers,assistance,clock);
     };
 }
 }

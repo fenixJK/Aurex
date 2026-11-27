@@ -25,7 +25,7 @@ class RotationSync {
     void select_job(coordination::AttackJob job);
 public:
     bool guiding{},attack{},swappable{},enabled{};
-    unsigned slot_limit{5},reserved{},saw_slot{};
+    unsigned slot_limit{5},saw_slot{};
     RotationSync(std::shared_ptr<const game::DetectionSource> observations,std::shared_ptr<game::ServerDirectory> servers,
         coordination::AttackAssist assistance={},std::function<Time()> clock=[] { return std::chrono::duration_cast<Time>(std::chrono::system_clock::now().time_since_epoch()); })
         :observations_(std::move(observations)),servers_(std::move(servers)),assistance_(std::move(assistance)),clock_(std::move(clock)) {}

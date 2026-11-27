@@ -81,13 +81,13 @@ Page::Page(std::shared_ptr<Controller> controller,QWidget* parent,const std::map
         const auto control=[&](const char* section,const char* id) {
             return sections.contains(section)?dynamic_cast<ChoiceControl*>(sections.at(section)->findChild<QWidget*>(id)):nullptr;
         };
-        auto* purpose=control("purpose","alt-behavior");
+        auto* purpose=control("purpose","rotation-purpose");
         auto* following=control("following","follow-mode");
         auto* tasks=control("tasks","other-tasks");
         auto* saw=sections.at("purpose")->findChild<QWidget*>("attack-saw-slot");
         const auto update=[this,purpose,following,tasks,saw,sections,behavior_help] {
             const auto selected=purpose->value();
-            const bool attack=selected=="Attack",follows=following && following->value()!="Own field rotation";
+            const bool attack=selected=="Boss fights",follows=following && following->value()!="Own field rotation";
             for(const auto* id:{"following","tasks","shared"}) if(sections.contains(id)) sections.at(id)->setVisible(!attack);
             if(sections.contains("tasks")) sections.at("tasks")->setEnabled(follows);
             if(sections.contains("allowed")) sections.at("allowed")->setVisible(!attack && follows && tasks && tasks->value()=="Only selected tasks");
@@ -95,8 +95,8 @@ Page::Page(std::shared_ptr<Controller> controller,QWidget* parent,const std::map
             for(auto* text:sections.at("purpose")->findChildren<QLabel*>()) if(text->buddy()==saw) text->setVisible(attack);
             behavior_help->setText(attack?
                 "Helps with the main’s Commando fights. For Mondo, joins around :57; the main travels around :59. Leaves when support ends, then runs normal priorities in a public server. Enable Manage alt slots on the main. Star Saw requires the passive and Stingers.":
-                selected=="Rotational"?"Keeps its slot until its own Guiding Star ends. Waiting alts run normal priorities in public servers. Enable Manage alt slots on the main.":
-                "Uses this alt's Gathering patterns. For items during the main's boost, choose a Main's boost rule in Boosting → Hotbar.");
+                selected=="Guiding Star"?"Takes a turn with the main until its own Guiding Star ends, then makes room for another alt. Shares rotation slots with Boss fights. Waiting alts run normal priorities in public servers.":
+                "Use the settings below to follow the main or run independently. When the main manages slots, this alt can temporarily make room for a rotating alt and return afterward.");
             QTimer::singleShot(0,this,[this] { fit_tabs(); });
         };
         for(auto* choice:{purpose,following,tasks}) if(choice) {
@@ -110,7 +110,7 @@ Page::Page(std::shared_ptr<Controller> controller,QWidget* parent,const std::map
     group_layout->setAlignment(Qt::AlignTop);
     if(const auto rotation=sections.find("rotation");rotation!=sections.end()) {
         group_layout->addWidget(rotation->second);
-        rotation->second->layout()->addWidget(label("Guiding alts stay until their star ends. An attack alt can borrow an ordinary alt's slot for Mondo or Commando; that alt returns after the fight. Departures are confirmed before another alt joins. Waiting alts work in public servers."));
+        rotation->second->layout()->addWidget(label("Guiding Star and Boss fights share one rotation. Alts take turns using the available slots; an active star or fight keeps its slot until it ends. Waiting alts work in public servers."));
     }
     boost_=label({},"accounts-main-boost");group_layout->addWidget(boost_);
     members_=new QTableWidget(0,5);members_->setObjectName("accounts-members");
@@ -151,7 +151,7 @@ void Page::refresh() {
     for (int row=0;row<int(group.peers.size());++row) {
         const auto& peer=group.peers[row];const auto field=value(peer,"activity","field");
         const auto following=peer.host?QString{}:value(peer,"support","field");
-        const QStringList cells{QString::fromStdString(peer.name),peer.host?"Main":value(peer,"alt","type")=="Attack"?"Attack":value(peer,"alt","type")=="Guiding"?"Rotational alt":"Alt",field.isEmpty()?"—":field,
+        const QStringList cells{QString::fromStdString(peer.name),peer.host?"Main":value(peer,"alt","type")=="Attack"?"Boss fights":value(peer,"alt","type")=="Guiding"?"Guiding Star":"Support",field.isEmpty()?"—":field,
             following.isEmpty()?"—":following,value(peer,"alt","status").isEmpty()?value(peer,"activity","label"):value(peer,"alt","status")};
         for(int col=0;col<cells.size();++col) {
             auto* item=members_->item(row,col);if(!item) { item=new QTableWidgetItem;members_->setItem(row,col,item); }

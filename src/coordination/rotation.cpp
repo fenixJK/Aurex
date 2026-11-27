@@ -9,100 +9,97 @@ void SlotRotation::assign(Entry& entry,bool main) {
     if(main) entry.occupies=true;
     else entry.order=++order_;
 }
-std::vector<SlotAssignment> SlotRotation::update(const std::vector<RotationMember>& members,unsigned slots,unsigned reserved,bool attack_due,const std::string& attack_job) {
-    unsigned residents=1+std::min(reserved,5u); // Main plus slots reserved for accounts outside this group.
+std::vector<SlotAssignment> SlotRotation::update(const std::vector<RotationMember>& members,unsigned slots,unsigned unidentified,bool request_due,const std::string& request) {
+    unsigned residents=1+std::min(unidentified,5u); // Count connected accounts before their role is known.
     std::map<std::string,const RotationMember*> online;
     for(const auto& member:members) {
         if(member.id.empty() || online.contains(member.id)) continue;
         online[member.id]=&member;
-        if(!member.guiding && !member.attack && !member.swappable) { residents_.insert(member.id);entries_.erase(member.id);continue; }
-        residents_.erase(member.id);
+        if(!member.rotational && !member.swappable) { residents_.insert(member.id);entries_.erase(member.id);continue; }
+        const bool was_resident=residents_.erase(member.id)>0;
         auto [it,inserted]=entries_.try_emplace(member.id);
-        auto& entry=it->second;
-        entry.guiding=member.guiding;
+        auto& entry=it->second;entry.rotational=member.rotational;
         if(inserted) {
-            entry.assignment.id=member.id;assign(entry,!member.guiding && !member.attack);
-            // New attack alts first confirm a public-server location before admission.
-            if(member.attack) entry.occupies=true;
+            entry.assignment.id=member.id;assign(entry,!member.rotational);
+            // An on-request visitor confirms its public-server location before admission.
+            if(member.on_request || was_resident) entry.occupies=true;
         }
-        // A missing peer or a requested departure is not proof that a Roblox slot is free.
         if(!entry.assignment.main && member.acknowledged==entry.assignment.command) entry.occupies=false;
         if(entry.assignment.main && member.acknowledged==entry.assignment.command)
-            entry.completed=member.turn_complete && !member.star_active;
+            entry.completed=member.turn_complete && !member.holding;
     }
     residents+=unsigned(residents_.size());
     const unsigned capacity=residents<6?6-residents:0u;
-    const auto guiding_limit=std::min(std::clamp(slots,1u,5u),capacity);
-    unsigned occupied=0,guiding_occupied=0;
-    for(const auto& [id,entry]:entries_) { occupied+=entry.occupies;guiding_occupied+=entry.occupies && entry.guiding; }
-    const auto waiting=[&](const auto& pair) {
-        const auto member=online.find(pair.first);
-        return member!=online.end() && member->second->guiding && member->second->running
-            && !pair.second.assignment.main && !pair.second.occupies;
-    };
-    unsigned waiting_count=unsigned(std::count_if(entries_.begin(),entries_.end(),waiting));
-    unsigned retained=unsigned(std::count_if(entries_.begin(),entries_.end(),[](const auto& pair) {
-        return pair.second.assignment.main && pair.second.guiding;
-    }));
-    for(auto& [id,entry]:entries_) {
-        if(!entry.assignment.main) continue;
-        const auto member=online.find(id);
-        if(member==online.end() || !member->second->guiding || member->second->star_active) continue;
-        if((entry.completed && waiting_count) || retained>guiding_limit) {
-            assign(entry,false);--retained;
-            if(waiting_count) --waiting_count;
-        }
-    }
-    if(!attack_due || attack_job_!=attack_job) attacker_.clear();
-    attack_job_=attack_job;
-    auto attacker=entries_.find(attacker_);
-    if(attack_due && attacker_.empty()) for(auto it=entries_.begin();it!=entries_.end();++it) {
+    const auto rotation_limit=std::min(std::clamp(slots,1u,5u),capacity);
+    if(!request_due || request_!=request) visitor_.clear();
+    request_=request;
+    auto visitor=entries_.find(visitor_);
+    if(request_due && visitor_.empty()) for(auto it=entries_.begin();it!=entries_.end();++it) {
         const auto member=online.find(it->first);
-        if(member==online.end() || !member->second->attack || !member->second->running || member->second->turn_complete) continue;
-        if(attacker==entries_.end() || (it->second.assignment.main && !attacker->second.assignment.main)
-            || (it->second.assignment.main==attacker->second.assignment.main && it->second.order<attacker->second.order)) attacker=it;
+        if(member==online.end() || !member->second->on_request || !member->second->running || !member->second->available || member->second->turn_complete) continue;
+        if(visitor==entries_.end() || (it->second.assignment.main && !visitor->second.assignment.main)
+            || (it->second.assignment.main==visitor->second.assignment.main && it->second.order<visitor->second.order)) visitor=it;
     }
-    if(attacker!=entries_.end()) attacker_=attacker->first;
-    for(auto it=entries_.begin();it!=entries_.end();++it) {
-        const auto member=online.find(it->first);
-        if(member!=online.end() && member->second->attack && it!=attacker && it->second.assignment.main) assign(it->second,false);
-    }
+    if(visitor!=entries_.end()) visitor_=visitor->first;
     const auto priority=[&](const auto& pair) {
         const auto member=online.find(pair.first);
-        if(member==online.end() || !member->second->running) return 0;
-        if(member->second->attack) return attacker!=entries_.end() && attacker->first==pair.first?3:0;
-        return member->second->guiding?1:2;
+        if(member==online.end() || !member->second->running || !member->second->available) return 0;
+        if(member->second->on_request) return visitor!=entries_.end() && visitor->first==pair.first?3:0;
+        return member->second->rotational?1:2;
     };
-    // A waiting attack alt may borrow one ordinary support slot. Departures must
-    // finish before another seat is lent; an active Guiding Star is never evicted.
-    const bool departing=std::any_of(entries_.begin(),entries_.end(),[](const auto& pair) { return pair.second.occupies && !pair.second.assignment.main; });
-    int wanted=0;
-    for(const auto& pair:entries_) if(!pair.second.assignment.main) wanted=std::max(wanted,priority(pair));
-    if(!departing && occupied>=capacity && wanted>1) {
-        auto lend=entries_.end();
-        for(auto it=entries_.begin();it!=entries_.end();++it) {
-            const auto member=online.find(it->first);
-            if(!it->second.assignment.main || member==online.end() || !member->second->running || member->second->star_active
-                || priority(*it)>=wanted) continue;
-            if(lend==entries_.end() || priority(*it)<priority(*lend)) lend=it;
-        }
-        if(lend!=entries_.end()) assign(lend->second,false);
+    const auto releasable=[&](const auto& pair) {
+        const auto member=online.find(pair.first);
+        return pair.second.assignment.main && member!=online.end() && member->second->running && !member->second->holding;
+    };
+    for(auto it=entries_.begin();it!=entries_.end();++it) {
+        const auto member=online.find(it->first);
+        if(member!=online.end() && member->second->on_request && it!=visitor && releasable(*it)) assign(it->second,false);
     }
-    // Release acknowledgements come on a later update; never grant two accounts the same seat.
+    unsigned retained=0,rotating=0;
+    for(const auto& [id,entry]:entries_) { retained+=entry.assignment.main;rotating+=entry.assignment.main && entry.rotational; }
+    // Reducing either limit uses the same release rules as an ordinary handoff.
+    while(retained>capacity || rotating>rotation_limit) {
+        auto release=entries_.end();
+        for(auto it=entries_.begin();it!=entries_.end();++it) {
+            if(!releasable(*it) || (rotating>rotation_limit && !it->second.rotational)) continue;
+            if(release==entries_.end() || priority(*it)<priority(*release)) release=it;
+        }
+        if(release==entries_.end()) break;
+        --retained;rotating-=release->second.rotational;assign(release->second,false);
+    }
+    unsigned occupied=0,rotation_occupied=0;
+    for(const auto& [id,entry]:entries_) { occupied+=entry.occupies;rotation_occupied+=entry.occupies && entry.rotational; }
+    const auto waiting=[&](const auto& pair) { return priority(pair)>0 && !pair.second.assignment.main && !pair.second.occupies; };
+    // All rotating purposes share this budget, including departures and missing peers.
     while(occupied<capacity) {
         auto best=entries_.end();
         for(auto it=entries_.begin();it!=entries_.end();++it) {
-            const auto rank=priority(*it);
-            if(!rank || it->second.assignment.main || it->second.occupies || (rank==1 && guiding_occupied>=guiding_limit)) continue;
-            if(best==entries_.end() || rank>priority(*best) || (rank==priority(*best) && it->second.order<best->second.order)) best=it;
+            if(!waiting(*it) || (it->second.rotational && rotation_occupied>=rotation_limit)) continue;
+            if(best==entries_.end() || priority(*it)>priority(*best)
+                || (priority(*it)==priority(*best) && it->second.order<best->second.order)) best=it;
         }
         if(best==entries_.end()) break;
-        if(priority(*best)==1) ++guiding_occupied;
-        assign(best->second,true);++occupied;
+        rotation_occupied+=best->second.rotational;assign(best->second,true);++occupied;
+    }
+    const bool departing=std::any_of(entries_.begin(),entries_.end(),[](const auto& pair) { return pair.second.occupies && !pair.second.assignment.main; });
+    if(!departing) {
+        auto next=entries_.end();
+        for(auto it=entries_.begin();it!=entries_.end();++it) if(waiting(*it))
+            if(next==entries_.end() || priority(*it)>priority(*next)
+                || (priority(*it)==priority(*next) && it->second.order<next->second.order)) next=it;
+        if(next!=entries_.end()) {
+            const bool rotation_full=next->second.rotational && rotation_occupied>=rotation_limit;
+            auto release=entries_.end();
+            for(auto it=entries_.begin();it!=entries_.end();++it) {
+                if(!releasable(*it) || (rotation_full && !it->second.rotational)) continue;
+                if(priority(*it)>priority(*next) || (priority(*it)==priority(*next) && !it->second.completed)) continue;
+                if(release==entries_.end() || priority(*it)<priority(*release)) release=it;
+            }
+            if(release!=entries_.end()) assign(release->second,false);
+        }
     }
     std::vector<SlotAssignment> result;
     for(const auto& [id,entry]:entries_) if(online.contains(id)) result.push_back(entry.assignment);
-    // Retain disconnected occupants, but discard departed accounts that do not hold a seat.
     std::erase_if(entries_,[&](const auto& pair) { return !online.contains(pair.first) && !pair.second.occupies; });
     return result;
 }
