@@ -61,6 +61,9 @@ std::vector<cv::Rect> panels(const Frame& frame) {
     return result;
 }
 Point center(const Frame& f,const Rect& r) { return {(r.x+r.width/2)/f.width,(r.y+r.height/2)/f.height}; }
+cv::Rect stack_summary(const cv::Rect& panel) {
+    return {panel.x+panel.width/2,panel.y+int(panel.height*.4),panel.width/2,int(std::ceil(panel.height*.15))};
+}
 std::optional<bool> green(const Frame& f,const Rect& r) {
     unsigned yes=0,no=0;
     for (int y=std::max(0,int(r.y));y<std::min(f.height,int(r.y+r.height));++y)
@@ -75,9 +78,18 @@ std::optional<bool> green(const Frame& f,const Rect& r) {
     return {};
 }
 std::optional<Time> timer(const std::string& text) {
-    static const std::regex pattern(R"((\d{1,3}):(\d{2})(?::(\d{2}))?)");
+    static const std::regex pattern(R"((\d{1,3})\s*:\s*(\d{2})(?:\s*:\s*(\d{2}))?)");
+    static const std::regex preceding_part(R"((^|[^[:alnum:]])[[:alnum:]]{1,3}\s*:\s*$)");
     std::smatch match;
     if (!std::regex_search(text,match,pattern)) return {};
+    // OCR can separate punctuation into words. Accept that spacing, but never
+    // reinterpret the readable suffix of a malformed clock as a shorter timer.
+    const auto begin=std::size_t(match.position()),end=begin+match.length();
+    const auto after=text.find_first_not_of(" \t\r\n",end);
+    if ((begin && std::isalnum(static_cast<unsigned char>(text[begin-1])))
+        || (end<text.size() && std::isalnum(static_cast<unsigned char>(text[end])))
+        || std::regex_search(text.cbegin(),text.cbegin()+begin,preceding_part)
+        || (after!=std::string::npos && text[after]==':')) return {};
     const int first=std::stoi(match[1]),second=std::stoi(match[2]);
     if (second>=60) return {};
     const int third=match[3].matched?std::stoi(match[3]):0;
@@ -180,7 +192,18 @@ class ItemMenus final : public Detector {
 public:
     std::vector<Rect> text_regions(const Frame& frame,std::uint64_t) const override {
         std::vector<Rect> result;
-        for (const auto& b:panels(frame)) result.push_back({double(b.x)/frame.width,double(b.y)/frame.height,double(b.width)/frame.width,double(b.height)/frame.height});
+        for (const auto& b:panels(frame)) {
+            const Rect region{double(b.x)/frame.width,double(b.y)/frame.height,double(b.width)/frame.width,double(b.height)/frame.height};
+            static constexpr std::array<std::string_view,1> title{"Sticker Stack"};
+            if (!fixed_ui_labels(frame,{region.x,region.y,region.width,region.height*.2},title).empty()) {
+                // The title and controls are already visual. Read only the
+                // small summary so the shared OCR cache can enlarge its timer.
+                const auto summary=stack_summary(b);
+                return {{double(summary.x)/frame.width,double(summary.y)/frame.height,
+                    double(summary.width)/frame.width,double(summary.height)/frame.height}};
+            }
+            result.push_back(region);
+        }
         result.push_back({.1,.55,.8,.4});
         return result;
     }
@@ -227,13 +250,13 @@ public:
                     if (result->submit) { result->submit.reset(); break; }
                     result->submit=Point{(area.x+b.x+b.width/2.)/f.width,(area.y+b.y+b.height/2.)/f.height};
                 }
+                const auto summary=stack_summary(panel);
                 for (const auto& line:rows) {
                     // OCR may split the label, stack count and duration into
                     // separate lines. Read the duration from the boost summary,
                     // rather than requiring the label in the same OCR span.
-                    const auto x=(line.pixels.x+line.pixels.width/2-panel.x)/panel.width;
-                    const auto y=(line.pixels.y+line.pixels.height/2-panel.y)/panel.height;
-                    if (x>.5 && y>.4 && y<.55) {
+                    const auto x=line.pixels.x+line.pixels.width/2,y=line.pixels.y+line.pixels.height/2;
+                    if (x>summary.x && x<summary.br().x && y>summary.y && y<summary.br().y) {
                         const auto duration=timer(line.text);
                         if (duration && *duration>=std::chrono::minutes(15) && *duration<=std::chrono::hours(1)) result->boost_duration=duration;
                     }
